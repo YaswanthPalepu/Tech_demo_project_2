@@ -22,6 +22,7 @@ jobs:
       actions: read
       checks: write
     env:
+      # Azure OpenAI config
       AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION }}
@@ -31,11 +32,16 @@ jobs:
       - name: Checkout pipeline repo
         uses: actions/checkout@v4
 
+      - name: Resolve target repository URL
+        id: target
+        run: |
+          REPO_URL="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
+          echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
+
       - name: Clone target repository
         run: |
-          REPO_URL="${{ github.event.inputs.repo_url || 'https://github.com/pallets/flask.git' }}"
-          echo "Cloning $REPO_URL"
-          git clone "$REPO_URL" target-repo
+          echo "Cloning ${{ steps.target.outputs.repo_url }}"
+          git clone "${{ steps.target.outputs.repo_url }}" target-repo
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -70,15 +76,18 @@ jobs:
             python -m pip install . || true
           fi
 
-      - name: Generate tests (Python, unit+integration+e2e) (only if not skipped)
+      # We only want generation here; don't let failures here block pipeline 2.
+      - name: "Generate tests (Python: unit + integration + e2e)"
         if: steps.gen_cache.outputs.cache-hit != 'true'
+        continue-on-error: true
         run: |
           set -e
+          # min-coverage=0 to avoid failing here; coverage enforced later
           python src/orchestrator.py \
             --target target-repo \
             --use-ai true \
-            --min-coverage 60 \
-            --max-files 50
+            --min-coverage 0 \
+            --max-files 50 || true
 
       - name: Mark cache HIT
         if: steps.gen_cache.outputs.cache-hit != 'true'
@@ -86,14 +95,25 @@ jobs:
           mkdir -p gen-cache
           echo "generated" > gen-cache/HIT
 
-      - name: Upload generated tests
-        if: always()
+      - name: Write meta (repo URL used)
+        run: |
+          mkdir -p gen-meta
+          echo "${{ steps.target.outputs.repo_url }}" > gen-meta/repo_url.txt
+
+      - name: Upload generated tests artifact
         uses: actions/upload-artifact@v4
         with:
           name: generated-tests
           path: |
             target-repo/tests/generated/**
           if-no-files-found: warn
+
+      - name: Upload meta artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gen-meta
+          path: gen-meta/**
+          if-no-files-found: error
 
       - name: Job summary
         run: |
@@ -102,4 +122,5 @@ jobs:
             echo "- Skipped: tests already generated for this snapshot ✅" >> $GITHUB_STEP_SUMMARY
           else
             echo "- Generated unit/integration/e2e tests ✨" >> $GITHUB_STEP_SUMMARY
+            echo "- Artifacts: generated-tests, gen-meta" >> $GITHUB_STEP_SUMMARY
           fi

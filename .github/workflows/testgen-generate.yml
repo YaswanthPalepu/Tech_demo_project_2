@@ -1,0 +1,105 @@
+name: AI-TestGen — Generate Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  workflow_dispatch:
+    inputs:
+      repo_url:
+        description: "Repository URL to generate tests for"
+        required: true
+        default: "https://github.com/pallets/flask.git"
+
+concurrency:
+  group: testgen-generate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+      checks: write
+    env:
+      AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+      AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+      AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION }}
+      AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+
+    steps:
+      - name: Checkout pipeline repo
+        uses: actions/checkout@v4
+
+      - name: Clone target repository
+        run: |
+          REPO_URL="${{ github.event.inputs.repo_url || 'https://github.com/pallets/flask.git' }}"
+          echo "Cloning $REPO_URL"
+          git clone "$REPO_URL" target-repo
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pipeline deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Restore generation cache (skip if already generated for this snapshot)
+        id: gen_cache
+        uses: actions/cache@v4
+        with:
+          path: gen-cache
+          key: ai-testgen-${{ hashFiles('target-repo/**', '!target-repo/tests/generated/**', '!.git/**') }}
+
+      - name: Skip if cache hit
+        if: steps.gen_cache.outputs.cache-hit == 'true'
+        run: echo "✅ Tests already generated for this source snapshot (cache hit). Skipping."
+
+      - name: Install target deps (only if not skipped)
+        if: steps.gen_cache.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          cd target-repo
+          if [ -f "requirements.txt" ]; then
+            python -m pip install -r requirements.txt || true
+          fi
+          if [ -f "pyproject.toml" ]; then
+            python -m pip install . || true
+          fi
+
+      - name: Generate tests (Python, unit+integration+e2e) (only if not skipped)
+        if: steps.gen_cache.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          python src/orchestrator.py \
+            --target target-repo \
+            --use-ai true \
+            --min-coverage 60 \
+            --max-files 50
+
+      - name: Mark cache HIT
+        if: steps.gen_cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p gen-cache
+          echo "generated" > gen-cache/HIT
+
+      - name: Upload generated tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-tests
+          path: |
+            target-repo/tests/generated/**
+          if-no-files-found: warn
+
+      - name: Job summary
+        run: |
+          echo "## Test Generation" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.gen_cache.outputs.cache-hit }}" = "true" ]; then
+            echo "- Skipped: tests already generated for this snapshot ✅" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- Generated unit/integration/e2e tests ✨" >> $GITHUB_STEP_SUMMARY
+          fi

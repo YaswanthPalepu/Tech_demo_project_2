@@ -9,7 +9,11 @@ on:
       repo_url:
         description: "Repository URL to run tests for (manual override)"
         required: true
+<<<<<<< HEAD
         default: "https://github.com/DeviPrasad372002/django-test-app.git"
+=======
+        default: "https://github.com/pallets/flask.git"
+>>>>>>> c808094 (new commit)
 
 concurrency:
   group: anypy-run-${{ github.ref }}

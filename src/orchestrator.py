@@ -27,6 +27,10 @@ def main():
     analysis = summarize_repo(py_files)
 
     out_dir = repo / "tests" / "generated"
+<<<<<<< HEAD
+=======
+    out_dir.mkdir(parents=True, exist_ok=True)
+>>>>>>> c808094 (new commit)
     created = generate_pytests(repo, analysis["files"], out_dir)
 
     artifacts = Path("artifacts")

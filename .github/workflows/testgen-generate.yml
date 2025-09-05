@@ -10,6 +10,8 @@ on:
         required: true
         default: "https://github.com/DeviPrasad372002/django-test-app.git"
 
+
+
 concurrency:
   group: anypy-generate-${{ github.ref }}
   cancel-in-progress: true
@@ -33,7 +35,11 @@ jobs:
       - name: Resolve target repository URL
         id: target
         run: |
+<<<<<<< HEAD
           echo "repo_url=${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}" >> "$GITHUB_OUTPUT"
+=======
+          echo "repo_url=${{ github.event.inputs.repo_url || 'https://github.com/pallets/flask.git' }}" >> "$GITHUB_OUTPUT"
+>>>>>>> c808094 (new commit)
 
       - name: Clone target repository
         run: git clone "${{ steps.target.outputs.repo_url }}" target-repo

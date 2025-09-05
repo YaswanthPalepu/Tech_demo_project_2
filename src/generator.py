@@ -278,6 +278,10 @@ def test_argparse_main_help(monkeypatch):
 """.lstrip()
 
 def _ensure_django_conftest(out_root: Path, settings_module: Optional[str]):
+<<<<<<< HEAD
+=======
+    out_root.mkdir(parents=True, exist_ok=True)
+>>>>>>> c808094 (new commit)
     p = out_root / "conftest.py"
     if p.exists(): return
     content = f'''{HEADER}import os, django

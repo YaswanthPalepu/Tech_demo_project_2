@@ -8,7 +8,7 @@ on:
       repo_url:
         description: "Repository URL to generate tests for"
         required: true
-        default: "https://github.com/pallets/flask.git"
+        default: "https://github.com/DeviPrasad372002/django-test-app.git"
 
 concurrency:
   group: testgen-generate-${{ github.ref }}
@@ -24,8 +24,8 @@ jobs:
     env:
       AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
-      AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION }}
-      AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+      AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION }}
+      AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
 
     steps:
       - name: Checkout pipeline repo

@@ -10,7 +10,7 @@ on:
       repo_url:
         description: "Repository URL to run tests for"
         required: true
-        default: "https://github.com/pallets/flask.git"
+        default: "https://github.com/DeviPrasad372002/django-test-app.git"
 
 concurrency:
   group: testgen-run-${{ github.ref }}

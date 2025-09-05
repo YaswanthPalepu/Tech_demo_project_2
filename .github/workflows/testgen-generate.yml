@@ -1,0 +1,102 @@
+name: AI-TestGen — Generate Tests (AnyPy)
+
+on:
+  push:
+    branches: [ main, develop ]
+  workflow_dispatch:
+    inputs:
+      repo_url:
+        description: "Repository URL to generate tests for"
+        required: true
+        default: "https://github.com/pallets/flask.git"
+
+concurrency:
+  group: anypy-generate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+      checks: write
+    env:
+      AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+      AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+      AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION }}
+      AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve target repository URL
+        id: target
+        run: |
+          echo "repo_url=${{ github.event.inputs.repo_url || 'https://github.com/pallets/flask.git' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Clone target repository
+        run: git clone "${{ steps.target.outputs.repo_url }}" target-repo
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pipeline deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Restore generation cache
+        id: gen_cache
+        uses: actions/cache@v4
+        with:
+          path: gen-cache
+          key: anypy-${{ hashFiles('target-repo/**', '!target-repo/tests/generated/**', '!.git/**') }}
+
+      - name: Skip if cache hit
+        if: steps.gen_cache.outputs.cache-hit == 'true'
+        run: echo "✅ Already generated for this snapshot."
+
+      - name: Install target deps (only if not skipped)
+        if: steps.gen_cache.outputs.cache-hit != 'true'
+        run: |
+          cd target-repo
+          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt || true; fi
+          if [ -f pyproject.toml ]; then python -m pip install . || true; fi
+
+      - name: Generate tests (any Python framework)
+        if: steps.gen_cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: |
+          python src/orchestrator.py \
+            --target target-repo \
+            --use-ai true \
+            --min-coverage 0 \
+            --max-files 80 \
+            --only-generated true || true
+
+      - name: Mark cache HIT
+        if: steps.gen_cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p gen-cache && echo "generated" > gen-cache/HIT
+
+      - name: Save repo_url meta
+        run: |
+          mkdir -p gen-meta
+          echo "${{ steps.target.outputs.repo_url }}" > gen-meta/repo_url.txt
+
+      - name: Upload generated tests
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-tests
+          path: target-repo/tests/generated/**
+          if-no-files-found: warn
+
+      - name: Upload meta
+        uses: actions/upload-artifact@v4
+        with:
+          name: gen-meta
+          path: gen-meta/**
+          if-no-files-found: error

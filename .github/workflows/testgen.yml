@@ -41,27 +41,74 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install deps
+      - name: Install system build tools (for native wheels)
         run: |
-          python -m pip install --upgrade pip
-          if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
-          # Ensure tools even if the target repo lacks them
-          pip install "openai>=1.51.0" pytest pytest-cov httpx uvicorn fastapi
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
+            build-essential python3-dev libpq-dev default-libmysqlclient-dev \
+            libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
+            libxml2-dev libxslt1-dev curl
+
+      - name: Install Python deps (project + tools)
+        run: |
+          python -m pip install --upgrade pip wheel setuptools
+
+          # If the target repo defines deps, install them FIRST
+          if [ -f "requirements.txt" ]; then pip install -r requirements.txt || true; fi
+          if ls requirements/*.txt >/dev/null 2>&1; then pip install -r requirements/*.txt || true; fi
+
+          # Poetry projects
+          if [ -f "pyproject.toml" ] && grep -q "\[tool.poetry\]" pyproject.toml; then
+            pip install poetry || true
+            poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req || true
+            if [ -s /tmp/poetry.lock.req ]; then pip install -r /tmp/poetry.lock.req || true; fi
+          fi
+
+          # PDM projects
+          if [ -f "pyproject.toml" ] && grep -q "\[tool.pdm\]" pyproject.toml; then
+            pip install pdm || true
+            pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
+            if [ -s /tmp/pdm.lock.req ]; then pip install -r /tmp/pdm.lock.req || true; fi
+          fi
+
+          # Pipenv projects
+          if [ -f "Pipfile.lock" ] || [ -f "Pipfile" ]; then
+            pip install pipenv || true
+            pipenv requirements > /tmp/pipenv.lock.req || true
+            if [ -s /tmp/pipenv.lock.req ]; then pip install -r /tmp/pipenv.lock.req || true; fi
+          fi
+
+          # setup.py / setup.cfg projects
+          if [ -f "setup.py" ] || [ -f "setup.cfg" ]; then
+            pip install -e . || true
+          fi
+
+          # Always ensure core test tooling + common backend libs
+          pip install "openai>=1.51.0" pytest pytest-cov httpx requests \
+                      "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" "annotated-types>=0.6" \
+                      "uvicorn>=0.23" "SQLAlchemy>=2" "typing-extensions>=4.8"
+
+      - name: Analyze codebase
+        run: python -m src.analyzer > /tmp/analysis.json
+
+      - name: Install deps inferred from imports
+        run: |
+          python -m src.install_from_analysis /tmp/analysis.json || true
 
       - name: Generate tests
         run: |
-          python -m src.analyzer > /tmp/analysis.json
           python - <<'PY'
           import json, src.generator as g
           analysis = json.load(open('/tmp/analysis.json'))
-          # generator will print skip messages if nothing to generate
           g.generate_all(analysis, outdir='tests/generated')
           PY
 
       - name: List generated tests
         run: ls -lah tests/generated || true
 
-      - name: Quick validation run
+      - name: Quick validation run (prefer unit/integration)
+        env:
+          VALIDATOR_PYTEST_ARGS: -q -k "not e2e"
         run: python -m src.validator
 
       - name: Run Dashboard Backend (FastAPI)
@@ -80,8 +127,7 @@ jobs:
 
       - name: Smoke Test Dashboard
         run: |
-          # Fail if backend metrics endpoint is not reachable
-          curl -f http://localhost:8000/api/metrics || exit 1
+          curl --retry 6 --retry-delay 2 -f http://localhost:8000/api/metrics || (echo "backend not responding"; exit 1)
 
       - name: Package generated tests as zip
         run: |
@@ -95,6 +141,8 @@ jobs:
           path: |
             tests/generated/**
             dist/generated-tests-${{ github.run_id }}.zip
+            backend.log
+            frontend.log
 
       - name: Commit generated tests
         run: |

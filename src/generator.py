@@ -1,6 +1,8 @@
 import os, json, pathlib, datetime, time, random, re, ast
 from typing import Dict, Any, List
 from openai import AzureOpenAI
+from openai import BadRequestError  # add this next to RateLimitError
+
 from openai import RateLimitError  # openai>=1.0.0
 
 # ---------------- Tunables via env (safe defaults) ----------------
@@ -185,6 +187,29 @@ def _header_guard_for_banned_imports(code: str) -> str:
         ) + code
     return code
 
+def _chat_completion_create(client: AzureOpenAI, deployment: str, messages: list):
+    """
+    Create a chat completion while being compatible with Azure variants that
+    expect different token parameter names.
+    Tries: max_tokens -> max_completion_tokens -> max_output_tokens.
+    """
+    common = dict(model=deployment, messages=messages, temperature=0.1, n=1)
+    last_err = None
+    for token_param in ("max_tokens", "max_completion_tokens", "max_output_tokens"):
+        try:
+            return client.chat.completions.create(**common, **{token_param: MAX_TOKENS})
+        except BadRequestError as e:
+            # If it's complaining about an unsupported/unknown parameter, try the next one
+            msg = getattr(e, "message", "") or str(e)
+            if "Unsupported parameter" in msg or "unknown parameter" in msg or "unsupported_parameter" in msg:
+                last_err = e
+                continue
+            # Different bad request (prompt too long, etc.) -> re-raise
+            raise
+    # None of the parameter names worked
+    if last_err:
+        raise last_err
+
 # ---------------- LLM call ----------------
 def _gen(prompt: str) -> str:
     global _last_call
@@ -194,19 +219,16 @@ def _gen(prompt: str) -> str:
     for attempt in range(OAI_MAX_RETRIES):
         try:
             _ensure_min_interval()
-            resp = client.chat.completions.create(
-                model=deployment,
-                messages=[{"role": "system", "content": SYSTEM},
-                          {"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=MAX_TOKENS,
-                n=1,
+            resp = _chat_completion_create(
+                client,
+                deployment,
+                [{"role": "system", "content": SYSTEM},
+                 {"role": "user", "content": prompt}],
             )
             _last_call = time.time()
             raw = resp.choices[0].message.content or ""
             cleaned = _extract_python_only(raw)
             code = _compile_or_placeholder(cleaned)
-            # Harden output
             code = _skip_brittle_test_functions(code)
             code = _header_guard_for_banned_imports(code)
             return code
@@ -214,7 +236,12 @@ def _gen(prompt: str) -> str:
             sleep_s = _sleep_from_headers(e, attempt)
             print(f"[429] attempt {attempt+1}/{OAI_MAX_RETRIES}; sleeping {sleep_s:.1f}s")
             time.sleep(sleep_s)
+        except BadRequestError as e:
+            # If we get here, it wasn't due to the token param name (handled in helper),
+            # so surface the error with context.
+            raise
     raise RuntimeError(f"Azure OpenAI rate-limited after {OAI_MAX_RETRIES} attempts: {last_err}")
+
 
 # ---------------- Analysis compaction ----------------
 def _dedupe_keep(items: List[Dict[str, str]], key: str, limit: int) -> List[Dict[str, str]]:

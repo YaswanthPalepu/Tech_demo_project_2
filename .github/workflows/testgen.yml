@@ -6,7 +6,7 @@ on:
       repo_url:
         description: 'Repo to analyze'
         required: true
-        default: 'https://github.com/OWNER/REPO.git'
+        default: 'https://github.com/DeviPrasad372002/django-test-app.git'
   push:
     branches: [ main ]
 
@@ -27,7 +27,7 @@ jobs:
 
       - name: Clone target repository
         run: |
-          git clone "${{ github.event.inputs.repo_url || 'https://github.com/OWNER/REPO.git' }}" target
+          git clone "${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}" target
           rsync -a target/ ./
 
       - name: Setup Python

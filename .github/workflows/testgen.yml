@@ -1,3 +1,4 @@
+# .github/workflows/testgen.yml
 name: AI Test Generation
 
 on:
@@ -38,7 +39,9 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
+          # Ensure OpenAI SDK is present for AzureOpenAI()
+          pip install "openai>=1.0.0"
 
       - name: Generate tests
         run: |

@@ -6,7 +6,7 @@ on:
       repo_url:
         description: "Repo to analyze"
         required: true
-        default: "https://github.com/DeviPrasad372002/django-test-app.git"
+        default: "https://github.com/DeviPrasad372002/Shopping_app.git"
   push:
     branches: [ main ]
 
@@ -31,7 +31,7 @@ jobs:
 
       - name: Clone target repository (without .git)
         run: |
-          REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
+          REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/Shopping_app.git' }}"
           git clone --depth 1 "$REPO" target
           # Copy everything EXCEPT the .git dir (keep our authenticated remote)
           rsync -a --exclude ".git" target/ ./

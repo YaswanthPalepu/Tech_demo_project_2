@@ -425,6 +425,16 @@ def _universal_bootstrap(compact: Dict[str, Any]) -> str:
     tops = sorted(set(tops))
     tops_lit = repr(tops)
 
+    # Common Python2 → Python3 aliases we’ll alias (not stub) if needed
+    py2_alias_map = {
+        "ConfigParser": "configparser",
+        "Queue": "queue",
+        "StringIO": "io",
+        "cStringIO": "io",
+        "urllib2": "urllib.request",
+    }
+    py2_alias_map_lit = repr(py2_alias_map)
+
     return f'''# --- UNIVERSAL BOOTSTRAP (generated) ---
 import os, sys, importlib.util as _iu, types as _types, pytest as _pytest
 
@@ -469,13 +479,34 @@ try:
 except Exception:
     pass
 
+# Handle Python2→Python3 alias modules by aliasing if the Py3 name exists
+_PY2_ALIASES = {py2_alias_map_lit}
+for _old, _new in list(_PY2_ALIASES.items()):
+    if _old in sys.modules:
+        continue
+    try:
+        __import__(_new)
+        sys.modules[_old] = sys.modules[_new]
+    except Exception:
+        pass
+
+# Helper: safe find_spec that never raises
+def _safe_find_spec(name):
+    try:
+        return _iu.find_spec(name)
+    except Exception:
+        return None
+
 # Stub any missing third-party tops so imports don't explode during collection
 _THIRD_PARTY_TOPS = {tops_lit}
 for _name in list(_THIRD_PARTY_TOPS):
     _top = (_name or "").split(".")[0]
     if not _top:
         continue
-    if _iu.find_spec(_top) is None and _top not in sys.modules:
+    if _top in sys.modules:
+        continue
+    _spec = _safe_find_spec(_top)
+    if _spec is None:
         _m = _types.ModuleType(_top)
         # minimal helpful stubs for a few common libs
         if _top == "sqlalchemy" and not hasattr(_m, "create_engine"):

@@ -7,6 +7,10 @@ on:
         description: "Repo to analyze"
         required: true
         default: "https://github.com/DeviPrasad372002/Shopping_app.git"
+      force_gen:
+        description: "Force generation even if no code changes detected"
+        required: false
+        default: "false"
   push:
     branches: [ main ]
 
@@ -119,13 +123,24 @@ jobs:
               print(0)
           PY
           )
+          FOUND_TESTS=$(find "${OUTDIR}" -type f -name 'test_*.py' | wc -c | tr -d ' ')
+          FORCE="${{ github.event.inputs.force_gen }}"
+
           echo "CHANGED_COUNT=$CHANGED_COUNT" >> $GITHUB_ENV
-          if [ "$CHANGED_COUNT" = "0" ]; then
-            echo "SKIP_GEN=1" >> $GITHUB_ENV
-            echo "No changed Python files — skipping generation."
-          else
+          echo "FOUND_TESTS=$FOUND_TESTS" >> $GITHUB_ENV
+
+          if [ "${FORCE}" = "true" ]; then
+            echo "Forcing generation due to manual input."
             echo "SKIP_GEN=0" >> $GITHUB_ENV
+          elif [ "$CHANGED_COUNT" = "0" ] && [ "$FOUND_TESTS" = "0" ]; then
+            echo "First run (no manifest tests yet) — forcing initial generation."
+            echo "SKIP_GEN=0" >> $GITHUB_ENV
+          elif [ "$CHANGED_COUNT" = "0" ]; then
+            echo "No changed Python files — skipping generation."
+            echo "SKIP_GEN=1" >> $GITHUB_ENV
+          else
             echo "Changed Python files: $CHANGED_COUNT — will generate."
+            echo "SKIP_GEN=0" >> $GITHUB_ENV
           fi
 
       - name: Install deps inferred from imports
@@ -143,7 +158,7 @@ jobs:
           import os, json, src.generator as g
           analysis = json.load(open('/tmp/analysis.json'))
           outdir = os.environ['OUTDIR']
-          changed = json.load(open('/tmp/changed.json'))
+          changed = json.load(open('/tmp/changed.json')) if os.path.exists('/tmp/changed.json') else []
           g.generate_all(analysis, outdir=outdir, focus_files=changed)
           PY
 
@@ -152,7 +167,7 @@ jobs:
           echo "Listing ${OUTDIR}"
           ls -lah "${OUTDIR}" || true
           echo "Preview .py files:"
-          find "${OUTDIR}" -type f -name 'test_*.py' -maxdepth 2 | sed 's/^/ - /' || true
+          find "${OUTDIR}" -type f -name 'test_*.py' | sed 's/^/ - /' || true
           if [ -f /tmp/generated-files.json ]; then
             echo "New files:"; cat /tmp/generated-files.json
           fi
@@ -163,6 +178,7 @@ jobs:
           zip -r "dist/tests-${REPO_SLUG}.zip" "${OUTDIR}" || true
 
       # Immediate artifact so you can download right away (raw .py + zip + context)
+      # NOTE: we include both the computed outdir AND a broad fallback in case a custom path was used.
       - name: Upload tests (raw .py + zip + context)
         uses: actions/upload-artifact@v4
         with:
@@ -170,6 +186,7 @@ jobs:
           if-no-files-found: warn
           path: |
             ${{ steps.paths.outputs.outdir }}/**/*.py
+            tests/generated/**/*.py
             dist/tests-${{ steps.paths.outputs.repo_slug }}.zip
             /tmp/analysis.json
             /tmp/changed.json

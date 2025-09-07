@@ -16,11 +16,13 @@ jobs:
     permissions:
       contents: write
     env:
+      # Azure OpenAI creds (fallback to alternative names if you used them)
       AZURE_OPENAI_KEY:         ${{ secrets.AZURE_OPENAI_KEY         || secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT    || secrets.AZURE_OPENAI_API_ENDPOINT }}
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION || secrets.OPENAI_API_VERSION }}
       AZURE_OPENAI_DEPLOYMENT:  ${{ secrets.AZURE_OPENAI_DEPLOYMENT  || secrets.OPENAI_DEPLOYMENT }}
 
+      # Safe DB defaults for projects that import at module load
       DATABASE_URL: "sqlite:///:memory:"
       DB_URL: "sqlite:///:memory:"
       SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
@@ -37,14 +39,19 @@ jobs:
           REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/Shopping_app.git' }}"
           echo "REPO_URL=$REPO" >> $GITHUB_ENV
           git clone --depth 1 "$REPO" target
+          # Copy everything EXCEPT the .git dir (keep our authenticated remote)
           rsync -a --exclude ".git" target/ ./
 
       - name: Derive canonical OUTDIR (single folder per repo)
+        id: paths
         run: |
           REPO_SLUG="$(echo "${REPO_URL}" | sed -E 's#^https?://github.com/##; s#[^A-Za-z0-9._-]#_#g')"
           OUTDIR="tests/generated/${REPO_SLUG}/current"
           echo "REPO_SLUG=$REPO_SLUG" >> $GITHUB_ENV
           echo "OUTDIR=$OUTDIR"       >> $GITHUB_ENV
+          # also expose as step outputs (expressions evaluate before $GITHUB_ENV)
+          echo "repo_slug=$REPO_SLUG" >> $GITHUB_OUTPUT
+          echo "outdir=$OUTDIR"       >> $GITHUB_OUTPUT
           mkdir -p "$OUTDIR"
 
       - name: Setup Python
@@ -63,26 +70,32 @@ jobs:
       - name: Install Python deps (project + tools)
         run: |
           python -m pip install --upgrade pip wheel setuptools
+          # If the target repo defines deps, install them FIRST
           if [ -f "requirements.txt" ]; then pip install -r requirements.txt || true; fi
           if ls requirements/*.txt >/dev/null 2>&1; then pip install -r requirements/*.txt || true; fi
+          # Poetry projects
           if [ -f "pyproject.toml" ] && grep -q "\[tool.poetry\]" pyproject.toml; then
             pip install poetry || true
             poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req || true
             if [ -s /tmp/poetry.lock.req ]; then pip install -r /tmp/poetry.lock.req || true; fi
           fi
+          # PDM projects
           if [ -f "pyproject.toml" ] && grep -q "\[tool.pdm\]" pyproject.toml; then
             pip install pdm || true
             pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
             if [ -s /tmp/pdm.lock.req ]; then pip install -r /tmp/pdm.lock.req || true; fi
           fi
+          # Pipenv projects
           if [ -f "Pipfile.lock" ] || [ -f "Pipfile" ]; then
             pip install pipenv || true
             pipenv requirements > /tmp/pipenv.lock.req || true
             if [ -s /tmp/pipenv.lock.req ]; then pip install -r /tmp/pipenv.lock.req || true; fi
           fi
+          # setup.py / setup.cfg projects
           if [ -f "setup.py" ] || [ -f "setup.cfg" ]; then
             pip install -e . || true
           fi
+          # Core test tooling + common backend libs
           pip install "openai>=1.51.0" pytest pytest-cov httpx requests \
                       "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" "annotated-types>=0.6" \
                       "uvicorn>=0.23" "SQLAlchemy>=2" "typing-extensions>=4.8"
@@ -115,6 +128,10 @@ jobs:
             echo "Changed Python files: $CHANGED_COUNT — will generate."
           fi
 
+      - name: Install deps inferred from imports
+        run: |
+          python -m src.install_from_analysis /tmp/analysis.json || true
+
       - name: Generate tests (only for changed files) — append into OUTDIR
         if: env.SKIP_GEN == '0'
         env:
@@ -134,17 +151,26 @@ jobs:
         run: |
           echo "Listing ${OUTDIR}"
           ls -lah "${OUTDIR}" || true
+          echo "Preview .py files:"
+          find "${OUTDIR}" -type f -name 'test_*.py' -maxdepth 2 | sed 's/^/ - /' || true
           if [ -f /tmp/generated-files.json ]; then
             echo "New files:"; cat /tmp/generated-files.json
           fi
 
-      # Immediate artifact so you can download right away (even if skipped)
-      - name: Upload artifact (current folder)
+      - name: Package test files as zip
+        run: |
+          mkdir -p dist
+          zip -r "dist/tests-${REPO_SLUG}.zip" "${OUTDIR}" || true
+
+      # Immediate artifact so you can download right away (raw .py + zip + context)
+      - name: Upload tests (raw .py + zip + context)
         uses: actions/upload-artifact@v4
         with:
-          name: tests-${{ env.REPO_SLUG }}-current
+          name: tests-${{ steps.paths.outputs.repo_slug }}-current
+          if-no-files-found: warn
           path: |
-            ${{ env.OUTDIR }}/**
+            ${{ steps.paths.outputs.outdir }}/**/*.py
+            dist/tests-${{ steps.paths.outputs.repo_slug }}.zip
             /tmp/analysis.json
             /tmp/changed.json
             /tmp/code-hashes.json
@@ -153,7 +179,7 @@ jobs:
       - name: Quick validation run (prefer unit/integration)
         env:
           VALIDATOR_PYTEST_ARGS: -q -k "not e2e"
-          VALIDATOR_TARGET_PATH: ${{ env.OUTDIR }}
+          VALIDATOR_TARGET_PATH: ${{ steps.paths.outputs.outdir }}
         run: python -m src.validator
 
       - name: Commit generated tests (append-only; retains previous)

@@ -51,8 +51,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
-          # Ensure OpenAI SDK is present for AzureOpenAI()
-          pip install "openai>=1.0.0"
+          # Ensure required tools even if the target repo lacks them
+          pip install "openai>=1.0.0" pytest pytest-cov
+
 
       - name: Generate tests
         run: |

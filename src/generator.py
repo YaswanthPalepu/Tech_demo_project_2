@@ -1,5 +1,6 @@
+# src/generator.py
 import os, sys, json, pathlib, datetime, time, re, ast, math, subprocess, importlib.util, types as _types
-from typing import Dict, Any, List, Tuple, Set
+from typing import Dict, Any, List, Tuple, Set, Optional
 from openai import AzureOpenAI, RateLimitError, BadRequestError  # openai>=1.0.0
 
 # ---------------- System & Templates ----------------
@@ -103,7 +104,6 @@ def _deployment_name() -> str:
     return _get_any_env("AZURE_OPENAI_DEPLOYMENT", "OPENAI_DEPLOYMENT")
 
 def _chat_completion_create(client: AzureOpenAI, deployment: str, messages: list):
-    # Azure-friendly defaults: no temperature/n, no token caps
     return client.chat.completions.create(model=deployment, messages=messages)
 
 # ---------------- Sanitizers & validators ----------------
@@ -414,9 +414,20 @@ def _guess_app_module_name(compact: Dict[str, Any]) -> str:
             continue
     return "main"
 
+# ---------------- Filtering analysis by changed files ----------------
+def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Set[str]]) -> Dict[str, Any]:
+    if not focus_files:
+        return analysis
+    def keep(it): return it.get("file") in focus_files
+    return {
+        "functions": [d for d in analysis.get("functions", []) if keep(d)],
+        "classes":   [d for d in analysis.get("classes",   []) if keep(d)],
+        "routes":    [d for d in analysis.get("routes",    []) if keep(d)],
+        "modules":   analysis.get("modules", []),
+    }
+
 # ---------------- Universal bootstrap (always prepended to tests) ----------------
 def _universal_bootstrap(compact: Dict[str, Any]) -> str:
-    # collect third-party tops for potential stubbing
     tops: List[str] = []
     for m in compact.get("modules") or []:
         top = (m.split(".")[0] or "").strip()
@@ -425,7 +436,6 @@ def _universal_bootstrap(compact: Dict[str, Any]) -> str:
     tops = sorted(set(tops))
     tops_lit = repr(tops)
 
-    # Common Python2 → Python3 aliases we’ll alias (not stub) if needed
     py2_alias_map = {
         "ConfigParser": "configparser",
         "Queue": "queue",
@@ -438,13 +448,11 @@ def _universal_bootstrap(compact: Dict[str, Any]) -> str:
     return f'''# --- UNIVERSAL BOOTSTRAP (generated) ---
 import os, sys, importlib.util as _iu, types as _types, pytest as _pytest
 
-# Safe DB defaults for frameworks that read URLs at import-time
 for _k in ("DATABASE_URL","DB_URL","SQLALCHEMY_DATABASE_URI"):
     _v = os.environ.get(_k)
     if not _v or "://" not in str(_v):
         os.environ[_k] = "sqlite:///:memory:"
 
-# Configure minimal Django if present but not configured
 try:
     if _iu.find_spec("django") is not None:
         import django
@@ -461,7 +469,6 @@ try:
 except Exception:
     pass
 
-# Make SQLAlchemy create_engine resilient (fallback to SQLite on bad URL)
 try:
     if _iu.find_spec("sqlalchemy") is not None:
         import sqlalchemy as _s_sa
@@ -479,7 +486,6 @@ try:
 except Exception:
     pass
 
-# Handle Python2→Python3 alias modules by aliasing if the Py3 name exists
 _PY2_ALIASES = {py2_alias_map_lit}
 for _old, _new in list(_PY2_ALIASES.items()):
     if _old in sys.modules:
@@ -490,14 +496,12 @@ for _old, _new in list(_PY2_ALIASES.items()):
     except Exception:
         pass
 
-# Helper: safe find_spec that never raises
 def _safe_find_spec(name):
     try:
         return _iu.find_spec(name)
     except Exception:
         return None
 
-# Stub any missing third-party tops so imports don't explode during collection
 _THIRD_PARTY_TOPS = {tops_lit}
 for _name in list(_THIRD_PARTY_TOPS):
     _top = (_name or "").split(".")[0]
@@ -508,7 +512,6 @@ for _name in list(_THIRD_PARTY_TOPS):
     _spec = _safe_find_spec(_top)
     if _spec is None:
         _m = _types.ModuleType(_top)
-        # minimal helpful stubs for a few common libs
         if _top == "sqlalchemy" and not hasattr(_m, "create_engine"):
             def create_engine(url, *a, **k): return object()
             _m.create_engine = create_engine
@@ -516,39 +519,77 @@ for _name in list(_THIRD_PARTY_TOPS):
 # --- /UNIVERSAL BOOTSTRAP ---
 '''
 
-# ---------------- Runtime guard (deps present check + bootstrap) ----------------
 def _runtime_guard_for(compact: Dict[str, Any]) -> str:
     critical = {"fastapi", "flask", "django", "sqlalchemy", "starlette", "pydantic"}
     mods = {m.split(".")[0].lower() for m in (compact.get("modules") or [])}
     needed = sorted(critical & mods)
-
     checks = ""
     if needed:
         checks = "\n".join(
             [f"if importlib.util.find_spec('{m}') is None:\n    pytest.skip('{m} not installed; skipping module', allow_module_level=True)"
              for m in needed]
         ) + "\n"
-
     bootstrap = _universal_bootstrap(compact)
-
-    return (
-        "import importlib.util, pytest\n"
-        + checks + "\n"
-        + bootstrap + "\n"
-    )
+    return ("import importlib.util, pytest\n" + checks + "\n" + bootstrap + "\n")
 
 # ---------------- Main generation ----------------
 def write(path: pathlib.Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
-def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
+def _load_list(path: Optional[str]) -> Optional[List[str]]:
+    if not path:
+        return None
+    p = pathlib.Path(path)
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return [str(x) for x in data]
+    except Exception:
+        return None
+    return None
+
+def _update_manifest(outdir: pathlib.Path, created_files: List[str]):
+    manifest_path = outdir / "_manifest.json"
+    manifest = {}
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            manifest = {}
+
+    # Update hashes if provided
+    hashes_path = os.getenv("CODE_HASHES_PATH")
+    if hashes_path and pathlib.Path(hashes_path).exists():
+        try:
+            cur_hashes = json.loads(pathlib.Path(hashes_path).read_text(encoding="utf-8"))
+            manifest["source_hashes"] = cur_hashes
+        except Exception:
+            pass
+
+    runs = manifest.get("runs", [])
+    runs.append({
+        "ts": datetime.datetime.utcnow().isoformat() + "Z",
+        "files_generated": created_files,
+        "focus_files": _load_list(os.getenv("FOCUS_FILES_JSON_PATH")) or [],
+    })
+    manifest["runs"] = runs
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files: Optional[List[str]] = None):
     out = pathlib.Path(outdir)
     ts = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
-    compact = _compact_analysis(analysis)
+    # Optional focus files (changed files only)
+    focus_set = set(focus_files or _load_list(os.getenv("FOCUS_FILES_JSON_PATH")) or [])
+    if focus_set:
+        analysis = _filter_analysis_by_files(analysis, focus_set)
 
     # Install inferred third-party deps BEFORE generating tests
+    compact = _compact_analysis(analysis)
     _pip_install(_infer_required_packages(compact))
 
     compact_json = json.dumps(compact, separators=(",",":"))
@@ -558,6 +599,8 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
     app_module = _guess_app_module_name(compact) if fastapi_present else None
 
     guard = _runtime_guard_for(compact)
+
+    created_files: List[str] = []
 
     for kind in kinds:
         files_per_kind = _auto_files_per_kind(compact, kind)
@@ -575,7 +618,9 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
             if kind == "unit":
                 prompt = UNIT_TEMPLATE.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
                 code = _gen_validated(prompt)
-                write(out / f"test_unit_{ts}_{i+1:02d}.py", guard + code)
+                path = out / f"test_unit_{ts}_{i+1:02d}.py"
+                write(path, guard + code)
+                created_files.append(str(path))
 
             elif kind == "integ":
                 if fastapi_present:
@@ -584,7 +629,9 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
                 else:
                     prompt = INTEG_GENERIC.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
                 code = _gen_validated(prompt)
-                write(out / f"test_integ_{ts}_{i+1:02d}.py", guard + code)
+                path = out / f"test_integ_{ts}_{i+1:02d}.py"
+                write(path, guard + code)
+                created_files.append(str(path))
 
             elif kind == "e2e":
                 if fastapi_present:
@@ -593,7 +640,20 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
                 else:
                     prompt = E2E_GENERIC.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
                 code = _gen_validated(prompt)
-                write(out / f"test_e2e_{ts}_{i+1:02d}.py", guard + code)
+                path = out / f"test_e2e_{ts}_{i+1:02d}.py"
+                write(path, guard + code)
+                created_files.append(str(path))
+
+    # Write generated list if requested
+    out_list = os.getenv("GENERATED_LIST_PATH")
+    if out_list:
+        try:
+            pathlib.Path(out_list).write_text(json.dumps(created_files, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    # Update manifest (source_hashes + run info)
+    _update_manifest(out, created_files)
 
 if __name__ == "__main__":
     import analyzer

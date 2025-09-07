@@ -16,11 +16,14 @@ jobs:
     permissions:
       contents: write
     env:
-      # Azure OpenAI creds (fallback to alternative names if you used them)
       AZURE_OPENAI_KEY:         ${{ secrets.AZURE_OPENAI_KEY         || secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT    || secrets.AZURE_OPENAI_API_ENDPOINT }}
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION || secrets.OPENAI_API_VERSION }}
       AZURE_OPENAI_DEPLOYMENT:  ${{ secrets.AZURE_OPENAI_DEPLOYMENT  || secrets.OPENAI_DEPLOYMENT }}
+
+      DATABASE_URL: "sqlite:///:memory:"
+      DB_URL: "sqlite:///:memory:"
+      SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
 
     steps:
       - name: Checkout pipeline repo
@@ -32,9 +35,17 @@ jobs:
       - name: Clone target repository (without .git)
         run: |
           REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/Shopping_app.git' }}"
+          echo "REPO_URL=$REPO" >> $GITHUB_ENV
           git clone --depth 1 "$REPO" target
-          # Copy everything EXCEPT the .git dir (keep our authenticated remote)
           rsync -a --exclude ".git" target/ ./
+
+      - name: Derive canonical OUTDIR (single folder per repo)
+        run: |
+          REPO_SLUG="$(echo "${REPO_URL}" | sed -E 's#^https?://github.com/##; s#[^A-Za-z0-9._-]#_#g')"
+          OUTDIR="tests/generated/${REPO_SLUG}/current"
+          echo "REPO_SLUG=$REPO_SLUG" >> $GITHUB_ENV
+          echo "OUTDIR=$OUTDIR"       >> $GITHUB_ENV
+          mkdir -p "$OUTDIR"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -52,38 +63,26 @@ jobs:
       - name: Install Python deps (project + tools)
         run: |
           python -m pip install --upgrade pip wheel setuptools
-
-          # If the target repo defines deps, install them FIRST
           if [ -f "requirements.txt" ]; then pip install -r requirements.txt || true; fi
           if ls requirements/*.txt >/dev/null 2>&1; then pip install -r requirements/*.txt || true; fi
-
-          # Poetry projects
           if [ -f "pyproject.toml" ] && grep -q "\[tool.poetry\]" pyproject.toml; then
             pip install poetry || true
             poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req || true
             if [ -s /tmp/poetry.lock.req ]; then pip install -r /tmp/poetry.lock.req || true; fi
           fi
-
-          # PDM projects
           if [ -f "pyproject.toml" ] && grep -q "\[tool.pdm\]" pyproject.toml; then
             pip install pdm || true
             pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
             if [ -s /tmp/pdm.lock.req ]; then pip install -r /tmp/pdm.lock.req || true; fi
           fi
-
-          # Pipenv projects
           if [ -f "Pipfile.lock" ] || [ -f "Pipfile" ]; then
             pip install pipenv || true
             pipenv requirements > /tmp/pipenv.lock.req || true
             if [ -s /tmp/pipenv.lock.req ]; then pip install -r /tmp/pipenv.lock.req || true; fi
           fi
-
-          # setup.py / setup.cfg projects
           if [ -f "setup.py" ] || [ -f "setup.cfg" ]; then
             pip install -e . || true
           fi
-
-          # Always ensure core test tooling + common backend libs
           pip install "openai>=1.51.0" pytest pytest-cov httpx requests \
                       "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" "annotated-types>=0.6" \
                       "uvicorn>=0.23" "SQLAlchemy>=2" "typing-extensions>=4.8"
@@ -91,63 +90,76 @@ jobs:
       - name: Analyze codebase
         run: python -m src.analyzer > /tmp/analysis.json
 
-      - name: Install deps inferred from imports
+      - name: Diff scan (compute changed .py files vs manifest)
         run: |
-          python -m src.install_from_analysis /tmp/analysis.json || true
+          python -m src.diffscan --root . \
+            --manifest "${OUTDIR}/_manifest.json" \
+            --out-changed /tmp/changed.json \
+            --out-hashes  /tmp/code-hashes.json
 
-      - name: Generate tests
+          CHANGED_COUNT=$(python - <<'PY'
+          import json
+          try:
+              arr = json.load(open('/tmp/changed.json'))
+              print(len(arr))
+          except Exception:
+              print(0)
+          PY
+          )
+          echo "CHANGED_COUNT=$CHANGED_COUNT" >> $GITHUB_ENV
+          if [ "$CHANGED_COUNT" = "0" ]; then
+            echo "SKIP_GEN=1" >> $GITHUB_ENV
+            echo "No changed Python files — skipping generation."
+          else
+            echo "SKIP_GEN=0" >> $GITHUB_ENV
+            echo "Changed Python files: $CHANGED_COUNT — will generate."
+          fi
+
+      - name: Generate tests (only for changed files) — append into OUTDIR
+        if: env.SKIP_GEN == '0'
+        env:
+          FOCUS_FILES_JSON_PATH: /tmp/changed.json
+          CODE_HASHES_PATH: /tmp/code-hashes.json
+          GENERATED_LIST_PATH: /tmp/generated-files.json
         run: |
           python - <<'PY'
-          import json, src.generator as g
+          import os, json, src.generator as g
           analysis = json.load(open('/tmp/analysis.json'))
-          g.generate_all(analysis, outdir='tests/generated')
+          outdir = os.environ['OUTDIR']
+          changed = json.load(open('/tmp/changed.json'))
+          g.generate_all(analysis, outdir=outdir, focus_files=changed)
           PY
 
-      - name: List generated tests
-        run: ls -lah tests/generated || true
+      - name: List generated tests (current folder)
+        run: |
+          echo "Listing ${OUTDIR}"
+          ls -lah "${OUTDIR}" || true
+          if [ -f /tmp/generated-files.json ]; then
+            echo "New files:"; cat /tmp/generated-files.json
+          fi
+
+      # Immediate artifact so you can download right away (even if skipped)
+      - name: Upload artifact (current folder)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-${{ env.REPO_SLUG }}-current
+          path: |
+            ${{ env.OUTDIR }}/**
+            /tmp/analysis.json
+            /tmp/changed.json
+            /tmp/code-hashes.json
+            /tmp/generated-files.json
 
       - name: Quick validation run (prefer unit/integration)
         env:
           VALIDATOR_PYTEST_ARGS: -q -k "not e2e"
+          VALIDATOR_TARGET_PATH: ${{ env.OUTDIR }}
         run: python -m src.validator
 
-      - name: Run Dashboard Backend (FastAPI)
-        run: |
-          nohup uvicorn dashboard_api:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
-          echo "Backend running on http://localhost:8000"
-
-      - name: Run Dashboard Frontend
-        run: |
-          if [ -d "dashboard_frontend" ]; then
-            nohup python -m http.server 3000 --directory dashboard_frontend > frontend.log 2>&1 &
-            echo "Frontend running on http://localhost:3000"
-          else
-            echo "No dashboard_frontend directory found, skipping frontend."
-          fi
-
-      - name: Smoke Test Dashboard
-        run: |
-          curl --retry 6 --retry-delay 2 -f http://localhost:8000/api/metrics || (echo "backend not responding"; exit 1)
-
-      - name: Package generated tests as zip
-        run: |
-          mkdir -p dist
-          zip -r "dist/generated-tests-${{ github.run_id }}.zip" tests/generated /tmp/analysis.json || true
-
-      - name: Upload generated tests artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-tests-${{ github.run_id }}
-          path: |
-            tests/generated/**
-            dist/generated-tests-${{ github.run_id }}.zip
-            backend.log
-            frontend.log
-
-      - name: Commit generated tests
+      - name: Commit generated tests (append-only; retains previous)
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add tests/generated || true
-          git commit -m "chore: auto-generate tests [skip ci]" || echo "no changes"
+          git add "${OUTDIR}" || true
+          git commit -m "chore: append tests for changed files in ${REPO_URL} [skip ci]" || echo "no changes"
           git push

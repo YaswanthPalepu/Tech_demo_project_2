@@ -3,7 +3,7 @@ name: Validate & Scan
 
 on:
   workflow_run:
-    workflows: ["AI Test Generation"]     # must match the 'name:' of the other workflow
+    workflows: ["AI Test Generation"]     
     types: [completed]
 
 jobs:

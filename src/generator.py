@@ -1,4 +1,4 @@
-import os, sys, json, pathlib, datetime, time, re, ast, math, subprocess, importlib.util
+import os, sys, json, pathlib, datetime, time, re, ast, math, subprocess, importlib.util, types as _types
 from typing import Dict, Any, List, Tuple, Set
 from openai import AzureOpenAI, RateLimitError, BadRequestError  # openai>=1.0.0
 
@@ -10,8 +10,9 @@ Hard rules:
 - Never import private/underscored modules (e.g., _pytest, pytest._code) or rely on internal APIs.
 - Never assert equality on repr() or values that include memory addresses.
 - Deterministic data only. No real network; mock I/O.
-- If uncertain about a specific function, test a different discovered function instead; DO NOT emit placeholders.
+- If uncertain about a specific function, choose a different discovered function and write real assertions; DO NOT emit placeholders.
 - Ensure the output contains at least ONE function whose name starts with test_.
+- Import target modules INSIDE each test (lazy import), not at module import time.
 """
 
 UNIT_TEMPLATE = """Shard {shard}/{total} • Focus targets: {focus}
@@ -22,6 +23,7 @@ Write UNIT tests (aim 4–8 tests). Return ONLY Python code, no backticks.
 Constraints:
 - Do NOT import private modules or use pytest internals; do NOT assert on repr().
 - Output MUST contain at least one test function named test_*.
+- Import the module(s) you test INSIDE the test body (lazy import).
 Guidelines:
 - Target public functions/classes from the listed focus targets when possible; assert exact outputs / exceptions.
 - Use pytest; no external I/O; use tmp_path for files when needed.
@@ -35,6 +37,7 @@ Write INTEGRATION tests (aim 3–6 tests) WITHOUT assuming any web framework.
 Constraints:
 - No private modules; no repr-based assertions.
 - Output MUST contain at least one test function named test_*.
+- Import the module(s) you test INSIDE the test body (lazy import).
 Guidelines:
 - Identify seams with I/O (filesystem, db clients, HTTP calls); mock with monkeypatch.
 - If a CLI entrypoint (click/typer) exists among focus targets, you may test it via runner; else mock I/O seams.
@@ -51,6 +54,7 @@ Write E2E tests (aim 2–4 tests) for a black-box workflow across multiple funct
 Constraints:
 - No private modules; no repr-based assertions.
 - Output MUST contain at least one test function named test_*.
+- Import the module(s) you test INSIDE the test body (lazy import).
 Return ONLY Python code, no backticks.
 """
 
@@ -63,6 +67,7 @@ Constraints:
 - Use: from fastapi.testclient import TestClient
 - Build TestClient(app) from the project’s FastAPI app object; assert status codes and JSON shapes.
 - Output MUST contain at least one test function named test_*.
+- Import the app INSIDE the test body (lazy import).
 Return ONLY Python code, no backticks.
 """
 
@@ -73,7 +78,9 @@ Analysis JSON (compacted):
 Write E2E tests (aim 2–4 tests) for FastAPI using TestClient.
 - Chain a minimal workflow across endpoints (e.g., POST -> GET -> PUT/DELETE) with deterministic payloads.
 - Assert status codes and response JSON keys/values.
+Constraints:
 - Output MUST contain at least one test function named test_*.
+- Import the app INSIDE the test body (lazy import).
 Return ONLY Python code, no backticks.
 """
 
@@ -96,7 +103,7 @@ def _deployment_name() -> str:
     return _get_any_env("AZURE_OPENAI_DEPLOYMENT", "OPENAI_DEPLOYMENT")
 
 def _chat_completion_create(client: AzureOpenAI, deployment: str, messages: list):
-    # No temperature/n, no token limits → Azure-friendly defaults
+    # Azure-friendly defaults: no temperature/n, no token caps
     return client.chat.completions.create(model=deployment, messages=messages)
 
 # ---------------- Sanitizers & validators ----------------
@@ -213,7 +220,7 @@ def _gen_validated(prompt: str, attempts_per_file: int = 3, backoff_seq=(3, 7, 1
 
         messages.append({
             "role": "user",
-            "content": f"Previous attempt invalid: {reason}. Regenerate STRICT Python tests with at least one test_ function, no markdown, no prose."
+            "content": f"Previous attempt invalid: {reason}. Regenerate STRICT Python tests with at least one test_ function, no markdown, no prose. Import inside tests only."
         })
 
     raise RuntimeError(f"Test generation failed after {attempts_per_file} attempts (last reason: {reason}).")
@@ -247,7 +254,6 @@ def _compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 # ---------------- Dependency inference & installation ----------------
-# Map common import names to their PyPI package names.
 COMMON_PKG_ALIASES = {
     "bs4": "beautifulsoup4",
     "yaml": "PyYAML",
@@ -277,16 +283,14 @@ COMMON_PKG_ALIASES = {
     "orjson": "orjson",
     "pymongo": "pymongo",
     "redis": "redis",
-    "pytest": "pytest",  # already present but harmless if requested
+    "pytest": "pytest",
 }
 
 def _is_stdlib(name: str) -> bool:
     try:
-        import sys
         stdmods = getattr(sys, "stdlib_module_names", None)
         if stdmods:
             return name in stdmods
-        # fallback heuristic
         return name in {
             "os","sys","re","json","pathlib","math","itertools","functools","typing","subprocess",
             "datetime","time","collections","dataclasses","ast","logging","unittest","argparse",
@@ -298,14 +302,11 @@ def _is_stdlib(name: str) -> bool:
         return False
 
 def _is_local_import(top: str) -> bool:
-    """Treat a top-level import as local if a matching file/dir exists in the repo."""
     p = pathlib.Path(top)
     if p.exists():
         return True
-    # also check package-like path
     if pathlib.Path(top.replace(".", "/")).exists():
         return True
-    # also check <top>.py at root or under src/ or backend/ (common layouts)
     for base in (pathlib.Path("."), pathlib.Path("src"), pathlib.Path("backend"), pathlib.Path("app")):
         if (base / f"{top}.py").exists() or (base / top).is_dir():
             return True
@@ -318,23 +319,22 @@ def _infer_required_packages(compact: Dict[str, Any]) -> List[str]:
         top = (m.split(".")[0] or "").strip()
         if not top or _is_stdlib(top) or _is_local_import(top):
             continue
-        # Map alias → package
         pkg = COMMON_PKG_ALIASES.get(top, top)
         needed.add(pkg)
-    # Always align compatible versions for common stacks if present in imports
-    # (no explicit versions here; CI can pin if needed)
+    lowers = {p.lower() for p in needed}
+    if "fastapi" in lowers:
+        needed.update({"starlette", "pydantic"})
     return sorted(needed)
 
 def _pip_install(packages: List[str]) -> None:
     if not packages:
         print("📦 No third-party packages inferred from imports.")
         return
-    print("📦 Installing missing packages:", ", ".join(packages))
+    print("📦 Installing packages from analysis:", ", ".join(packages))
     try:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-input", *packages])
     except subprocess.CalledProcessError as e:
-        # Don't hard fail immediately—some packages may be optional
-        print(f"⚠️ pip install returned non-zero exit code ({e.returncode}). Tests may skip if imports are missing.")
+        print(f"⚠️ pip install failed with exit code {e.returncode} (continuing; tests may skip).")
 
 # ---------------- Sharding helpers ----------------
 def _partition(lst: List[Dict[str, str]], n_parts: int) -> List[List[Dict[str, str]]]:
@@ -347,11 +347,6 @@ def _partition(lst: List[Dict[str, str]], n_parts: int) -> List[List[Dict[str, s
     return groups
 
 def _auto_files_per_kind(compact: Dict[str, Any], kind: str) -> int:
-    """
-    Decide how many files to generate for a kind, based on project size.
-    Unit: functions+classes; Integ/E2E: routes else functions/classes.
-    Returns 3..12 files adaptively.
-    """
     if kind == "unit":
         n = len(compact.get("functions", [])) + len(compact.get("classes", []))
     else:
@@ -409,7 +404,6 @@ def _guess_app_module_name(compact: Dict[str, Any]) -> str:
                 file_candidates.add(f)
     if not file_candidates:
         file_candidates = {str(p) for p in pathlib.Path(".").rglob("*.py")}
-
     for f in file_candidates:
         try:
             p = pathlib.Path(f)
@@ -420,18 +414,97 @@ def _guess_app_module_name(compact: Dict[str, Any]) -> str:
             continue
     return "main"
 
-# ---------------- Runtime guard ----------------
+# ---------------- Universal bootstrap (always prepended to tests) ----------------
+def _universal_bootstrap(compact: Dict[str, Any]) -> str:
+    # collect third-party tops for potential stubbing
+    tops: List[str] = []
+    for m in compact.get("modules") or []:
+        top = (m.split(".")[0] or "").strip()
+        if top and not _is_stdlib(top) and not _is_local_import(top):
+            tops.append(top)
+    tops = sorted(set(tops))
+    tops_lit = repr(tops)
+
+    return f'''# --- UNIVERSAL BOOTSTRAP (generated) ---
+import os, sys, importlib.util as _iu, types as _types, pytest as _pytest
+
+# Safe DB defaults for frameworks that read URLs at import-time
+for _k in ("DATABASE_URL","DB_URL","SQLALCHEMY_DATABASE_URI"):
+    _v = os.environ.get(_k)
+    if not _v or "://" not in str(_v):
+        os.environ[_k] = "sqlite:///:memory:"
+
+# Configure minimal Django if present but not configured
+try:
+    if _iu.find_spec("django") is not None:
+        import django
+        from django.conf import settings as _dj_settings
+        if not _dj_settings.configured:
+            _dj_settings.configure(
+                SECRET_KEY="test",
+                DEBUG=True,
+                ALLOWED_HOSTS=["*"],
+                INSTALLED_APPS=[],
+                DATABASES={{"default": {{"ENGINE":"django.db.backends.sqlite3","NAME":":memory:"}}}},
+            )
+            django.setup()
+except Exception:
+    pass
+
+# Make SQLAlchemy create_engine resilient (fallback to SQLite on bad URL)
+try:
+    if _iu.find_spec("sqlalchemy") is not None:
+        import sqlalchemy as _s_sa
+        from sqlalchemy.exc import ArgumentError as _s_ArgErr
+        _s_orig_create_engine = _s_sa.create_engine
+        def _s_safe_create_engine(url, *args, **kwargs):
+            try_url = url
+            try:
+                if not isinstance(try_url, str) or "://" not in try_url:
+                    try_url = os.environ.get("DATABASE_URL") or os.environ.get("DB_URL") or os.environ.get("SQLALCHEMY_DATABASE_URI") or "sqlite:///:memory:"
+                return _s_orig_create_engine(try_url, *args, **kwargs)
+            except _s_ArgErr:
+                return _s_orig_create_engine("sqlite:///:memory:", *args, **kwargs)
+        _s_sa.create_engine = _s_safe_create_engine
+except Exception:
+    pass
+
+# Stub any missing third-party tops so imports don't explode during collection
+_THIRD_PARTY_TOPS = {tops_lit}
+for _name in list(_THIRD_PARTY_TOPS):
+    _top = (_name or "").split(".")[0]
+    if not _top:
+        continue
+    if _iu.find_spec(_top) is None and _top not in sys.modules:
+        _m = _types.ModuleType(_top)
+        # minimal helpful stubs for a few common libs
+        if _top == "sqlalchemy" and not hasattr(_m, "create_engine"):
+            def create_engine(url, *a, **k): return object()
+            _m.create_engine = create_engine
+        sys.modules[_top] = _m
+# --- /UNIVERSAL BOOTSTRAP ---
+'''
+
+# ---------------- Runtime guard (deps present check + bootstrap) ----------------
 def _runtime_guard_for(compact: Dict[str, Any]) -> str:
     critical = {"fastapi", "flask", "django", "sqlalchemy", "starlette", "pydantic"}
     mods = {m.split(".")[0].lower() for m in (compact.get("modules") or [])}
     needed = sorted(critical & mods)
-    if not needed:
-        return ""
-    checks = "\n".join(
-        [f"if _iu.find_spec('{m}') is None:\n    _pytest.skip('{m} not installed; skipping module', allow_module_level=True)"
-         for m in needed]
+
+    checks = ""
+    if needed:
+        checks = "\n".join(
+            [f"if importlib.util.find_spec('{m}') is None:\n    pytest.skip('{m} not installed; skipping module', allow_module_level=True)"
+             for m in needed]
+        ) + "\n"
+
+    bootstrap = _universal_bootstrap(compact)
+
+    return (
+        "import importlib.util, pytest\n"
+        + checks + "\n"
+        + bootstrap + "\n"
     )
-    return "import importlib.util as _iu, pytest as _pytest\n" + checks + "\n\n"
 
 # ---------------- Main generation ----------------
 def write(path: pathlib.Path, content: str):
@@ -444,9 +517,8 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
 
     compact = _compact_analysis(analysis)
 
-    # NEW: infer and install third-party dependencies BEFORE generating tests
-    pkgs = _infer_required_packages(compact)
-    _pip_install(pkgs)
+    # Install inferred third-party deps BEFORE generating tests
+    _pip_install(_infer_required_packages(compact))
 
     compact_json = json.dumps(compact, separators=(",",":"))
     kinds = ["unit", "integ", "e2e"]
@@ -477,7 +549,7 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
             elif kind == "integ":
                 if fastapi_present:
                     prompt = INTEG_FASTAPI.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
-                    prompt += f"\n\nIMPORTANT: Import the FastAPI app from '{app_module}' and use TestClient({app_module}.app)."
+                    prompt += f"\n\nIMPORTANT: Import the FastAPI app from '{app_module}' and use TestClient({app_module}.app), but import INSIDE the test."
                 else:
                     prompt = INTEG_GENERIC.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
                 code = _gen_validated(prompt)
@@ -486,7 +558,7 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
             elif kind == "e2e":
                 if fastapi_present:
                     prompt = E2E_FASTAPI.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
-                    prompt += f"\n\nIMPORTANT: Import TestClient and use '{app_module}.app' if available."
+                    prompt += f"\n\nIMPORTANT: Use TestClient with '{app_module}.app', importing inside the test."
                 else:
                     prompt = E2E_GENERIC.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
                 code = _gen_validated(prompt)

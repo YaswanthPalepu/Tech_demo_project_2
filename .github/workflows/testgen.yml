@@ -46,7 +46,7 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
           # Ensure tools even if the target repo lacks them
-          pip install "openai>=1.51.0" pytest pytest-cov httpx
+          pip install "openai>=1.51.0" pytest pytest-cov httpx uvicorn fastapi
 
       - name: Generate tests
         run: |
@@ -54,6 +54,7 @@ jobs:
           python - <<'PY'
           import json, src.generator as g
           analysis = json.load(open('/tmp/analysis.json'))
+          # generator will print skip messages if nothing to generate
           g.generate_all(analysis, outdir='tests/generated')
           PY
 
@@ -62,6 +63,25 @@ jobs:
 
       - name: Quick validation run
         run: python -m src.validator
+
+      - name: Run Dashboard Backend (FastAPI)
+        run: |
+          nohup uvicorn dashboard_api:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
+          echo "Backend running on http://localhost:8000"
+
+      - name: Run Dashboard Frontend
+        run: |
+          if [ -d "dashboard_frontend" ]; then
+            nohup python -m http.server 3000 --directory dashboard_frontend > frontend.log 2>&1 &
+            echo "Frontend running on http://localhost:3000"
+          else
+            echo "No dashboard_frontend directory found, skipping frontend."
+          fi
+
+      - name: Smoke Test Dashboard
+        run: |
+          # Fail if backend metrics endpoint is not reachable
+          curl -f http://localhost:8000/api/metrics || exit 1
 
       - name: Package generated tests as zip
         run: |

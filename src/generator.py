@@ -288,10 +288,23 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
     compact = _compact_analysis(analysis)
     compact_json = json.dumps(compact, separators=(",",":"))
 
-    kinds = ["unit", "integ", "e2e"]  # fixed: generate all three kinds
+    kinds = ["unit", "integ", "e2e"]
+
+    fastapi_present = _has_fastapi_routes(compact)
+    app_module = _guess_app_module_name(compact) if fastapi_present else None
 
     for kind in kinds:
+        # decide how many files for this kind
         files_per_kind = _auto_files_per_kind(compact, kind)
+
+        # nothing to target? skip this kind
+        if kind == "unit" and not (compact.get("functions") or compact.get("classes")):
+            print(f"⚠️ No functions/classes found → skipping {kind} test generation")
+            continue
+        if kind in ("integ", "e2e") and not (compact.get("routes") or compact.get("functions") or compact.get("classes")):
+            print(f"⚠️ No routes or modules found → skipping {kind} test generation")
+            continue
+
         for i in range(files_per_kind):
             focus_label, _ = _focus_for_shard(compact, kind, i, files_per_kind)
 
@@ -301,17 +314,20 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
                 write(out / f"test_unit_{ts}_{i+1:02d}.py", code)
 
             elif kind == "integ":
-                prompt = INTEG_GENERIC.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
+                if fastapi_present:
+                    prompt = INTEG_FASTAPI.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
+                    prompt += f"\n\nIMPORTANT: The FastAPI app is in '{app_module}'. Import and use TestClient({app_module}.app)."
+                else:
+                    prompt = INTEG_GENERIC.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
                 code = _gen_validated(prompt)
                 write(out / f"test_integ_{ts}_{i+1:02d}.py", code)
 
             elif kind == "e2e":
-                prompt = E2E_GENERIC.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
+                if fastapi_present:
+                    prompt = E2E_FASTAPI.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
+                    prompt += f"\n\nIMPORTANT: Use TestClient from '{app_module}' if available."
+                else:
+                    prompt = E2E_GENERIC.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
                 code = _gen_validated(prompt)
                 write(out / f"test_e2e_{ts}_{i+1:02d}.py", code)
 
-if __name__ == "__main__":
-    import analyzer
-    analysis = analyzer.analyze_python_tree(pathlib.Path("."))
-    generate_all(analysis)
-    print("✅ Generated tests in tests/generated")

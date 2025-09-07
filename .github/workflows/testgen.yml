@@ -1,0 +1,61 @@
+name: AI Test Generation
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo_url:
+        description: 'Repo to analyze'
+        required: true
+        default: 'https://github.com/OWNER/REPO.git'
+  push:
+    branches: [ main ]
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+      AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+      AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION }}
+      AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+
+    steps:
+      - name: Checkout pipeline repo
+        uses: actions/checkout@v4
+
+      - name: Clone target repository
+        run: |
+          git clone "${{ github.event.inputs.repo_url || 'https://github.com/OWNER/REPO.git' }}" target
+          rsync -a target/ ./
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate tests
+        run: |
+          python -m src.analyzer > /tmp/analysis.json
+          python - <<'PY'
+          import json, src.generator as g
+          analysis = json.load(open('/tmp/analysis.json'))
+          g.generate_all(analysis, outdir='tests/generated')
+          PY
+
+      - name: Quick validation run
+        run: python -m src.validator
+
+      - name: Commit generated tests
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add tests/generated || true
+          git commit -m "chore: auto-generate tests [skip ci]" || echo "no changes"
+          git push

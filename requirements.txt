@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+requests
+pydantic
+pytest
+pytest-cov
+coverage
+httpx
+jinja2
+tree_sitter_python==0.21.0 ; python_version >= "3.9"
+python-dotenv

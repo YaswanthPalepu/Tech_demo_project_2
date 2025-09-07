@@ -1,31 +1,21 @@
 import os
 import json
-import time
 import argparse
-import logging
-import inspect
-import importlib.util
 import pathlib
-from typing import Optional, Union, Tuple, List, Dict
+from typing import Optional, Union, Dict
 
-# OpenAI (non-Azure) is not used; Azure-only. Keep a stub for test patching.
-OpenAI = None  # tests may patch this symbol
-
-# Optional Azure OpenAI support; used only if configured
 try:
     from openai import AzureOpenAI  # type: ignore
     AzureOpenAIClient = AzureOpenAI
 except Exception:
     AzureOpenAIClient = None
 
-logger = logging.getLogger(__name__)
-
 
 class TestGenerator:
     def __init__(
         self,
         use_ai: bool = False,
-        model: str = "prasad8792",
+        model: str = "gpt-4",
         provider: str = "azure",
         azure_endpoint: Optional[str] = None,
         azure_api_key: Optional[str] = None,
@@ -33,68 +23,55 @@ class TestGenerator:
         self.use_ai = use_ai
         self.model = model
         self.provider = (provider or "azure").lower()
-        self.api_key = (
-            azure_api_key
-            or os.getenv("AZURE_OPENAI_API_KEY")
-            or os.getenv("AZURE_OPENAI_KEY")
-        )
+        self.api_key = azure_api_key or os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_KEY")
         self.azure_endpoint = azure_endpoint or os.getenv("AZURE_OPENAI_ENDPOINT")
         self.azure_api_version = os.getenv("AZURE_OPENAI_API_VERSION")
-        try:
-            self.max_completion_tokens = int(
-                os.getenv("AZURE_OPENAI_MAX_COMPLETION_TOKENS", "2048")
-            )
-        except Exception:
-            self.max_completion_tokens = 2048
+        self.max_completion_tokens = int(os.getenv("AZURE_OPENAI_MAX_COMPLETION_TOKENS", "2048"))
         self.openai_client = None
+
         if self.use_ai and self.provider == "azure":
-            try:
-                if AzureOpenAIClient and self.api_key and self.azure_endpoint:
-                    kwargs = {"api_key": self.api_key, "azure_endpoint": self.azure_endpoint}
-                    if self.azure_api_version:
-                        kwargs["api_version"] = self.azure_api_version
-                    self.openai_client = AzureOpenAIClient(**kwargs)  # type: ignore
-            except Exception as e:
-                logger.warning(f"Failed to init AI client: {e}")
+            if AzureOpenAIClient and self.api_key and self.azure_endpoint:
+                kwargs = {"api_key": self.api_key, "azure_endpoint": self.azure_endpoint}
+                if self.azure_api_version:
+                    kwargs["api_version"] = self.azure_api_version
+                self.openai_client = AzureOpenAIClient(**kwargs)
 
-    # -------------------- generators --------------------
-    def generate_unit_tests(self, analysis: dict, code: Union[str, dict, None] = None, framework: str = "pytest") -> str:
-        return self._gen_from_ai("unit", analysis, code, framework)
+    # ---------------- AI-backed generators ----------------
+    def generate_unit_tests(self, analysis: dict, code: Union[str, dict, None] = None) -> str:
+        return self._gen_from_ai("unit", analysis, code)
 
-    def generate_integration_tests(self, analysis: dict, code: Union[str, dict, None] = None, framework: str = "pytest") -> str:
-        return self._gen_from_ai("integration", analysis, code, framework)
+    def generate_integration_tests(self, analysis: dict, code: Union[str, dict, None] = None) -> str:
+        return self._gen_from_ai("integration", analysis, code)
 
-    def generate_e2e_tests(self, analysis: dict, code: Union[str, dict, None] = None, framework: str = "pytest") -> str:
-        return self._gen_from_ai("e2e", analysis, code, framework)
+    def generate_e2e_tests(self, analysis: dict, code: Union[str, dict, None] = None) -> str:
+        return self._gen_from_ai("e2e", analysis, code)
 
-    def _gen_from_ai(self, kind: str, analysis: dict, code: Union[str, dict, None], framework: str) -> str:
-        """Shared AI call with validation."""
-        if not (self.use_ai and self.provider == "azure" and self.openai_client):
+    def _gen_from_ai(self, kind: str, analysis: dict, code: Union[str, dict, None]) -> str:
+        if not (self.use_ai and self.openai_client):
             return ""
         try:
             src_path = code.get("src_path") if isinstance(code, dict) else None
             code_content = code.get("content") if isinstance(code, dict) else None
-            prompt = self._build_prompt(kind, analysis, framework, code_content, src_path)
-            resp = self.openai_client.chat.completions.create(  # type: ignore
+            prompt = self._build_prompt(kind, analysis, code_content, src_path)
+            resp = self.openai_client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=self.max_completion_tokens,
             )
             out = (resp.choices[0].message.content or "").strip()
-            # Validate: must contain at least one test_ function
             if "def test_" not in out or "assert" not in out:
                 return ""
             return out
         except Exception:
             return ""
 
-    # -------------------- helpers --------------------
-    def _build_prompt(self, kind: str, analysis: dict, framework: str, code_content: Optional[str], src_path: Optional[str]) -> str:
+    # ---------------- prompt builder ----------------
+    def _build_prompt(self, kind: str, analysis: dict, code_content: Optional[str], src_path: Optional[str]) -> str:
         guidance = (
-            f"Generate {framework} {kind} tests for the following Python code.\n"
-            "- Ensure runnable pytest code with real assertions (not placeholders).\n"
-            "- Use importlib to import the module safely by path.\n"
-            "- Cover typical cases, edge cases, and exceptions.\n"
+            f"Generate pytest {kind} tests for the following Python code.\n"
+            "- Only output valid Python test code (no prose).\n"
+            "- Must include at least one `def test_...` with real assertions.\n"
+            "- Use importlib to import the module if src_path is provided.\n"
         )
         import_header = ""
         if src_path:
@@ -105,9 +82,10 @@ class TestGenerator:
                 "target_module = importlib.util.module_from_spec(_SPEC)\n"
                 "_SPEC.loader.exec_module(target_module)\n\n"
             )
-        return f"{guidance}\n{import_header}\n# Code:\n{(code_content or '')[:3000]}\n\n# Analysis:\n{json.dumps(analysis, indent=2)}"
+        return f"{guidance}\n{import_header}\n# Source code:\n{(code_content or '')[:3000]}\n\n# Analysis:\n{json.dumps(analysis, indent=2)}"
 
-# -------------------- smoke fallback --------------------
+
+# ---------------- fallback smoke test ----------------
 def smoke_test_content(src_path: str) -> str:
     return (
         "import importlib.util, pathlib\n"
@@ -119,24 +97,14 @@ def smoke_test_content(src_path: str) -> str:
         "    assert target_module is not None\n"
     )
 
-# -------------------- main --------------------
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--analysis", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--framework", default="pytest")
-    parser.add_argument("--test_type", default="all", choices=["unit", "integration", "e2e", "all"])
-    args = parser.parse_args()
 
-    with open(args.analysis, "r", encoding="utf-8") as f:
-        analysis_results = json.load(f)
-
+# ---------------- wrapper for pipeline ----------------
+def generate_all(analysis: dict, outdir: str = "tests/generated", test_type: str = "all"):
     gen = TestGenerator(use_ai=bool(os.getenv("AZURE_OPENAI_KEY")), model=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"))
+    pathlib.Path(outdir).mkdir(parents=True, exist_ok=True)
+    kinds = ["unit", "integration", "e2e"] if test_type == "all" else [test_type]
 
-    os.makedirs(args.output, exist_ok=True)
-    kinds = ["unit", "integration", "e2e"] if args.test_type == "all" else [args.test_type]
-
-    for name, meta in analysis_results.items():
+    for name, meta in analysis.items():
         if name == "__repo__" or not isinstance(meta, dict):
             continue
         base = os.path.splitext(os.path.basename(name))[0]
@@ -157,10 +125,23 @@ def main():
             if not code.strip():
                 print(f"[ai] empty output for {kind} on {name} → using smoke fallback")
                 code = smoke_test_content(name)
-            out = os.path.join(args.output, f"{base}{suffix}")
-            pathlib.Path(out).parent.mkdir(parents=True, exist_ok=True)
+            out = os.path.join(outdir, f"{base}{suffix}")
             pathlib.Path(out).write_text(code, encoding="utf-8")
             print(f"Generated {kind} -> {out}")
+
+
+# ---------------- CLI entrypoint ----------------
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--analysis", required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--test_type", default="all", choices=["unit", "integration", "e2e", "all"])
+    args = parser.parse_args()
+
+    with open(args.analysis, "r", encoding="utf-8") as f:
+        analysis_results = json.load(f)
+
+    generate_all(analysis_results, outdir=args.output, test_type=args.test_type)
 
 
 if __name__ == "__main__":

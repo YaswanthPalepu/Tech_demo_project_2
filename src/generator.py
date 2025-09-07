@@ -2,7 +2,8 @@ import os
 import json
 import argparse
 import pathlib
-from typing import Optional, Union, Dict
+import glob
+from typing import Optional, Union
 
 try:
     from openai import AzureOpenAI  # type: ignore
@@ -98,33 +99,46 @@ def smoke_test_content(src_path: str) -> str:
     )
 
 
-# ---------------- wrapper for pipeline ----------------
-def generate_all(analysis: dict, outdir: str = "tests/generated", test_type: str = "all"):
-    gen = TestGenerator(use_ai=bool(os.getenv("AZURE_OPENAI_KEY")), model=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"))
+# ---------------- main generator ----------------
+def generate_all(repo: str = ".", outdir: str = "tests/generated", test_type: str = "all"):
+    gen = TestGenerator(
+        use_ai=bool(os.getenv("AZURE_OPENAI_KEY")),
+        model=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
+    )
     pathlib.Path(outdir).mkdir(parents=True, exist_ok=True)
     kinds = ["unit", "integration", "e2e"] if test_type == "all" else [test_type]
 
-    for name, meta in analysis.items():
-        if name == "__repo__" or not isinstance(meta, dict):
-            continue
+    # 🔍 Find all .py files (excluding tests/ folders and __init__.py)
+    py_files = [
+        f for f in glob.glob(f"{repo}/**/*.py", recursive=True)
+        if "tests" not in f and not f.endswith("__init__.py")
+    ]
+
+    for name in py_files:
         base = os.path.splitext(os.path.basename(name))[0]
         try:
             file_content = pathlib.Path(name).read_text(encoding="utf-8", errors="ignore")
         except Exception:
             file_content = ""
+
+        # Minimal "fake" analysis since we’re not using analyzer
+        analysis = {"functions": [], "classes": [], "variables": [], "dependencies": []}
+
         for kind in kinds:
             if kind == "unit":
-                code = gen.generate_unit_tests(meta, {"src_path": name, "content": file_content})
+                code = gen.generate_unit_tests(analysis, {"src_path": name, "content": file_content})
                 suffix = ".unit.test.py"
             elif kind == "integration":
-                code = gen.generate_integration_tests(meta, {"src_path": name, "content": file_content})
+                code = gen.generate_integration_tests(analysis, {"src_path": name, "content": file_content})
                 suffix = ".integration.test.py"
             else:
-                code = gen.generate_e2e_tests(meta, {"src_path": name, "content": file_content})
+                code = gen.generate_e2e_tests(analysis, {"src_path": name, "content": file_content})
                 suffix = ".e2e.test.py"
+
             if not code.strip():
                 print(f"[ai] empty output for {kind} on {name} → using smoke fallback")
                 code = smoke_test_content(name)
+
             out = os.path.join(outdir, f"{base}{suffix}")
             pathlib.Path(out).write_text(code, encoding="utf-8")
             print(f"Generated {kind} -> {out}")
@@ -133,15 +147,12 @@ def generate_all(analysis: dict, outdir: str = "tests/generated", test_type: str
 # ---------------- CLI entrypoint ----------------
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--analysis", required=True)
-    parser.add_argument("--output", required=True)
+    parser.add_argument("--repo", default=".", help="Path to the repo to scan")
+    parser.add_argument("--output", default="tests/generated", help="Output directory for tests")
     parser.add_argument("--test_type", default="all", choices=["unit", "integration", "e2e", "all"])
     args = parser.parse_args()
 
-    with open(args.analysis, "r", encoding="utf-8") as f:
-        analysis_results = json.load(f)
-
-    generate_all(analysis_results, outdir=args.output, test_type=args.test_type)
+    generate_all(repo=args.repo, outdir=args.output, test_type=args.test_type)
 
 
 if __name__ == "__main__":

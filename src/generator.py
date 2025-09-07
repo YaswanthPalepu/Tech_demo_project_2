@@ -2,7 +2,6 @@ import os
 import json
 import argparse
 import pathlib
-import glob
 from typing import Optional, Union
 
 try:
@@ -108,11 +107,13 @@ def generate_all(repo: str = ".", outdir: str = "tests/generated", test_type: st
     pathlib.Path(outdir).mkdir(parents=True, exist_ok=True)
     kinds = ["unit", "integration", "e2e"] if test_type == "all" else [test_type]
 
-    # 🔍 Find all .py files (excluding tests/ folders and __init__.py)
-    py_files = [
-        f for f in glob.glob(f"{repo}/**/*.py", recursive=True)
-        if "tests" not in f and not f.endswith("__init__.py")
-    ]
+    # Safely walk the repo and collect Python files
+    py_files = []
+    for root, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in ("tests", "__pycache__")]
+        for fn in files:
+            if fn.endswith(".py") and fn != "__init__.py":
+                py_files.append(os.path.join(root, fn))
 
     for name in py_files:
         base = os.path.splitext(os.path.basename(name))[0]
@@ -121,7 +122,7 @@ def generate_all(repo: str = ".", outdir: str = "tests/generated", test_type: st
         except Exception:
             file_content = ""
 
-        # Minimal "fake" analysis since we’re not using analyzer
+        # Minimal "fake" analysis
         analysis = {"functions": [], "classes": [], "variables": [], "dependencies": []}
 
         for kind in kinds:
@@ -147,7 +148,7 @@ def generate_all(repo: str = ".", outdir: str = "tests/generated", test_type: st
 # ---------------- CLI entrypoint ----------------
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repo", default=".", help="Path to the repo to scan")
+    parser.add_argument("--repo", default=".", help="Path to the target repository")
     parser.add_argument("--output", default="tests/generated", help="Output directory for tests")
     parser.add_argument("--test_type", default="all", choices=["unit", "integration", "e2e", "all"])
     args = parser.parse_args()

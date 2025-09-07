@@ -286,6 +286,20 @@ COMMON_PKG_ALIASES = {
     "pytest": "pytest",
 }
 
+# strong filtering for pip-installable names
+VALID_PIP_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+DENY_TOPS = {
+    "__future__", "__main__", "__builtin__", "builtins",
+    # common stdlib always-deny (caught earlier but explicit is fine)
+    "typing", "types", "dataclasses", "importlib", "asyncio", "json", "re", "os", "sys", "pathlib",
+    "logging", "argparse", "functools", "itertools", "collections", "subprocess", "datetime", "time",
+    "math", "decimal", "fractions", "statistics", "sqlite3", "http", "urllib", "hmac", "hashlib",
+    "base64", "csv", "glob", "shutil", "tempfile", "inspect", "traceback", "enum", "textwrap",
+    "pprint", "string",
+    # Py2 aliases that sometimes appear
+    "ConfigParser", "Queue", "HTMLParser", "StringIO",
+}
+
 def _is_stdlib(name: str) -> bool:
     try:
         stdmods = getattr(sys, "stdlib_module_names", None)
@@ -302,12 +316,19 @@ def _is_stdlib(name: str) -> bool:
         return False
 
 def _is_local_import(top: str) -> bool:
-    p = pathlib.Path(top)
-    if p.exists():
+    # honor TARGET_ROOT if set
+    roots: List[pathlib.Path] = []
+    env_root = os.environ.get("TARGET_ROOT")
+    if env_root:
+        roots.append(pathlib.Path(env_root))
+    roots.extend([
+        pathlib.Path("."), pathlib.Path("src"), pathlib.Path("backend"),
+        pathlib.Path("app"), pathlib.Path("target"),
+    ])
+    # direct file/dir check
+    if pathlib.Path(top).exists() or pathlib.Path(top.replace(".", "/")).exists():
         return True
-    if pathlib.Path(top.replace(".", "/")).exists():
-        return True
-    for base in (pathlib.Path("."), pathlib.Path("src"), pathlib.Path("backend"), pathlib.Path("app")):
+    for base in roots:
         if (base / f"{top}.py").exists() or (base / top).is_dir():
             return True
     return False
@@ -317,7 +338,17 @@ def _infer_required_packages(compact: Dict[str, Any]) -> List[str]:
     needed: Set[str] = set()
     for m in mods:
         top = (m.split(".")[0] or "").strip()
-        if not top or _is_stdlib(top) or _is_local_import(top):
+        if not top:
+            continue
+        if top in DENY_TOPS:
+            continue
+        if top.startswith("_") or "__" in top:
+            continue
+        if any(c.isupper() for c in top):
+            continue
+        if not VALID_PIP_RE.match(top):
+            continue
+        if _is_stdlib(top) or _is_local_import(top):
             continue
         pkg = COMMON_PKG_ALIASES.get(top, top)
         needed.add(pkg)
@@ -448,11 +479,18 @@ def _universal_bootstrap(compact: Dict[str, Any]) -> str:
     return f'''# --- UNIVERSAL BOOTSTRAP (generated) ---
 import os, sys, importlib.util as _iu, types as _types, pytest as _pytest
 
+# Ensure target root is importable for test imports
+_target = os.environ.get("TARGET_ROOT") or os.environ.get("ANALYZE_ROOT") or "target"
+if _target and _target not in sys.path:
+    sys.path.insert(0, _target)
+
+# Safe DB defaults for frameworks that read URLs at import-time
 for _k in ("DATABASE_URL","DB_URL","SQLALCHEMY_DATABASE_URI"):
     _v = os.environ.get(_k)
     if not _v or "://" not in str(_v):
         os.environ[_k] = "sqlite:///:memory:"
 
+# Minimal Django configuration if present but not configured
 try:
     if _iu.find_spec("django") is not None:
         import django
@@ -469,6 +507,7 @@ try:
 except Exception:
     pass
 
+# Make SQLAlchemy create_engine resilient (fallback to SQLite on bad URL)
 try:
     if _iu.find_spec("sqlalchemy") is not None:
         import sqlalchemy as _s_sa
@@ -486,6 +525,7 @@ try:
 except Exception:
     pass
 
+# Map a few Python2 module names to their Py3 equivalents if imported
 _PY2_ALIASES = {py2_alias_map_lit}
 for _old, _new in list(_PY2_ALIASES.items()):
     if _old in sys.modules:
@@ -502,6 +542,7 @@ def _safe_find_spec(name):
     except Exception:
         return None
 
+# Stub any missing third-party tops so imports don't explode during collection
 _THIRD_PARTY_TOPS = {tops_lit}
 for _name in list(_THIRD_PARTY_TOPS):
     _top = (_name or "").split(".")[0]
@@ -512,6 +553,7 @@ for _name in list(_THIRD_PARTY_TOPS):
     _spec = _safe_find_spec(_top)
     if _spec is None:
         _m = _types.ModuleType(_top)
+        # minimal helpful stubs
         if _top == "sqlalchemy" and not hasattr(_m, "create_engine"):
             def create_engine(url, *a, **k): return object()
             _m.create_engine = create_engine

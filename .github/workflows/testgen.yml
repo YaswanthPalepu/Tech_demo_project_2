@@ -6,7 +6,7 @@ on:
       repo_url:
         description: "Repo to analyze"
         required: true
-        default: "https://github.com/DeviPrasad372002/django-test-app.git"
+        default: "https://github.com/DeviPrasad372002/Shopping_app.git"
       force_gen:
         description: "Force generation even if no code changes detected"
         required: false
@@ -20,13 +20,12 @@ jobs:
     permissions:
       contents: write
     env:
-      # Azure OpenAI creds (fallback to alternative names if you used them)
       AZURE_OPENAI_KEY:         ${{ secrets.AZURE_OPENAI_KEY         || secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT    || secrets.AZURE_OPENAI_API_ENDPOINT }}
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION || secrets.OPENAI_API_VERSION }}
       AZURE_OPENAI_DEPLOYMENT:  ${{ secrets.AZURE_OPENAI_DEPLOYMENT  || secrets.OPENAI_DEPLOYMENT }}
 
-      # Safe DB defaults for projects that import at module load
+      # Safe DB defaults for import-time engines
       DATABASE_URL: "sqlite:///:memory:"
       DB_URL: "sqlite:///:memory:"
       SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
@@ -38,22 +37,20 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Clone target repository (without .git)
+      - name: Clone target repository (kept under ./target)
         run: |
-          REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
+          REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/Shopping_app.git' }}"
           echo "REPO_URL=$REPO" >> $GITHUB_ENV
           git clone --depth 1 "$REPO" target
-          # Copy everything EXCEPT the .git dir (keep our authenticated remote)
-          rsync -a --exclude ".git" target/ ./
 
-      - name: Derive canonical OUTDIR (single folder per repo)
+      - name: Derive canonical OUTDIR and TARGET_ROOT
         id: paths
         run: |
+          echo "TARGET_ROOT=target" >> $GITHUB_ENV
           REPO_SLUG="$(echo "${REPO_URL}" | sed -E 's#^https?://github.com/##; s#[^A-Za-z0-9._-]#_#g')"
           OUTDIR="tests/generated/${REPO_SLUG}/current"
           echo "REPO_SLUG=$REPO_SLUG" >> $GITHUB_ENV
           echo "OUTDIR=$OUTDIR"       >> $GITHUB_ENV
-          # also expose as step outputs (expressions evaluate before $GITHUB_ENV)
           echo "repo_slug=$REPO_SLUG" >> $GITHUB_OUTPUT
           echo "outdir=$OUTDIR"       >> $GITHUB_OUTPUT
           mkdir -p "$OUTDIR"
@@ -74,42 +71,38 @@ jobs:
       - name: Install Python deps (project + tools)
         run: |
           python -m pip install --upgrade pip wheel setuptools
-          # If the target repo defines deps, install them FIRST
-          if [ -f "requirements.txt" ]; then pip install -r requirements.txt || true; fi
-          if ls requirements/*.txt >/dev/null 2>&1; then pip install -r requirements/*.txt || true; fi
-          # Poetry projects
-          if [ -f "pyproject.toml" ] && grep -q "\[tool.poetry\]" pyproject.toml; then
+          # Try installing target's dependencies FIRST (from target/)
+          if [ -f "target/requirements.txt" ]; then pip install -r target/requirements.txt || true; fi
+          if ls target/requirements/*.txt >/dev/null 2>&1; then pip install -r target/requirements/*.txt || true; fi
+          if [ -f "target/pyproject.toml" ] && grep -q "\[tool.poetry\]" target/pyproject.toml; then
             pip install poetry || true
-            poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req || true
+            (cd target && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req) || true
             if [ -s /tmp/poetry.lock.req ]; then pip install -r /tmp/poetry.lock.req || true; fi
           fi
-          # PDM projects
-          if [ -f "pyproject.toml" ] && grep -q "\[tool.pdm\]" pyproject.toml; then
+          if [ -f "target/pyproject.toml" ] && grep -q "\[tool.pdm\]" target/pyproject.toml; then
             pip install pdm || true
-            pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
+            (cd target && pdm export -o /tmp/pdm.lock.req --without-hashes --dev) || true
             if [ -s /tmp/pdm.lock.req ]; then pip install -r /tmp/pdm.lock.req || true; fi
           fi
-          # Pipenv projects
-          if [ -f "Pipfile.lock" ] || [ -f "Pipfile" ]; then
+          if [ -f "target/Pipfile.lock" ] || [ -f "target/Pipfile" ]; then
             pip install pipenv || true
-            pipenv requirements > /tmp/pipenv.lock.req || true
+            (cd target && pipenv requirements > /tmp/pipenv.lock.req) || true
             if [ -s /tmp/pipenv.lock.req ]; then pip install -r /tmp/pipenv.lock.req || true; fi
           fi
-          # setup.py / setup.cfg projects
-          if [ -f "setup.py" ] || [ -f "setup.cfg" ]; then
-            pip install -e . || true
+          if [ -f "target/setup.py" ] || [ -f "target/setup.cfg" ]; then
+            pip install -e target || true
           fi
           # Core test tooling + common backend libs
           pip install "openai>=1.51.0" pytest pytest-cov httpx requests \
                       "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" "annotated-types>=0.6" \
                       "uvicorn>=0.23" "SQLAlchemy>=2" "typing-extensions>=4.8"
 
-      - name: Analyze codebase
-        run: python -m src.analyzer > /tmp/analysis.json
+      - name: Analyze codebase (only target/)
+        run: python -m src.analyzer --root target > /tmp/analysis.json
 
-      - name: Diff scan (compute changed .py files vs manifest)
+      - name: Diff scan (compute changed .py files in target/ vs manifest)
         run: |
-          python -m src.diffscan --root . \
+          python -m src.diffscan --root target \
             --manifest "${OUTDIR}/_manifest.json" \
             --out-changed /tmp/changed.json \
             --out-hashes  /tmp/code-hashes.json
@@ -143,13 +136,14 @@ jobs:
             echo "SKIP_GEN=0" >> $GITHUB_ENV
           fi
 
-      - name: Install deps inferred from imports
+      - name: Install deps inferred from imports (filtered)
         run: |
           python -m src.install_from_analysis /tmp/analysis.json || true
 
       - name: Generate tests (only for changed files) — append into OUTDIR
         if: env.SKIP_GEN == '0'
         env:
+          TARGET_ROOT: target
           FOCUS_FILES_JSON_PATH: /tmp/changed.json
           CODE_HASHES_PATH: /tmp/code-hashes.json
           GENERATED_LIST_PATH: /tmp/generated-files.json
@@ -177,8 +171,6 @@ jobs:
           mkdir -p dist
           zip -r "dist/tests-${REPO_SLUG}.zip" "${OUTDIR}" || true
 
-      # Immediate artifact so you can download right away (raw .py + zip + context)
-      # NOTE: we include both the computed outdir AND a broad fallback in case a custom path was used.
       - name: Upload tests (raw .py + zip + context)
         uses: actions/upload-artifact@v4
         with:
@@ -186,7 +178,6 @@ jobs:
           if-no-files-found: warn
           path: |
             ${{ steps.paths.outputs.outdir }}/**/*.py
-            tests/generated/**/*.py
             dist/tests-${{ steps.paths.outputs.repo_slug }}.zip
             /tmp/analysis.json
             /tmp/changed.json
@@ -197,6 +188,7 @@ jobs:
         env:
           VALIDATOR_PYTEST_ARGS: -q -k "not e2e"
           VALIDATOR_TARGET_PATH: ${{ steps.paths.outputs.outdir }}
+          TARGET_ROOT: target
         run: python -m src.validator
 
       - name: Commit generated tests (append-only; retains previous)

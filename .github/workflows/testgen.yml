@@ -22,16 +22,7 @@ jobs:
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION }}
       AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
       TESTGEN_KINDS: "unit,integ,e2e"
-
-      OAI_MAX_TOKENS: "700"            # reduce output size
-      OAI_MAX_RETRIES: "8"
-      OAI_BASE_BACKOFF: "4"
-      OAI_PAUSE_BETWEEN_CALLS: "5"     # small pause between unit/integ/e2e
-      OAI_REQ_INTERVAL: "65"            # ensure at most 1 request per ~minute (helps hard TPM caps)
-      ANALYSIS_MAX_FUNCTIONS: "30"      # shrink analysis payload
-      ANALYSIS_MAX_CLASSES: "20"
-      ANALYSIS_MAX_ROUTES: "20"
-      TESTGEN_MAX_TESTS: "4"
+      
     steps:
       - name: Checkout pipeline repo
         uses: actions/checkout@v4

@@ -3,29 +3,15 @@ from typing import Dict, Any, List, Tuple, Optional
 from openai import AzureOpenAI
 from openai import RateLimitError  # openai>=1.0.0
 
-# ---------------- Tunables via env (safe defaults) ----------------
-MAX_TOKENS            = int(os.getenv("OAI_MAX_TOKENS", "800"))          # cap LLM output
-OAI_MAX_RETRIES       = int(os.getenv("OAI_MAX_RETRIES", "6"))
-OAI_BASE_BACKOFF      = float(os.getenv("OAI_BASE_BACKOFF", "3"))
-OAI_PAUSE_BETWEEN     = float(os.getenv("OAI_PAUSE_BETWEEN_CALLS", "3"))
-OAI_REQ_INTERVAL      = float(os.getenv("OAI_REQ_INTERVAL", "0"))        # min seconds between API calls (0=off)
-TESTGEN_KINDS         = os.getenv("TESTGEN_KINDS", "unit,integ,e2e")     # comma list
-TESTGEN_MAX_TESTS     = int(os.getenv("TESTGEN_MAX_TESTS", "6"))
-AN_MAX_FUNCS          = int(os.getenv("ANALYSIS_MAX_FUNCTIONS", "50"))
-AN_MAX_CLASSES        = int(os.getenv("ANALYSIS_MAX_CLASSES", "30"))
-AN_MAX_ROUTES         = int(os.getenv("ANALYSIS_MAX_ROUTES", "30"))
-# Force frameworks (comma list) or leave empty to auto-detect from analysis["modules"]
-TESTGEN_FRAMEWORKS    = os.getenv("TESTGEN_FRAMEWORKS", "").strip()
-
-_last_call = 0.0
 
 # ---------------- System & Templates ----------------
 SYSTEM = """You are an expert Python test engineer.
 Return ONLY valid Python source code (no Markdown, no backticks, no prose).
 Hard rules:
-- Deterministic data only.
-- No real network; mock I/O.
-- Import ONLY modules that exist in analysis or standard libs.
+- Test ONLY symbols from the project's own modules in analysis and standard frameworks (fastapi, flask, django, click, typer) when present.
+- Never import private/underscored modules (e.g., _pytest, pytest._code) or rely on internal APIs.
+- Never assert equality on repr() or values that include memory addresses.
+- Deterministic data only. No real network; mock I/O.
 - If uncertain, emit a simple test_placeholder() that passes.
 """
 
@@ -33,16 +19,17 @@ UNIT_TEMPLATE = """Analysis JSON (compacted):
 {analysis}
 
 Write UNIT tests (max {max_tests} tests). Return ONLY Python code, no backticks.
+Constraints: Do NOT import private modules or use pytest internals; do NOT assert on repr().
 Guidelines:
 - Target public functions/classes; assert exact outputs / exceptions.
 - Use pytest; no external I/O; use tmp_path for files when needed.
 """
 
-# framework-parameterized templates for integration/e2e
 INTEG_GENERIC = """Analysis JSON (compacted):
 {analysis}
 
 Write INTEGRATION tests (max {max_tests} tests) WITHOUT assuming a web framework.
+Constraints: No private modules; no repr-based assertions.
 Guidelines:
 - Identify seams with I/O (filesystem, db client objects, requests); mock with monkeypatch.
 - If there is a CLI entrypoint (click/typer), test it via runner.
@@ -189,7 +176,68 @@ def _compile_or_placeholder(code: str) -> str:
             "    assert True\n"
         )
 
-# --- Guards to skip entire module when framework missing ---
+# --- Brittle patterns we never want in generated tests ---
+BANNED_IMPORT_SUBSTRS = [
+    "_pytest",            # pytest internals
+    "pytest._code",       # private pytest code API
+]
+BRITTLE_SNIPPETS = [
+    r"assert\s+repr\(",   # equality on repr is brittle
+    r"\.fullsource\b",    # pytest private API
+    r"\.source\b",        # pytest private API
+    r"0x[0-9a-fA-F]+",    # memory addresses in reprs
+]
+
+def _skip_brittle_test_functions(code: str) -> str:
+    """
+    Find test functions that contain brittle patterns and decorate them with @pytest.mark.skip
+    rather than failing CI. Keeps good tests intact.
+    """
+    lines = code.splitlines()
+    out = []
+    current = []
+
+    def is_test_header(s: str) -> bool:
+        return re.match(r"^\s*def\s+test_[A-Za-z0-9_]*\s*\(", s) is not None
+
+    def needs_skip(block: List[str]) -> bool:
+        txt = "\n".join(block)
+        if any(re.search(pat, txt) for pat in BRITTLE_SNIPPETS):
+            return True
+        if any(sub in txt for sub in BANNED_IMPORT_SUBSTRS):
+            return True
+        return False
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if is_test_header(line):
+            if current:
+                out.extend(current); current = []
+            func_lines = [line]
+            i += 1
+            while i < len(lines) and not is_test_header(lines[i]):
+                func_lines.append(lines[i]); i += 1
+            if needs_skip(func_lines):
+                out.append("@pytest.mark.skip(reason='auto-skip brittle assertion/import from generator')")
+            out.extend(func_lines)
+        else:
+            current.append(line); i += 1
+
+    if current:
+        out.extend(current)
+    return "\n".join(out) + ("\n" if not out or not out[-1].endswith("\n") else "")
+
+def _header_guard_for_banned_imports(code: str) -> str:
+    """If the module imports any banned internals, skip the module."""
+    if any(sub in code for sub in BANNED_IMPORT_SUBSTRS):
+        return (
+            "import pytest as _pytest\n"
+            "_pytest.skip('generator: banned private imports detected; skipping module', allow_module_level=True)\n\n"
+        ) + code
+    return code
+
+# --- Framework guards to skip module when framework is missing ---
 FASTAPI_GUARD = (
     "import importlib.util as _iu, pytest as _pytest\n"
     "if _iu.find_spec('fastapi') is None:\n"
@@ -249,7 +297,11 @@ def _gen(prompt: str) -> str:
             raw = resp.choices[0].message.content or ""
             cleaned = _extract_python_only(raw)
             code = _compile_or_placeholder(cleaned)
-            return _wrap_guard_if_needed(code)
+            # Harden output
+            code = _skip_brittle_test_functions(code)
+            code = _header_guard_for_banned_imports(code)
+            code = _wrap_guard_if_needed(code)
+            return code
         except RateLimitError as e:
             sleep_s = _sleep_from_headers(e, attempt)
             print(f"[429] attempt {attempt+1}/{OAI_MAX_RETRIES}; sleeping {sleep_s:.1f}s")
@@ -261,7 +313,7 @@ def _dedupe_keep(items: List[Dict[str, str]], key: str, limit: int) -> List[Dict
     seen, out = set(), []
     for it in items or []:
         k = it.get(key)
-        if not k or k in seen: 
+        if not k or k in seen:
             continue
         seen.add(k)
         out.append({kk: it.get(kk) for kk in ("name","file","handler","method") if kk in it})
@@ -292,8 +344,6 @@ def _detect_frameworks(mods: List[str]) -> Dict[str, bool]:
     }
 
 def _framework_context(frames: Dict[str, bool]) -> Tuple[str, str]:
-    """Return (integration_template, e2e_template) based on detected frameworks.
-       If multiple frameworks detected, prefer FastAPI > Flask > Django > CLI > generic."""
     if frames.get("fastapi"):
         return INTEG_FASTAPI, E2E_FASTAPI
     if frames.get("flask"):
@@ -328,22 +378,24 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
     compact = _compact_analysis(analysis)
     compact_json = json.dumps(compact, separators=(",",":"))
 
+    kinds = {k.strip() for k in TESTGEN_KINDS.split(",") if k.strip()}
+
     # UNIT (always meaningful)
-    if "unit" in {k.strip() for k in TESTGEN_KINDS.split(",")}:
+    if "unit" in kinds:
         unit_code = _gen(UNIT_TEMPLATE.format(analysis=compact_json, max_tests=TESTGEN_MAX_TESTS))
         write(out / f"test_unit_{ts}.py", unit_code)
         time.sleep(OAI_PAUSE_BETWEEN)
 
-    # Integration / E2E per framework
+    # Integration / E2E per framework (auto-detect or override)
     frames = _override_frameworks() or _detect_frameworks(compact.get("modules", []))
     integ_tpl, e2e_tpl = _framework_context(frames)
 
-    if "integ" in {k.strip() for k in TESTGEN_KINDS.split(",")}:
+    if "integ" in kinds:
         integ_code = _gen(integ_tpl.format(analysis=compact_json, max_tests=TESTGEN_MAX_TESTS))
         write(out / f"test_integ_{ts}.py", integ_code)
         time.sleep(OAI_PAUSE_BETWEEN)
 
-    if "e2e" in {k.strip() for k in TESTGEN_KINDS.split(",")}:
+    if "e2e" in kinds:
         e2e_code = _gen(e2e_tpl.format(analysis=compact_json, max_tests=TESTGEN_MAX_TESTS))
         write(out / f"test_e2e_{ts}.py", e2e_code)
 

@@ -1,5 +1,5 @@
-import os, json, pathlib, datetime, time, random, re, ast
-from typing import Dict, Any, List
+import os, json, pathlib, datetime, time, random, re, ast, math
+from typing import Dict, Any, List, Tuple
 from openai import AzureOpenAI, RateLimitError, BadRequestError  # openai>=1.0.0
 
 # ---------------- Tunables via env (safe defaults) ----------------
@@ -9,8 +9,9 @@ OAI_BASE_BACKOFF  = float(os.getenv("OAI_BASE_BACKOFF", "3"))
 OAI_PAUSE_BETWEEN = float(os.getenv("OAI_PAUSE_BETWEEN_CALLS", "3"))
 OAI_REQ_INTERVAL  = float(os.getenv("OAI_REQ_INTERVAL", "0"))        # seconds between API calls (0=off)
 
-TESTGEN_KINDS     = os.getenv("TESTGEN_KINDS", "unit,integ,e2e")     # comma list
-TESTGEN_MAX_TESTS = int(os.getenv("TESTGEN_MAX_TESTS", "6"))
+TESTGEN_KINDS         = os.getenv("TESTGEN_KINDS", "unit,integ,e2e")     # comma list
+TESTGEN_MAX_TESTS     = int(os.getenv("TESTGEN_MAX_TESTS", "6"))
+TESTGEN_FILES_PER_KIND= int(os.getenv("TESTGEN_FILES_PER_KIND", "3"))     # NEW: how many files per kind
 
 # analysis compaction caps
 AN_MAX_FUNCS   = int(os.getenv("ANALYSIS_MAX_FUNCTIONS", os.getenv("AN_MAX_FUNCS", "50")))
@@ -30,51 +31,58 @@ Hard rules:
 - If uncertain, emit a simple test_placeholder() that passes.
 """
 
-UNIT_TEMPLATE = """Analysis JSON (compacted):
+UNIT_TEMPLATE = """Shard {shard}/{total} • Focus targets: {focus}
+Analysis JSON (compacted):
 {analysis}
 
 Write UNIT tests (max {max_tests} tests). Return ONLY Python code, no backticks.
 Constraints: Do NOT import private modules or use pytest internals; do NOT assert on repr().
 Guidelines:
-- Target public functions/classes; assert exact outputs / exceptions.
+- Target public functions/classes from the listed focus targets when possible; assert exact outputs / exceptions.
 - Use pytest; no external I/O; use tmp_path for files when needed.
 """
 
-INTEG_GENERIC = """Analysis JSON (compacted):
+INTEG_GENERIC = """Shard {shard}/{total} • Focus targets: {focus}
+Analysis JSON (compacted):
 {analysis}
 
 Write INTEGRATION tests (max {max_tests} tests) WITHOUT assuming any web framework.
 Constraints: No private modules; no repr-based assertions.
 Guidelines:
-- Identify seams with I/O (filesystem, db client objects, requests); mock with monkeypatch.
-- If there is a CLI entrypoint (click/typer) found in analysis, you may test it via runner; otherwise mock I/O seams.
+- Identify seams with I/O (filesystem, db clients, HTTP calls); mock with monkeypatch.
+- If a CLI entrypoint (click/typer) exists among focus targets, you may test it via runner; else mock I/O seams.
 Return ONLY Python code, no backticks.
 """
 
-E2E_GENERIC = """Analysis JSON (compacted):
+E2E_GENERIC = """Shard {shard}/{total} • Focus targets: {focus}
+Analysis JSON (compacted):
 {analysis}
 
 Write E2E tests (max {max_tests} tests) for a minimal black-box workflow across multiple functions/modules.
+- Prefer composing the listed focus targets.
 - If no clear end-to-end entrypoint exists, emit a simple placeholder E2E test that passes.
 Return ONLY Python code, no backticks.
 """
 
-# ---------------- Azure OpenAI client helpers ----------------
-def _required_env(name: str) -> str:
-    v = os.getenv(name)
-    if not v:
-        raise RuntimeError(f"Missing required environment variable: {name}")
-    return v
+# ---------------- Env helpers ----------------
+def _get_any_env(*names: str) -> str:
+    """Return the first non-empty env var among names, or raise."""
+    for n in names:
+        v = os.getenv(n)
+        if v:
+            return v
+    raise RuntimeError(f"Missing required environment variable (tried: {', '.join(names)})")
 
+# ---------------- Azure OpenAI client helpers ----------------
 def _client() -> AzureOpenAI:
     return AzureOpenAI(
-        api_key=_required_env("AZURE_OPENAI_API_KEY"),
-        azure_endpoint=_required_env("AZURE_OPENAI_ENDPOINT"),
-        api_version=_required_env("AZURE_OPENAI_API_VERSION"),
+        api_key=_get_any_env("AZURE_OPENAI_KEY", "AZURE_OPENAI_API_KEY"),
+        azure_endpoint=_get_any_env("AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_ENDPOINT"),
+        api_version=_get_any_env("AZURE_OPENAI_API_VERSION", "OPENAI_API_VERSION"),
     )
 
 def _deployment_name() -> str:
-    return _required_env("AZURE_OPENAI_DEPLOYMENT")
+    return _get_any_env("AZURE_OPENAI_DEPLOYMENT", "OPENAI_DEPLOYMENT")
 
 def _ensure_min_interval():
     global _last_call
@@ -110,18 +118,24 @@ def _extract_python_only(text: str) -> str:
         lines = lines[1:]
     return ("\n".join(lines)).strip() + "\n"
 
+def _placeholder_test(reason: str = "placeholder"):
+    return (
+        "import pytest\n\n"
+        f"# generator: {reason}\n"
+        "def test_placeholder():\n"
+        "    assert True\n"
+    )
+
 def _compile_or_placeholder(code: str) -> str:
+    # If empty/whitespace or has no test functions, force placeholder
+    if not code.strip() or "def test_" not in code:
+        return _placeholder_test("empty-or-no-tests")
     try:
         ast.parse(code, filename="<generated>", mode="exec")
         return code
     except SyntaxError as e:
         print(f"[Sanitize] AST parse failed: {e}. Falling back to placeholder.")
-        return (
-            "import pytest\n\n"
-            "def test_placeholder():\n"
-            "    # LLM returned invalid syntax; placeholder keeps CI green\n"
-            "    assert True\n"
-        )
+        return _placeholder_test("syntax-error")
 
 # --- Brittle patterns to avoid in generated tests ---
 BANNED_IMPORT_SUBSTRS = [
@@ -170,7 +184,10 @@ def _skip_brittle_test_functions(code: str) -> str:
 
     if current:
         out.extend(current)
-    return "\n".join(out) + ("\n" if not out or not out[-1].endswith("\n") else "")
+    text = "\n".join(out)
+    if not text.endswith("\n"):
+        text += "\n"
+    return text
 
 def _header_guard_for_banned_imports(code: str) -> str:
     """If the module imports any banned internals, skip the module."""
@@ -234,7 +251,7 @@ def _gen(prompt: str) -> str:
             raise
     raise RuntimeError(f"Azure OpenAI rate-limited after {OAI_MAX_RETRIES} attempts: {last_err}")
 
-# ---------------- Analysis compaction ----------------
+# ---------------- Analysis compaction & sharding ----------------
 def _dedupe_keep(items: List[Dict[str, str]], key: str, limit: int) -> List[Dict[str, str]]:
     seen, out = set(), []
     for it in items or []:
@@ -258,6 +275,36 @@ def _compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
         "modules":   sorted(set(analysis.get("modules", []))),
     }
 
+def _partition(lst: List[Dict[str, str]], n_parts: int) -> List[List[Dict[str, str]]]:
+    if not lst:
+        return [[] for _ in range(n_parts)]
+    size = max(1, math.ceil(len(lst) / n_parts))
+    return [lst[i:i+size] for i in range(0, len(lst), size)] + [[]] * max(0, n_parts - math.ceil(len(lst)/size))
+
+def _focus_for_shard(compact: Dict[str, Any], kind: str, shard_idx: int, total: int) -> Tuple[str, List[str]]:
+    """
+    Return (label, names) to focus this shard on, per test kind.
+    For unit: functions/classes. For integ/e2e: routes if present, else functions/classes.
+    """
+    if kind == "unit":
+        targets = (compact.get("functions", []) or []) + (compact.get("classes", []) or [])
+        groups = _partition(targets, total)
+        names = [d.get("name") for d in groups[shard_idx] if d.get("name")]
+        return ", ".join(names) if names else "(none)", names
+
+    # integ/e2e
+    routes = compact.get("routes", []) or []
+    if routes:
+        groups = _partition(routes, total)
+        names = [d.get("handler") for d in groups[shard_idx] if d.get("handler")]
+        label = ", ".join(sorted(set(names))) if names else "(none)"
+        return label, names
+    # fallback to functions/classes
+    targets = (compact.get("functions", []) or []) + (compact.get("classes", []) or [])
+    groups = _partition(targets, total)
+    names = [d.get("name") for d in groups[shard_idx] if d.get("name")]
+    return (", ".join(names) if names else "(none)"), names
+
 # ---------------- Main generation ----------------
 def write(path: pathlib.Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -270,21 +317,30 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
     compact = _compact_analysis(analysis)
     compact_json = json.dumps(compact, separators=(",",":"))
 
-    kinds = {k.strip() for k in TESTGEN_KINDS.split(",") if k.strip()}
+    kinds = [k.strip() for k in TESTGEN_KINDS.split(",") if k.strip()]
+    files_per_kind = max(1, TESTGEN_FILES_PER_KIND)
 
-    if "unit" in kinds:
-        unit_code = _gen(UNIT_TEMPLATE.format(analysis=compact_json, max_tests=TESTGEN_MAX_TESTS))
-        write(out / f"test_unit_{ts}.py", unit_code)
-        time.sleep(OAI_PAUSE_BETWEEN)
-
-    if "integ" in kinds:
-        integ_code = _gen(INTEG_GENERIC.format(analysis=compact_json, max_tests=TESTGEN_MAX_TESTS))
-        write(out / f"test_integ_{ts}.py", integ_code)
-        time.sleep(OAI_PAUSE_BETWEEN)
-
-    if "e2e" in kinds:
-        e2e_code = _gen(E2E_GENERIC.format(analysis=compact_json, max_tests=TESTGEN_MAX_TESTS))
-        write(out / f"test_e2e_{ts}.py", e2e_code)
+    for kind in kinds:
+        for i in range(files_per_kind):
+            focus_label, _ = _focus_for_shard(compact, kind, i, files_per_kind)
+            if kind == "unit":
+                prompt = UNIT_TEMPLATE.format(analysis=compact_json, max_tests=TESTGEN_MAX_TESTS,
+                                              shard=i+1, total=files_per_kind, focus=focus_label)
+                code = _gen(prompt)
+                write(out / f"test_unit_{ts}_{i+1:02d}.py", code)
+            elif kind == "integ":
+                prompt = INTEG_GENERIC.format(analysis=compact_json, max_tests=TESTGEN_MAX_TESTS,
+                                              shard=i+1, total=files_per_kind, focus=focus_label)
+                code = _gen(prompt)
+                write(out / f"test_integ_{ts}_{i+1:02d}.py", code)
+            elif kind == "e2e":
+                prompt = E2E_GENERIC.format(analysis=compact_json, max_tests=TESTGEN_MAX_TESTS,
+                                            shard=i+1, total=files_per_kind, focus=focus_label)
+                code = _gen(prompt)
+                write(out / f"test_e2e_{ts}_{i+1:02d}.py", code)
+            else:
+                continue
+            time.sleep(OAI_PAUSE_BETWEEN)
 
 if __name__ == "__main__":
     import analyzer

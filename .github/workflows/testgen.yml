@@ -17,22 +17,23 @@ jobs:
       contents: write
     env:
       # Azure OpenAI creds (names must match your repo secrets)
-      AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+      AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
       AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION }}
       AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
 
-      # Generation knobs (generic-only)
+      # Generation knobs
       TESTGEN_KINDS: "unit,integ,e2e"
-      TESTGEN_MAX_TESTS: "4"
+      TESTGEN_MAX_TESTS: "5"
+      TESTGEN_FILES_PER_KIND: "5"     # <— generate more files per type
       OAI_MAX_TOKENS: "700"
       OAI_MAX_RETRIES: "8"
       OAI_BASE_BACKOFF: "4"
       OAI_PAUSE_BETWEEN_CALLS: "5"
       OAI_REQ_INTERVAL: "65"
-      ANALYSIS_MAX_FUNCTIONS: "30"
-      ANALYSIS_MAX_CLASSES: "20"
-      ANALYSIS_MAX_ROUTES: "20"
+      ANALYSIS_MAX_FUNCTIONS: "50"
+      ANALYSIS_MAX_CLASSES: "30"
+      ANALYSIS_MAX_ROUTES: "30"
 
     steps:
       - name: Checkout pipeline repo
@@ -45,7 +46,6 @@ jobs:
         run: |
           REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
           git clone --depth 1 "$REPO" target
-          # copy everything EXCEPT the .git dir to avoid overwriting our remote/auth
           rsync -a --exclude ".git" target/ ./
 
       - name: Setup Python
@@ -57,7 +57,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
-          # Ensure required tools even if the target repo lacks them
           pip install "openai>=1.51.0" pytest pytest-cov httpx
 
       - name: Generate tests
@@ -74,6 +73,19 @@ jobs:
 
       - name: Quick validation run
         run: python -m src.validator
+
+      - name: Package generated tests as zip
+        run: |
+          mkdir -p dist
+          zip -r "dist/generated-tests-${{ github.run_id }}.zip" tests/generated /tmp/analysis.json || true
+
+      - name: Upload generated tests artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-tests-${{ github.run_id }}
+          path: |
+            tests/generated/**
+            dist/generated-tests-${{ github.run_id }}.zip
 
       - name: Commit generated tests
         run: |

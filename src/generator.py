@@ -1,16 +1,13 @@
 import os, json, pathlib, datetime, time, random, re, ast
 from typing import Dict, Any, List
-from openai import AzureOpenAI
-from openai import RateLimitError, BadRequestError  # openai>=1.0.0
-
-from openai import RateLimitError  # openai>=1.0.0
+from openai import AzureOpenAI, RateLimitError, BadRequestError  # openai>=1.0.0
 
 # ---------------- Tunables via env (safe defaults) ----------------
 MAX_TOKENS        = int(os.getenv("OAI_MAX_TOKENS", "800"))          # cap LLM output
 OAI_MAX_RETRIES   = int(os.getenv("OAI_MAX_RETRIES", "6"))
 OAI_BASE_BACKOFF  = float(os.getenv("OAI_BASE_BACKOFF", "3"))
 OAI_PAUSE_BETWEEN = float(os.getenv("OAI_PAUSE_BETWEEN_CALLS", "3"))
-OAI_REQ_INTERVAL  = float(os.getenv("OAI_REQ_INTERVAL", "0"))        # min seconds between API calls (0=off)
+OAI_REQ_INTERVAL  = float(os.getenv("OAI_REQ_INTERVAL", "0"))        # seconds between API calls (0=off)
 
 TESTGEN_KINDS     = os.getenv("TESTGEN_KINDS", "unit,integ,e2e")     # comma list
 TESTGEN_MAX_TESTS = int(os.getenv("TESTGEN_MAX_TESTS", "6"))
@@ -101,7 +98,7 @@ def _sleep_from_headers(exc: Exception, attempt: int) -> float:
 
 # ---------------- Sanitizers ----------------
 def _extract_python_only(text: str) -> str:
-    # If fenced, take inside of the first/merged code blocks
+    # If fenced, take inside of code blocks
     if "```" in text:
         blocks = re.findall(r"```(?:python)?\s*(.*?)```", text, flags=re.IGNORECASE|re.DOTALL)
         if blocks:
@@ -126,7 +123,7 @@ def _compile_or_placeholder(code: str) -> str:
             "    assert True\n"
         )
 
-# --- Brittle patterns we never want in generated tests ---
+# --- Brittle patterns to avoid in generated tests ---
 BANNED_IMPORT_SUBSTRS = [
     "_pytest",            # pytest internals
     "pytest._code",       # private pytest code API
@@ -139,10 +136,7 @@ BRITTLE_SNIPPETS = [
 ]
 
 def _skip_brittle_test_functions(code: str) -> str:
-    """
-    Find test functions that contain brittle patterns and decorate them with @pytest.mark.skip
-    rather than failing CI. Keeps good tests intact.
-    """
+    """Auto-skip test functions containing brittle patterns."""
     lines = code.splitlines()
     out = []
     current = []
@@ -187,16 +181,15 @@ def _header_guard_for_banned_imports(code: str) -> str:
         ) + code
     return code
 
+# ---------------- Chat call (Azure-compatible across variants) ----------------
 def _chat_completion_create(client: AzureOpenAI, deployment: str, messages: list):
     """
     Create a chat completion compatible with Azure variants:
     - Do NOT send temperature/n (some deployments only accept defaults).
-    - Try token param names in order; finally try with no token param.
+    - Try token param names in order; finally try with none.
     """
     base = dict(model=deployment, messages=messages)  # no temperature, no n
     tried_err = None
-
-    # Try different token-limit parameter names; last attempt with none.
     for token_param in ("max_tokens", "max_completion_tokens", "max_output_tokens", None):
         try:
             kwargs = dict(base)
@@ -205,17 +198,13 @@ def _chat_completion_create(client: AzureOpenAI, deployment: str, messages: list
             return client.chat.completions.create(**kwargs)
         except BadRequestError as e:
             msg = str(e)
-            # If it's complaining about unsupported/unknown parameter/value, try next variant.
             if any(s in msg for s in ("Unsupported parameter", "unknown parameter", "unsupported_parameter", "Unsupported value")):
                 tried_err = e
                 continue
-            # Different BadRequest (e.g., prompt too long) → re-raise.
             raise
     if tried_err:
         raise tried_err
 
-
-# ---------------- LLM call ----------------
 def _gen(prompt: str) -> str:
     global _last_call
     client = _client()
@@ -228,9 +217,8 @@ def _gen(prompt: str) -> str:
                 client,
                 deployment,
                 [{"role": "system", "content": SYSTEM},
-                 {"role": "user", "content": prompt}],
+                 {"role": "user",   "content": prompt}],
             )
-
             _last_call = time.time()
             raw = resp.choices[0].message.content or ""
             cleaned = _extract_python_only(raw)
@@ -242,12 +230,9 @@ def _gen(prompt: str) -> str:
             sleep_s = _sleep_from_headers(e, attempt)
             print(f"[429] attempt {attempt+1}/{OAI_MAX_RETRIES}; sleeping {sleep_s:.1f}s")
             time.sleep(sleep_s)
-        except BadRequestError as e:
-            # If we get here, it wasn't due to the token param name (handled in helper),
-            # so surface the error with context.
+        except BadRequestError:
             raise
     raise RuntimeError(f"Azure OpenAI rate-limited after {OAI_MAX_RETRIES} attempts: {last_err}")
-
 
 # ---------------- Analysis compaction ----------------
 def _dedupe_keep(items: List[Dict[str, str]], key: str, limit: int) -> List[Dict[str, str]]:

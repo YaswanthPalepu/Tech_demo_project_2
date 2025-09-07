@@ -17,7 +17,7 @@ jobs:
       contents: write
     env:
       # Azure OpenAI creds (names must match your repo secrets)
-      AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+      AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
       AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION }}
       AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
@@ -37,11 +37,16 @@ jobs:
     steps:
       - name: Checkout pipeline repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
 
-      - name: Clone target repository
+      - name: Clone target repository (without .git)
         run: |
-          git clone "${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}" target
-          rsync -a target/ ./
+          REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
+          git clone --depth 1 "$REPO" target
+          # copy everything EXCEPT the .git dir to avoid overwriting our remote/auth
+          rsync -a --exclude ".git" target/ ./
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -53,7 +58,7 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
           # Ensure required tools even if the target repo lacks them
-          pip install "openai>=1.0.0" pytest pytest-cov httpx
+          pip install "openai>=1.51.0" pytest pytest-cov httpx
 
       - name: Generate tests
         run: |
@@ -65,8 +70,7 @@ jobs:
           PY
 
       - name: List generated tests
-        run: |
-          ls -lah tests/generated || true
+        run: ls -lah tests/generated || true
 
       - name: Quick validation run
         run: python -m src.validator

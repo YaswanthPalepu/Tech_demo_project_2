@@ -1,52 +1,44 @@
-# .github/workflows/validate-and-scan.yml
 name: Validate & Scan
 
 on:
   workflow_run:
-    workflows: ["AI Test Generation"]     
+    workflows: ["AI Test Generation"]
     types: [completed]
 
 jobs:
   test_and_scan:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    env:
-      SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
-      SONAR_TOKEN:     ${{ secrets.SONAR_TOKEN }}
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install deps
+      - name: Install test deps
         run: |
           python -m pip install --upgrade pip
           if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
-          # Ensure test/coverage tools even if missing from the target repo
-          pip install pytest pytest-cov
+          pip install pytest pytest-cov httpx
 
-      - name: Run pytest with coverage
+      - name: Run pytest with coverage (XML)
         run: |
           pytest -q --cov=. --cov-report=xml:coverage.xml --cov-report=term-missing
 
-      - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: coverage.xml
-
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v3
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@v2
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # for PR decoration
+          SONAR_TOKEN:  ${{ secrets.SONAR_TOKEN }}    # SonarCloud token
+        with:
+          projectBaseDir: .
+          args: >
+            -Dsonar.python.coverage.reportPaths=coverage.xml
 
-      - name: SonarQube Quality Gate
+      # Optional: explicit Quality Gate wait (SonarCloud also posts a Check)
+      - name: SonarCloud Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@v1.1.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+          SONAR_HOST_URL: https://sonarcloud.io

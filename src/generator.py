@@ -1,7 +1,7 @@
 import os, json, pathlib, datetime, time, random, re, ast
 from typing import Dict, Any, List
 from openai import AzureOpenAI
-from openai import BadRequestError  # add this next to RateLimitError
+from openai import RateLimitError, BadRequestError  # openai>=1.0.0
 
 from openai import RateLimitError  # openai>=1.0.0
 
@@ -189,26 +189,31 @@ def _header_guard_for_banned_imports(code: str) -> str:
 
 def _chat_completion_create(client: AzureOpenAI, deployment: str, messages: list):
     """
-    Create a chat completion while being compatible with Azure variants that
-    expect different token parameter names.
-    Tries: max_tokens -> max_completion_tokens -> max_output_tokens.
+    Create a chat completion compatible with Azure variants:
+    - Do NOT send temperature/n (some deployments only accept defaults).
+    - Try token param names in order; finally try with no token param.
     """
-    common = dict(model=deployment, messages=messages, temperature=0.1, n=1)
-    last_err = None
-    for token_param in ("max_tokens", "max_completion_tokens", "max_output_tokens"):
+    base = dict(model=deployment, messages=messages)  # no temperature, no n
+    tried_err = None
+
+    # Try different token-limit parameter names; last attempt with none.
+    for token_param in ("max_tokens", "max_completion_tokens", "max_output_tokens", None):
         try:
-            return client.chat.completions.create(**common, **{token_param: MAX_TOKENS})
+            kwargs = dict(base)
+            if token_param:
+                kwargs[token_param] = MAX_TOKENS
+            return client.chat.completions.create(**kwargs)
         except BadRequestError as e:
-            # If it's complaining about an unsupported/unknown parameter, try the next one
-            msg = getattr(e, "message", "") or str(e)
-            if "Unsupported parameter" in msg or "unknown parameter" in msg or "unsupported_parameter" in msg:
-                last_err = e
+            msg = str(e)
+            # If it's complaining about unsupported/unknown parameter/value, try next variant.
+            if any(s in msg for s in ("Unsupported parameter", "unknown parameter", "unsupported_parameter", "Unsupported value")):
+                tried_err = e
                 continue
-            # Different bad request (prompt too long, etc.) -> re-raise
+            # Different BadRequest (e.g., prompt too long) → re-raise.
             raise
-    # None of the parameter names worked
-    if last_err:
-        raise last_err
+    if tried_err:
+        raise tried_err
+
 
 # ---------------- LLM call ----------------
 def _gen(prompt: str) -> str:
@@ -225,6 +230,7 @@ def _gen(prompt: str) -> str:
                 [{"role": "system", "content": SYSTEM},
                  {"role": "user", "content": prompt}],
             )
+
             _last_call = time.time()
             raw = resp.choices[0].message.content or ""
             cleaned = _extract_python_only(raw)

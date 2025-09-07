@@ -1,5 +1,5 @@
-import os, json, pathlib, datetime, time, re, ast, math
-from typing import Dict, Any, List, Tuple
+import os, sys, json, pathlib, datetime, time, re, ast, math, subprocess, importlib.util
+from typing import Dict, Any, List, Tuple, Set
 from openai import AzureOpenAI, RateLimitError, BadRequestError  # openai>=1.0.0
 
 # ---------------- System & Templates ----------------
@@ -96,11 +96,7 @@ def _deployment_name() -> str:
     return _get_any_env("AZURE_OPENAI_DEPLOYMENT", "OPENAI_DEPLOYMENT")
 
 def _chat_completion_create(client: AzureOpenAI, deployment: str, messages: list):
-    """
-    Azure-friendly call:
-    - Send no temperature/n.
-    - Send no token limit (let server defaults apply).
-    """
+    # No temperature/n, no token limits → Azure-friendly defaults
     return client.chat.completions.create(model=deployment, messages=messages)
 
 # ---------------- Sanitizers & validators ----------------
@@ -131,7 +127,6 @@ BANNED_IMPORT_SUBSTRS = ["_pytest", "pytest._code"]
 BRITTLE_SNIPPETS = [r"assert\s+repr\(", r"\.fullsource\b", r"\.source\b", r"0x[0-9a-fA-F]+"]
 
 def _ensure_pytest_import(text: str) -> str:
-    """Ensure 'import pytest' exists if we used @pytest.mark.skip."""
     if "@pytest.mark.skip" in text and not re.search(r"^\s*import\s+pytest\b", text, re.MULTILINE):
         return "import pytest\n" + text
     return text
@@ -183,10 +178,6 @@ def _header_guard_for_banned_imports(code: str) -> str:
 
 # ---------------- LLM wrapper with basic regeneration ----------------
 def _gen_validated(prompt: str, attempts_per_file: int = 3, backoff_seq=(3, 7, 15)) -> str:
-    """
-    Call the LLM and enforce: non-empty, has test_ function, parses.
-    Regenerate with feedback up to attempts_per_file. If still invalid → raise.
-    """
     client = _client()
     deployment = _deployment_name()
 
@@ -255,6 +246,96 @@ def _compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
         "modules":   sorted(set(analysis.get("modules", []))),
     }
 
+# ---------------- Dependency inference & installation ----------------
+# Map common import names to their PyPI package names.
+COMMON_PKG_ALIASES = {
+    "bs4": "beautifulsoup4",
+    "yaml": "PyYAML",
+    "cv2": "opencv-python",
+    "sklearn": "scikit-learn",
+    "PIL": "Pillow",
+    "Crypto": "pycryptodome",
+    "MySQLdb": "mysqlclient",
+    "mysql": "mysqlclient",
+    "psycopg2": "psycopg2-binary",
+    "boto3": "boto3",
+    "httpx": "httpx",
+    "requests": "requests",
+    "uvicorn": "uvicorn",
+    "fastapi": "fastapi",
+    "starlette": "starlette",
+    "pydantic": "pydantic",
+    "typing_extensions": "typing-extensions",
+    "annotated_types": "annotated-types",
+    "sqlalchemy": "SQLAlchemy",
+    "flask": "flask",
+    "django": "Django",
+    "click": "click",
+    "typer": "typer",
+    "jinja2": "Jinja2",
+    "ujson": "ujson",
+    "orjson": "orjson",
+    "pymongo": "pymongo",
+    "redis": "redis",
+    "pytest": "pytest",  # already present but harmless if requested
+}
+
+def _is_stdlib(name: str) -> bool:
+    try:
+        import sys
+        stdmods = getattr(sys, "stdlib_module_names", None)
+        if stdmods:
+            return name in stdmods
+        # fallback heuristic
+        return name in {
+            "os","sys","re","json","pathlib","math","itertools","functools","typing","subprocess",
+            "datetime","time","collections","dataclasses","ast","logging","unittest","argparse",
+            "asyncio","multiprocessing","threading","sqlite3","email","http","urllib","hashlib",
+            "hmac","base64","statistics","random","fractions","decimal","csv","shutil","tempfile",
+            "glob","inspect","traceback","textwrap","string","pprint","enum","types"
+        }
+    except Exception:
+        return False
+
+def _is_local_import(top: str) -> bool:
+    """Treat a top-level import as local if a matching file/dir exists in the repo."""
+    p = pathlib.Path(top)
+    if p.exists():
+        return True
+    # also check package-like path
+    if pathlib.Path(top.replace(".", "/")).exists():
+        return True
+    # also check <top>.py at root or under src/ or backend/ (common layouts)
+    for base in (pathlib.Path("."), pathlib.Path("src"), pathlib.Path("backend"), pathlib.Path("app")):
+        if (base / f"{top}.py").exists() or (base / top).is_dir():
+            return True
+    return False
+
+def _infer_required_packages(compact: Dict[str, Any]) -> List[str]:
+    mods = compact.get("modules") or []
+    needed: Set[str] = set()
+    for m in mods:
+        top = (m.split(".")[0] or "").strip()
+        if not top or _is_stdlib(top) or _is_local_import(top):
+            continue
+        # Map alias → package
+        pkg = COMMON_PKG_ALIASES.get(top, top)
+        needed.add(pkg)
+    # Always align compatible versions for common stacks if present in imports
+    # (no explicit versions here; CI can pin if needed)
+    return sorted(needed)
+
+def _pip_install(packages: List[str]) -> None:
+    if not packages:
+        print("📦 No third-party packages inferred from imports.")
+        return
+    print("📦 Installing missing packages:", ", ".join(packages))
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-input", *packages])
+    except subprocess.CalledProcessError as e:
+        # Don't hard fail immediately—some packages may be optional
+        print(f"⚠️ pip install returned non-zero exit code ({e.returncode}). Tests may skip if imports are missing.")
+
 # ---------------- Sharding helpers ----------------
 def _partition(lst: List[Dict[str, str]], n_parts: int) -> List[List[Dict[str, str]]]:
     if not lst:
@@ -317,10 +398,9 @@ def _path_to_module(p: pathlib.Path) -> str:
         rp = rp.parent
     else:
         rp = rp.with_suffix("")
-    return ".".join([part for part in rp.parts if part not in ("",)]).strip(".")
+    return ".".join([part for part in rp.parts if part])
 
 def _guess_app_module_name(compact: Dict[str, Any]) -> str:
-    # Prefer files referenced in analysis; fall back to scanning repo.
     file_candidates = set()
     for col in ("functions", "classes", "routes"):
         for it in compact.get(col, []) or []:
@@ -338,8 +418,20 @@ def _guess_app_module_name(compact: Dict[str, Any]) -> str:
                 return _path_to_module(p)
         except Exception:
             continue
-    # Heuristic default
     return "main"
+
+# ---------------- Runtime guard ----------------
+def _runtime_guard_for(compact: Dict[str, Any]) -> str:
+    critical = {"fastapi", "flask", "django", "sqlalchemy", "starlette", "pydantic"}
+    mods = {m.split(".")[0].lower() for m in (compact.get("modules") or [])}
+    needed = sorted(critical & mods)
+    if not needed:
+        return ""
+    checks = "\n".join(
+        [f"if _iu.find_spec('{m}') is None:\n    _pytest.skip('{m} not installed; skipping module', allow_module_level=True)"
+         for m in needed]
+    )
+    return "import importlib.util as _iu, pytest as _pytest\n" + checks + "\n\n"
 
 # ---------------- Main generation ----------------
 def write(path: pathlib.Path, content: str):
@@ -351,17 +443,22 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
     ts = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
     compact = _compact_analysis(analysis)
-    compact_json = json.dumps(compact, separators=(",",":"))
 
+    # NEW: infer and install third-party dependencies BEFORE generating tests
+    pkgs = _infer_required_packages(compact)
+    _pip_install(pkgs)
+
+    compact_json = json.dumps(compact, separators=(",",":"))
     kinds = ["unit", "integ", "e2e"]
 
     fastapi_present = _has_fastapi_routes(compact)
     app_module = _guess_app_module_name(compact) if fastapi_present else None
 
+    guard = _runtime_guard_for(compact)
+
     for kind in kinds:
         files_per_kind = _auto_files_per_kind(compact, kind)
 
-        # nothing to target? skip this kind gracefully
         if kind == "unit" and not (compact.get("functions") or compact.get("classes")):
             print(f"⚠️ No functions/classes found → skipping {kind} test generation")
             continue
@@ -375,7 +472,7 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
             if kind == "unit":
                 prompt = UNIT_TEMPLATE.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
                 code = _gen_validated(prompt)
-                write(out / f"test_unit_{ts}_{i+1:02d}.py", code)
+                write(out / f"test_unit_{ts}_{i+1:02d}.py", guard + code)
 
             elif kind == "integ":
                 if fastapi_present:
@@ -384,7 +481,7 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
                 else:
                     prompt = INTEG_GENERIC.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
                 code = _gen_validated(prompt)
-                write(out / f"test_integ_{ts}_{i+1:02d}.py", code)
+                write(out / f"test_integ_{ts}_{i+1:02d}.py", guard + code)
 
             elif kind == "e2e":
                 if fastapi_present:
@@ -393,7 +490,7 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
                 else:
                     prompt = E2E_GENERIC.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
                 code = _gen_validated(prompt)
-                write(out / f"test_e2e_{ts}_{i+1:02d}.py", code)
+                write(out / f"test_e2e_{ts}_{i+1:02d}.py", guard + code)
 
 if __name__ == "__main__":
     import analyzer

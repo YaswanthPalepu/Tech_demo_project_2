@@ -1,4 +1,3 @@
-# .github/workflows/testgen.yml
 name: AI Test Generation
 
 on:
@@ -17,12 +16,24 @@ jobs:
     permissions:
       contents: write
     env:
-      AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+      # Azure OpenAI creds (names must match your repo secrets)
+      AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
       AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION }}
       AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+
+      # Generation knobs (generic-only)
       TESTGEN_KINDS: "unit,integ,e2e"
-      
+      TESTGEN_MAX_TESTS: "4"
+      OAI_MAX_TOKENS: "700"
+      OAI_MAX_RETRIES: "8"
+      OAI_BASE_BACKOFF: "4"
+      OAI_PAUSE_BETWEEN_CALLS: "5"
+      OAI_REQ_INTERVAL: "65"
+      ANALYSIS_MAX_FUNCTIONS: "30"
+      ANALYSIS_MAX_CLASSES: "20"
+      ANALYSIS_MAX_ROUTES: "20"
+
     steps:
       - name: Checkout pipeline repo
         uses: actions/checkout@v4
@@ -42,8 +53,7 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
           # Ensure required tools even if the target repo lacks them
-          pip install "openai>=1.0.0" pytest pytest-cov
-
+          pip install "openai>=1.0.0" pytest pytest-cov httpx
 
       - name: Generate tests
         run: |
@@ -53,6 +63,10 @@ jobs:
           analysis = json.load(open('/tmp/analysis.json'))
           g.generate_all(analysis, outdir='tests/generated')
           PY
+
+      - name: List generated tests
+        run: |
+          ls -lah tests/generated || true
 
       - name: Quick validation run
         run: python -m src.validator

@@ -1,24 +1,6 @@
-import os, json, pathlib, datetime, time, random, re, ast, math
+import os, json, pathlib, datetime, time, re, ast, math
 from typing import Dict, Any, List, Tuple
 from openai import AzureOpenAI, RateLimitError, BadRequestError  # openai>=1.0.0
-
-# ---------------- Tunables via env (safe defaults) ----------------
-MAX_TOKENS        = int(os.getenv("OAI_MAX_TOKENS", "800"))          # cap LLM output
-OAI_MAX_RETRIES   = int(os.getenv("OAI_MAX_RETRIES", "6"))
-OAI_BASE_BACKOFF  = float(os.getenv("OAI_BASE_BACKOFF", "3"))
-OAI_PAUSE_BETWEEN = float(os.getenv("OAI_PAUSE_BETWEEN_CALLS", "3"))
-OAI_REQ_INTERVAL  = float(os.getenv("OAI_REQ_INTERVAL", "0"))        # seconds between API calls (0=off)
-
-TESTGEN_KINDS         = os.getenv("TESTGEN_KINDS", "unit,integ,e2e")     # comma list
-TESTGEN_MAX_TESTS     = int(os.getenv("TESTGEN_MAX_TESTS", "6"))
-TESTGEN_FILES_PER_KIND= int(os.getenv("TESTGEN_FILES_PER_KIND", "3"))     # NEW: how many files per kind
-
-# analysis compaction caps
-AN_MAX_FUNCS   = int(os.getenv("ANALYSIS_MAX_FUNCTIONS", os.getenv("AN_MAX_FUNCS", "50")))
-AN_MAX_CLASSES = int(os.getenv("ANALYSIS_MAX_CLASSES",   os.getenv("AN_MAX_CLASSES", "30")))
-AN_MAX_ROUTES  = int(os.getenv("ANALYSIS_MAX_ROUTES",    os.getenv("AN_MAX_ROUTES", "30")))
-
-_last_call = 0.0
 
 # ---------------- System & Templates (generic only) ----------------
 SYSTEM = """You are an expert Python test engineer.
@@ -28,15 +10,18 @@ Hard rules:
 - Never import private/underscored modules (e.g., _pytest, pytest._code) or rely on internal APIs.
 - Never assert equality on repr() or values that include memory addresses.
 - Deterministic data only. No real network; mock I/O.
-- If uncertain, emit a simple test_placeholder() that passes.
+- If uncertain about a specific function, test a different discovered function instead; DO NOT emit placeholders.
+- Ensure the output contains at least ONE function whose name starts with test_.
 """
 
 UNIT_TEMPLATE = """Shard {shard}/{total} • Focus targets: {focus}
 Analysis JSON (compacted):
 {analysis}
 
-Write UNIT tests (max {max_tests} tests). Return ONLY Python code, no backticks.
-Constraints: Do NOT import private modules or use pytest internals; do NOT assert on repr().
+Write UNIT tests (aim 4–8 tests). Return ONLY Python code, no backticks.
+Constraints:
+- Do NOT import private modules or use pytest internals; do NOT assert on repr().
+- Output MUST contain at least one test function named test_*.
 Guidelines:
 - Target public functions/classes from the listed focus targets when possible; assert exact outputs / exceptions.
 - Use pytest; no external I/O; use tmp_path for files when needed.
@@ -46,8 +31,10 @@ INTEG_GENERIC = """Shard {shard}/{total} • Focus targets: {focus}
 Analysis JSON (compacted):
 {analysis}
 
-Write INTEGRATION tests (max {max_tests} tests) WITHOUT assuming any web framework.
-Constraints: No private modules; no repr-based assertions.
+Write INTEGRATION tests (aim 3–6 tests) WITHOUT assuming any web framework.
+Constraints:
+- No private modules; no repr-based assertions.
+- Output MUST contain at least one test function named test_*.
 Guidelines:
 - Identify seams with I/O (filesystem, db clients, HTTP calls); mock with monkeypatch.
 - If a CLI entrypoint (click/typer) exists among focus targets, you may test it via runner; else mock I/O seams.
@@ -58,22 +45,23 @@ E2E_GENERIC = """Shard {shard}/{total} • Focus targets: {focus}
 Analysis JSON (compacted):
 {analysis}
 
-Write E2E tests (max {max_tests} tests) for a minimal black-box workflow across multiple functions/modules.
+Write E2E tests (aim 2–4 tests) for a black-box workflow across multiple functions/modules.
 - Prefer composing the listed focus targets.
-- If no clear end-to-end entrypoint exists, emit a simple placeholder E2E test that passes.
+- If no clear end-to-end entrypoint exists, compose two or more discovered functions into a realistic workflow.
+Constraints:
+- No private modules; no repr-based assertions.
+- Output MUST contain at least one test function named test_*.
 Return ONLY Python code, no backticks.
 """
 
-# ---------------- Env helpers ----------------
+# ---------------- Minimal Azure OpenAI helpers (no env "limits") ----------------
 def _get_any_env(*names: str) -> str:
-    """Return the first non-empty env var among names, or raise."""
     for n in names:
         v = os.getenv(n)
         if v:
             return v
     raise RuntimeError(f"Missing required environment variable (tried: {', '.join(names)})")
 
-# ---------------- Azure OpenAI client helpers ----------------
 def _client() -> AzureOpenAI:
     return AzureOpenAI(
         api_key=_get_any_env("AZURE_OPENAI_KEY", "AZURE_OPENAI_API_KEY"),
@@ -84,79 +72,48 @@ def _client() -> AzureOpenAI:
 def _deployment_name() -> str:
     return _get_any_env("AZURE_OPENAI_DEPLOYMENT", "OPENAI_DEPLOYMENT")
 
-def _ensure_min_interval():
-    global _last_call
-    if OAI_REQ_INTERVAL <= 0:
-        return
-    now = time.time()
-    delta = now - _last_call
-    if delta < OAI_REQ_INTERVAL:
-        sleep_s = OAI_REQ_INTERVAL - delta
-        print(f"[RateControl] sleeping {sleep_s:.1f}s to respect OAI_REQ_INTERVAL")
-        time.sleep(sleep_s)
+def _chat_completion_create(client: AzureOpenAI, deployment: str, messages: list):
+    """
+    Azure-friendly call:
+    - Send no temperature/n.
+    - Send no token limit (let server defaults apply).
+    - If a BadRequest arises due to params, we re-raise (caller handles retries).
+    """
+    return client.chat.completions.create(model=deployment, messages=messages)
 
-def _sleep_from_headers(exc: Exception, attempt: int) -> float:
-    try:
-        ra = exc.response.headers.get("retry-after") if getattr(exc, "response", None) else None
-        if ra:
-            return float(ra)
-    except Exception:
-        pass
-    return OAI_BASE_BACKOFF * (2 ** attempt) + random.uniform(0, 1)
-
-# ---------------- Sanitizers ----------------
+# ---------------- Sanitizers & validators ----------------
 def _extract_python_only(text: str) -> str:
-    # If fenced, take inside of code blocks
     if "```" in text:
         blocks = re.findall(r"```(?:python)?\s*(.*?)```", text, flags=re.IGNORECASE|re.DOTALL)
-        if blocks:
-            text = "\n\n".join(blocks)
-        else:
-            text = text.replace("```", "")
+        text = "\n\n".join(blocks) if blocks else text.replace("```", "")
     lines = text.splitlines()
     if lines and lines[0].strip().lower() in {"python", "py"}:
         lines = lines[1:]
     return ("\n".join(lines)).strip() + "\n"
 
-def _placeholder_test(reason: str = "placeholder"):
-    return (
-        "import pytest\n\n"
-        f"# generator: {reason}\n"
-        "def test_placeholder():\n"
-        "    assert True\n"
-    )
+TEST_FUNC_RE = re.compile(r"^\s*def\s+test_[A-Za-z0-9_]*\s*\(", re.MULTILINE)
 
-def _compile_or_placeholder(code: str) -> str:
-    # If empty/whitespace or has no test functions, force placeholder
-    if not code.strip() or "def test_" not in code:
-        return _placeholder_test("empty-or-no-tests")
+def _validate_code(code: str) -> Tuple[bool, str]:
+    if not code or not code.strip():
+        return False, "empty output"
+    if not TEST_FUNC_RE.search(code):
+        return False, "no test_ functions found"
     try:
         ast.parse(code, filename="<generated>", mode="exec")
-        return code
     except SyntaxError as e:
-        print(f"[Sanitize] AST parse failed: {e}. Falling back to placeholder.")
-        return _placeholder_test("syntax-error")
+        return False, f"syntax error: {e}"
+    return True, ""
 
 # --- Brittle patterns to avoid in generated tests ---
-BANNED_IMPORT_SUBSTRS = [
-    "_pytest",            # pytest internals
-    "pytest._code",       # private pytest code API
-]
-BRITTLE_SNIPPETS = [
-    r"assert\s+repr\(",   # equality on repr is brittle
-    r"\.fullsource\b",    # pytest private API
-    r"\.source\b",        # pytest private API
-    r"0x[0-9a-fA-F]+",    # memory addresses in reprs
-]
+BANNED_IMPORT_SUBSTRS = ["_pytest", "pytest._code"]
+BRITTLE_SNIPPETS = [r"assert\s+repr\(", r"\.fullsource\b", r"\.source\b", r"0x[0-9a-fA-F]+"]
 
 def _skip_brittle_test_functions(code: str) -> str:
-    """Auto-skip test functions containing brittle patterns."""
     lines = code.splitlines()
-    out = []
-    current = []
+    out, current = [], []
 
     def is_test_header(s: str) -> bool:
-        return re.match(r"^\s*def\s+test_[A-Za-z0-9_]*\s*\(", s) is not None
+        return TEST_FUNC_RE.match(s) is not None
 
     def needs_skip(block: List[str]) -> bool:
         txt = "\n".join(block)
@@ -172,8 +129,7 @@ def _skip_brittle_test_functions(code: str) -> str:
         if is_test_header(line):
             if current:
                 out.extend(current); current = []
-            func_lines = [line]
-            i += 1
+            func_lines = [line]; i += 1
             while i < len(lines) and not is_test_header(lines[i]):
                 func_lines.append(lines[i]); i += 1
             if needs_skip(func_lines):
@@ -190,7 +146,6 @@ def _skip_brittle_test_functions(code: str) -> str:
     return text
 
 def _header_guard_for_banned_imports(code: str) -> str:
-    """If the module imports any banned internals, skip the module."""
     if any(sub in code for sub in BANNED_IMPORT_SUBSTRS):
         return (
             "import pytest as _pytest\n"
@@ -198,61 +153,55 @@ def _header_guard_for_banned_imports(code: str) -> str:
         ) + code
     return code
 
-# ---------------- Chat call (Azure-compatible across variants) ----------------
-def _chat_completion_create(client: AzureOpenAI, deployment: str, messages: list):
+# ---------------- LLM wrapper with basic regeneration (no env knobs) ----------------
+def _gen_validated(prompt: str, attempts_per_file: int = 3, backoff_seq=(3, 7, 15)) -> str:
     """
-    Create a chat completion compatible with Azure variants:
-    - Do NOT send temperature/n (some deployments only accept defaults).
-    - Try token param names in order; finally try with none.
+    Call the LLM and enforce: non-empty, has test_ function, parses.
+    Regenerate with feedback up to attempts_per_file. If still invalid → raise.
     """
-    base = dict(model=deployment, messages=messages)  # no temperature, no n
-    tried_err = None
-    for token_param in ("max_tokens", "max_completion_tokens", "max_output_tokens", None):
-        try:
-            kwargs = dict(base)
-            if token_param:
-                kwargs[token_param] = MAX_TOKENS
-            return client.chat.completions.create(**kwargs)
-        except BadRequestError as e:
-            msg = str(e)
-            if any(s in msg for s in ("Unsupported parameter", "unknown parameter", "unsupported_parameter", "Unsupported value")):
-                tried_err = e
-                continue
-            raise
-    if tried_err:
-        raise tried_err
-
-def _gen(prompt: str) -> str:
-    global _last_call
     client = _client()
     deployment = _deployment_name()
-    last_err = None
-    for attempt in range(OAI_MAX_RETRIES):
-        try:
-            _ensure_min_interval()
-            resp = _chat_completion_create(
-                client,
-                deployment,
-                [{"role": "system", "content": SYSTEM},
-                 {"role": "user",   "content": prompt}],
-            )
-            _last_call = time.time()
-            raw = resp.choices[0].message.content or ""
-            cleaned = _extract_python_only(raw)
-            code = _compile_or_placeholder(cleaned)
-            code = _skip_brittle_test_functions(code)
+
+    messages = [
+        {"role": "system", "content": SYSTEM},
+        {"role": "user",   "content": prompt},
+    ]
+
+    attempts = 0
+    while attempts < attempts_per_file:
+        attempts += 1
+        # try with a couple of 429 retries using fixed backoff
+        last_err = None
+        for idx, sleep_s in enumerate((0, *backoff_seq)):
+            try:
+                if sleep_s:
+                    time.sleep(sleep_s)
+                resp = _chat_completion_create(client, deployment, messages)
+                break
+            except RateLimitError as e:
+                last_err = e
+                continue
+        else:
+            raise RuntimeError(f"Azure OpenAI rate-limited after retries: {last_err}")
+
+        raw = resp.choices[0].message.content or ""
+        cleaned = _extract_python_only(raw)
+
+        ok, reason = _validate_code(cleaned)
+        if ok:
+            code = _skip_brittle_test_functions(cleaned)
             code = _header_guard_for_banned_imports(code)
             return code
-        except RateLimitError as e:
-            sleep_s = _sleep_from_headers(e, attempt)
-            print(f"[429] attempt {attempt+1}/{OAI_MAX_RETRIES}; sleeping {sleep_s:.1f}s")
-            time.sleep(sleep_s)
-        except BadRequestError:
-            raise
-    raise RuntimeError(f"Azure OpenAI rate-limited after {OAI_MAX_RETRIES} attempts: {last_err}")
 
-# ---------------- Analysis compaction & sharding ----------------
-def _dedupe_keep(items: List[Dict[str, str]], key: str, limit: int) -> List[Dict[str, str]]:
+        messages.append({
+            "role": "user",
+            "content": f"Previous attempt invalid: {reason}. Regenerate STRICT Python tests with at least one test_ function, no markdown, no prose."
+        })
+
+    raise RuntimeError(f"Test generation failed after {attempts_per_file} attempts (last reason: {reason}).")
+
+# ---------------- Analysis compaction (no env caps; light dedupe) ----------------
+def _dedupe_keep(items: List[Dict[str, str]], key: str, limit: int = None) -> List[Dict[str, str]]:
     seen, out = set(), []
     for it in items or []:
         k = it.get(key)
@@ -260,46 +209,68 @@ def _dedupe_keep(items: List[Dict[str, str]], key: str, limit: int) -> List[Dict
             continue
         seen.add(k)
         out.append({kk: it.get(kk) for kk in ("name","file","handler","method") if kk in it})
-        if len(out) >= limit:
+        if limit and len(out) >= limit:
             break
     return out
 
 def _compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
+    # Keep more items when projects are larger; simple adaptive soft cap
+    total_funcs = len(analysis.get("functions", []))
+    soft_cap = 120 if total_funcs > 400 else 80 if total_funcs > 200 else 50
+
     funcs  = sorted(analysis.get("functions", []), key=lambda x: x.get("file",""))
     clss   = sorted(analysis.get("classes",   []), key=lambda x: x.get("file",""))
     routes = sorted(analysis.get("routes",    []), key=lambda x: x.get("file",""))
+
     return {
-        "functions": _dedupe_keep(funcs,  "name",   AN_MAX_FUNCS),
-        "classes":   _dedupe_keep(clss,   "name",   AN_MAX_CLASSES),
-        "routes":    _dedupe_keep(routes, "handler", AN_MAX_ROUTES),
+        "functions": _dedupe_keep(funcs,  "name",   soft_cap),
+        "classes":   _dedupe_keep(clss,   "name",   max(30, soft_cap // 2)),
+        "routes":    _dedupe_keep(routes, "handler", max(30, soft_cap // 2)),
         "modules":   sorted(set(analysis.get("modules", []))),
     }
 
+# ---------------- Sharding without env knobs ----------------
 def _partition(lst: List[Dict[str, str]], n_parts: int) -> List[List[Dict[str, str]]]:
     if not lst:
         return [[] for _ in range(n_parts)]
     size = max(1, math.ceil(len(lst) / n_parts))
-    return [lst[i:i+size] for i in range(0, len(lst), size)] + [[]] * max(0, n_parts - math.ceil(len(lst)/size))
+    groups = [lst[i:i+size] for i in range(0, len(lst), size)]
+    while len(groups) < n_parts:
+        groups.append([])
+    return groups
+
+def _auto_files_per_kind(compact: Dict[str, Any], kind: str) -> int:
+    """
+    Decide how many files to generate for a kind, based on project size.
+    Unit: functions+classes; Integ/E2E: routes else functions/classes.
+    Returns 3..12 files adaptively.
+    """
+    if kind == "unit":
+        n = len(compact.get("functions", [])) + len(compact.get("classes", []))
+    else:
+        n = len(compact.get("routes", []))
+        if n == 0:
+            n = len(compact.get("functions", [])) + len(compact.get("classes", []))
+    if n <= 8:    return 3
+    if n <= 20:   return 4
+    if n <= 40:   return 6
+    if n <= 100:  return 8
+    return 12
 
 def _focus_for_shard(compact: Dict[str, Any], kind: str, shard_idx: int, total: int) -> Tuple[str, List[str]]:
-    """
-    Return (label, names) to focus this shard on, per test kind.
-    For unit: functions/classes. For integ/e2e: routes if present, else functions/classes.
-    """
     if kind == "unit":
         targets = (compact.get("functions", []) or []) + (compact.get("classes", []) or [])
         groups = _partition(targets, total)
         names = [d.get("name") for d in groups[shard_idx] if d.get("name")]
         return ", ".join(names) if names else "(none)", names
 
-    # integ/e2e
     routes = compact.get("routes", []) or []
     if routes:
         groups = _partition(routes, total)
         names = [d.get("handler") for d in groups[shard_idx] if d.get("handler")]
         label = ", ".join(sorted(set(names))) if names else "(none)"
         return label, names
-    # fallback to functions/classes
+
     targets = (compact.get("functions", []) or []) + (compact.get("classes", []) or [])
     groups = _partition(targets, total)
     names = [d.get("name") for d in groups[shard_idx] if d.get("name")]
@@ -317,30 +288,27 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated"):
     compact = _compact_analysis(analysis)
     compact_json = json.dumps(compact, separators=(",",":"))
 
-    kinds = [k.strip() for k in TESTGEN_KINDS.split(",") if k.strip()]
-    files_per_kind = max(1, TESTGEN_FILES_PER_KIND)
+    kinds = ["unit", "integ", "e2e"]  # fixed: generate all three kinds
 
     for kind in kinds:
+        files_per_kind = _auto_files_per_kind(compact, kind)
         for i in range(files_per_kind):
             focus_label, _ = _focus_for_shard(compact, kind, i, files_per_kind)
+
             if kind == "unit":
-                prompt = UNIT_TEMPLATE.format(analysis=compact_json, max_tests=TESTGEN_MAX_TESTS,
-                                              shard=i+1, total=files_per_kind, focus=focus_label)
-                code = _gen(prompt)
+                prompt = UNIT_TEMPLATE.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
+                code = _gen_validated(prompt)
                 write(out / f"test_unit_{ts}_{i+1:02d}.py", code)
+
             elif kind == "integ":
-                prompt = INTEG_GENERIC.format(analysis=compact_json, max_tests=TESTGEN_MAX_TESTS,
-                                              shard=i+1, total=files_per_kind, focus=focus_label)
-                code = _gen(prompt)
+                prompt = INTEG_GENERIC.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
+                code = _gen_validated(prompt)
                 write(out / f"test_integ_{ts}_{i+1:02d}.py", code)
+
             elif kind == "e2e":
-                prompt = E2E_GENERIC.format(analysis=compact_json, max_tests=TESTGEN_MAX_TESTS,
-                                            shard=i+1, total=files_per_kind, focus=focus_label)
-                code = _gen(prompt)
+                prompt = E2E_GENERIC.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
+                code = _gen_validated(prompt)
                 write(out / f"test_e2e_{ts}_{i+1:02d}.py", code)
-            else:
-                continue
-            time.sleep(OAI_PAUSE_BETWEEN)
 
 if __name__ == "__main__":
     import analyzer

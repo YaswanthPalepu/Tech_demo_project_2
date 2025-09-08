@@ -364,7 +364,7 @@ def _universal_bootstrap(compact: Dict[str, Any]) -> str:
     py2_alias_map_lit = repr(py2_alias_map)
 
     return f'''# --- UNIVERSAL BOOTSTRAP (generated) ---
-import os, sys, importlib, importlib.util as _iu, importlib.machinery as _im, types as _types, pytest as _pytest
+import os, sys, importlib as _importlib, importlib.util as _iu, importlib.machinery as _im, types as _types, pytest as _pytest
 
 # Ensure target root importable
 _target = os.environ.get("TARGET_ROOT") or os.environ.get("ANALYZE_ROOT") or "target"
@@ -377,7 +377,7 @@ for _k in ("DATABASE_URL","DB_URL","SQLALCHEMY_DATABASE_URI"):
     if not _v or "://" not in str(_v):
         os.environ[_k] = "sqlite:///:memory:"
 
-# Minimal Django config
+# Minimal Django config (only if actually installed)
 try:
     if _iu.find_spec("django") is not None:
         import django
@@ -394,10 +394,29 @@ try:
 except Exception:
     pass
 
-# collections.abc compatibility
+# SQLAlchemy safe create_engine
 try:
-    import collections as _collections, collections.abc as _abc
-    for _n in ("Mapping","MutableMapping","Sequence","MutableSequence","Set","MutableSet","Iterable","Iterator"):
+    if _iu.find_spec("sqlalchemy") is not None:
+        import sqlalchemy as _s_sa
+        from sqlalchemy.exc import ArgumentError as _s_ArgErr
+        _s_orig_create_engine = _s_sa.create_engine
+        def _s_safe_create_engine(url, *args, **kwargs):
+            try_url = url
+            try:
+                if not isinstance(try_url, str) or "://" not in try_url:
+                    try_url = os.environ.get("DATABASE_URL") or os.environ.get("DB_URL") or os.environ.get("SQLALCHEMY_DATABASE_URI") or "sqlite:///:memory:"
+                return _s_orig_create_engine(try_url, *args, **kwargs)
+            except _s_ArgErr:
+                return _s_orig_create_engine("sqlite:///:memory:", *args, **kwargs)
+        _s_sa.create_engine = _s_safe_create_engine
+except Exception:
+    pass
+
+# collections.abc compatibility for older libs (Py3.10+)
+try:
+    import collections as _collections
+    import collections.abc as _abc
+    for _n in ("Mapping","MutableMapping","Sequence","MutableSequence","Set","MutableSet","Iterable"):
         if not hasattr(_collections, _n) and hasattr(_abc, _n):
             setattr(_collections, _n, getattr(_abc, _n))
 except Exception:
@@ -420,145 +439,135 @@ def _safe_find_spec(name):
     except Exception:
         return None
 
-# ---------- Dummy object & generic autostub for missing packages ----------
-class _Dummy:
-    def __init__(self, *a, **k): pass
-    def __call__(self, *a, **k): return self
-    def __getattr__(self, _): return self
-    def __iter__(self): return iter(())
-    def __enter__(self): return self
-    def __exit__(self, *a): return False
-    def __bool__(self): return False
-    def __int__(self): return 0
-    def __float__(self): return 0.0
-    def read(self, *a, **k): return ""
-    def write(self, *a, **k): return 0
-    def close(self): pass
-    def __repr__(self): return "<Dummy>"
-
-def _mk_package(fullname):
-    m = _types.ModuleType(fullname)
-    m.__file__ = "<stub>"
-    m.__package__ = fullname
-    spec = _im.ModuleSpec(fullname, loader=None)
-    spec.submodule_search_locations = []  # mark as package/namespace
-    m.__spec__ = spec
-    m.__path__ = []
-    def __getattr__(name): return _Dummy()
-    m.__getattr__ = __getattr__
+# ---- Qt family stubs (PyQt5/6, PySide2/6) for headless CI ----
+def _ensure_pkg(name, is_pkg=None):
+    if name in sys.modules:
+        m = sys.modules[name]
+        if getattr(m, "__spec__", None) is None:
+            # fix broken spec
+            m.__spec__ = _im.ModuleSpec(name, loader=None, is_package=(is_pkg if is_pkg is not None else ("." not in name)))
+            if "." not in name and not hasattr(m, "__path__"):
+                m.__path__ = []
+        return m
+    m = _types.ModuleType(name)
+    if is_pkg is None:
+        is_pkg = ("." not in name)
+    if is_pkg and not hasattr(m, "__path__"):
+        m.__path__ = []
+    m.__spec__ = _im.ModuleSpec(name, loader=None, is_package=is_pkg)
+    sys.modules[name] = m
     return m
 
-# Pre-stub top-level third-party packages referenced by analysis
-_THIRD_PARTY_TOPS = {tops_lit}
-for _name in list(_THIRD_PARTY_TOPS):
-    _top = (_name or "").split(".")[0]
-    if _top and _top not in sys.modules and _safe_find_spec(_top) is None:
-        sys.modules[_top] = _mk_package(_top)
+_qt_roots = ["PyQt5", "PyQt6", "PySide2", "PySide6"]
+for _root in _qt_roots:
+    if _safe_find_spec(_root) is None:
+        # create root package and its submodules
+        _pkg = _ensure_pkg(_root, is_pkg=True)
+        _core = _ensure_pkg(f"{_root}.QtCore", is_pkg=False)
+        _gui = _ensure_pkg(f"{_root}.QtGui", is_pkg=False)
+        _widgets = _ensure_pkg(f"{_root}.QtWidgets", is_pkg=False)
 
-# ----- Robust Qt shims (PyQt5/6, PySide2/6) -----
-def _install_qt_shims(root):
-    if root not in sys.modules:
-        sys.modules[root] = _mk_package(root)
-
-    core_name = f"{root}.QtCore"
-    if core_name not in sys.modules:
-        core = _mk_package(core_name)
+        # ---- QtCore minimal API ----
         class QObject: pass
-        class _Signal:
-            def __init__(self): self._subs=[]
-            def connect(self, fn): self._subs.append(fn)
-            def emit(self, *a, **k):
-                for f in list(self._subs):
-                    try: f(*a, **k)
-                    except Exception: pass
-        class Qt: Horizontal=1; Vertical=2
-        core.QObject = QObject
-        core.Signal = _Signal
-        core.pyqtSignal = _Signal
-        core.Qt = Qt
-        sys.modules[core_name] = core
+        def pyqtSignal(*a, **k): return object()
+        def pyqtSlot(*a, **k):
+            def _decorator(fn): return fn
+            return _decorator
+        class QCoreApplication:
+            def __init__(self, *a, **k): pass
+            def exec_(self): return 0
+            def exec(self): return 0
+        _core.QObject = QObject
+        _core.pyqtSignal = pyqtSignal
+        _core.pyqtSlot = pyqtSlot
+        _core.QCoreApplication = QCoreApplication
 
-    gui_name = f"{root}.QtGui"
-    if gui_name not in sys.modules:
-        gui = _mk_package(gui_name)
-        class QFont:  # simple constructor
+        # ---- QtGui minimal API ----
+        class QFont:
             def __init__(self, *a, **k): pass
         class QDoubleValidator:
             def __init__(self, *a, **k): pass
+            def setBottom(self, *a, **k): pass
+            def setTop(self, *a, **k): pass
         class QIcon:
             def __init__(self, *a, **k): pass
         class QPixmap:
             def __init__(self, *a, **k): pass
-        gui.QFont = QFont
-        gui.QDoubleValidator = QDoubleValidator
-        gui.QIcon = QIcon
-        gui.QPixmap = QPixmap
-        sys.modules[gui_name] = gui
+        _gui.QFont = QFont
+        _gui.QDoubleValidator = QDoubleValidator
+        _gui.QIcon = QIcon
+        _gui.QPixmap = QPixmap
 
-    widgets_name = f"{root}.QtWidgets"
-    if widgets_name not in sys.modules:
-        widgets = _mk_package(widgets_name)
-        class QWidget:
-            def __init__(self, *a, **k): pass
-            def setWindowTitle(self, *a, **k): pass
-            def show(self): pass
+        # ---- QtWidgets minimal API ----
         class QApplication:
             def __init__(self, *a, **k): pass
             def exec_(self): return 0
+            def exec(self): return 0
+        class QWidget:
+            def __init__(self, *a, **k): pass
         class QLabel(QWidget):
-            def __init__(self, text=""): self._text=str(text)
-            def setText(self, t): self._text=str(t)
+            def __init__(self, *a, **k):
+                super().__init__(); self._text = ""
+            def setText(self, t): self._text = str(t)
             def text(self): return self._text
         class QLineEdit(QWidget):
-            def __init__(self, text=""): self._text=str(text)
-            def setText(self, t): self._text=str(t)
+            def __init__(self, *a, **k):
+                super().__init__(); self._text = ""
+            def setText(self, t): self._text = str(t)
             def text(self): return self._text
-            def clear(self): self._text=""
+            def clear(self): self._text = ""
         class QTextEdit(QLineEdit): pass
-        class _Signal:
-            def __init__(self): self._subs=[]
-            def connect(self, fn): self._subs.append(fn)
-            def emit(self, *a, **k):
-                for f in list(self._subs):
-                    try: f(*a, **k)
-                    except Exception: pass
         class QPushButton(QWidget):
-            def __init__(self, *a, **k): self.clicked=_Signal()
+            def __init__(self, *a, **k): super().__init__()
         class QMessageBox:
-            @staticmethod
-            def information(*a, **k): return None
             @staticmethod
             def warning(*a, **k): return None
             @staticmethod
+            def information(*a, **k): return None
+            @staticmethod
             def critical(*a, **k): return None
-        class QGridLayout:
-            def addWidget(self, *a, **k): pass
-        class QFormLayout(QGridLayout):
-            def addRow(self, *a, **k): pass
         class QFileDialog:
             @staticmethod
-            def getSaveFileName(*a, **k):
-                import os
-                return (os.path.join(os.getcwd(), "tmp_test_output.txt"), "")
-        widgets.QWidget = QWidget
-        widgets.QApplication = QApplication
-        widgets.QLabel = QLabel
-        widgets.QLineEdit = QLineEdit
-        widgets.QTextEdit = QTextEdit
-        widgets.QPushButton = QPushButton
-        widgets.QMessageBox = QMessageBox
-        widgets.QGridLayout = QGridLayout
-        widgets.QFormLayout = QFormLayout
-        widgets.QFileDialog = QFileDialog
-        sys.modules[widgets_name] = widgets
+            def getSaveFileName(*a, **k): return ("history.txt", "")
+            @staticmethod
+            def getOpenFileName(*a, **k): return ("history.txt", "")
+        class QFormLayout:
+            def __init__(self, *a, **k): pass
+            def addRow(self, *a, **k): pass
+        class QGridLayout(QFormLayout):
+            def addWidget(self, *a, **k): pass
 
-# Install shims *without* probing parents with find_spec (avoids ModuleNotFoundError)
-for fam in ("PyQt5","PyQt6","PySide2","PySide6"):
-    try:
-        if fam not in sys.modules and _safe_find_spec(fam) is None:
-            _install_qt_shims(fam)
-    except Exception:
-        pass
+        _widgets.QApplication = QApplication
+        _widgets.QWidget = QWidget
+        _widgets.QLabel = QLabel
+        _widgets.QLineEdit = QLineEdit
+        _widgets.QTextEdit = QTextEdit
+        _widgets.QPushButton = QPushButton
+        _widgets.QMessageBox = QMessageBox
+        _widgets.QFileDialog = QFileDialog
+        _widgets.QFormLayout = QFormLayout
+        _widgets.QGridLayout = QGridLayout
+
+        # Some projects (or generated tests) import widget names from QtGui by mistake.
+        # Mirror common widget symbols into QtGui to avoid ImportError.
+        for _name in ("QApplication","QWidget","QLabel","QLineEdit","QTextEdit","QPushButton","QMessageBox","QFileDialog","QFormLayout","QGridLayout"):
+            setattr(_gui, _name, getattr(_widgets, _name))
+
+# ---- Generic stub for other missing third-party tops (non-stdlib, non-local) ----
+_THIRD_PARTY_TOPS = {tops_lit}
+for _name in list(_THIRD_PARTY_TOPS):
+    _top = (_name or "").split(".")[0]
+    if not _top:
+        continue
+    if _top in sys.modules:
+        continue
+    if _safe_find_spec(_top) is not None:
+        continue
+    if _top in {{"PyQt5","PyQt6","PySide2","PySide6"}}:
+        continue
+    _m = _types.ModuleType(_top)
+    _m.__spec__ = _im.ModuleSpec(_top, loader=None, is_package=False)
+    sys.modules[_top] = _m
 
 # --- /UNIVERSAL BOOTSTRAP ---
 '''

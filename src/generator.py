@@ -1,89 +1,12 @@
 # src/generator.py
-import os, sys, json, pathlib, datetime, time, re, ast, math, subprocess, importlib.util, types as _types
+import os, sys, json, pathlib, datetime, time, re, ast, math, subprocess, importlib.util, types as _types, random
 from typing import Dict, Any, List, Tuple, Set, Optional
-from openai import AzureOpenAI, RateLimitError, BadRequestError  # openai>=1.0.0
+from openai import AzureOpenAI, RateLimitError  # openai>=1.0.0
 
-# ---------------- System & Templates ----------------
-SYSTEM = """You are an expert Python test engineer.
-Return ONLY valid Python source code (no Markdown, no backticks, no prose).
-Hard rules:
-- Test ONLY symbols from the project's own modules in analysis and standard library.
-- Never import private/underscored modules (e.g., _pytest, pytest._code) or rely on internal APIs.
-- Never assert equality on repr() or values that include memory addresses.
-- Deterministic data only. No real network; mock I/O.
-- If uncertain about a specific function, choose a different discovered function and write real assertions; DO NOT emit placeholders.
-- Ensure the output contains at least ONE function whose name starts with test_.
-- Import target modules INSIDE each test (lazy import), not at module import time.
-"""
-
-UNIT_TEMPLATE = """Shard {shard}/{total} • Focus targets: {focus}
-Analysis JSON (compacted):
-{analysis}
-
-Write UNIT tests (aim 4–8 tests). Return ONLY Python code, no backticks.
-Constraints:
-- Do NOT import private modules or use pytest internals; do NOT assert on repr().
-- Output MUST contain at least one test function named test_*.
-- Import the module(s) you test INSIDE the test body (lazy import).
-Guidelines:
-- Target public functions/classes from the listed focus targets when possible; assert exact outputs / exceptions.
-- Use pytest; no external I/O; use tmp_path for files when needed.
-"""
-
-INTEG_GENERIC = """Shard {shard}/{total} • Focus targets: {focus}
-Analysis JSON (compacted):
-{analysis}
-
-Write INTEGRATION tests (aim 3–6 tests) WITHOUT assuming any web framework.
-Constraints:
-- No private modules; no repr-based assertions.
-- Output MUST contain at least one test function named test_*.
-- Import the module(s) you test INSIDE the test body (lazy import).
-Guidelines:
-- Identify seams with I/O (filesystem, db clients, HTTP calls); mock with monkeypatch.
-- If a CLI entrypoint (click/typer) exists among focus targets, you may test it via runner; else mock I/O seams.
-Return ONLY Python code, no backticks.
-"""
-
-E2E_GENERIC = """Shard {shard}/{total} • Focus targets: {focus}
-Analysis JSON (compacted):
-{analysis}
-
-Write E2E tests (aim 2–4 tests) for a black-box workflow across multiple functions/modules.
-- Prefer composing the listed focus targets.
-- If no clear end-to-end entrypoint exists, compose two or more discovered functions into a realistic workflow.
-Constraints:
-- No private modules; no repr-based assertions.
-- Output MUST contain at least one test function named test_*.
-- Import the module(s) you test INSIDE the test body (lazy import).
-Return ONLY Python code, no backticks.
-"""
-
-INTEG_FASTAPI = """Shard {shard}/{total} • Focus targets: {focus}
-Analysis JSON (compacted):
-{analysis}
-
-Write INTEGRATION tests (aim 3–6 tests) for a FastAPI application.
-Constraints:
-- Use: from fastapi.testclient import TestClient
-- Build TestClient(app) from the project’s FastAPI app object; assert status codes and JSON shapes.
-- Output MUST contain at least one test function named test_*.
-- Import the app INSIDE the test body (lazy import).
-Return ONLY Python code, no backticks.
-"""
-
-E2E_FASTAPI = """Shard {shard}/{total} • Focus targets: {focus}
-Analysis JSON (compacted):
-{analysis}
-
-Write E2E tests (aim 2–4 tests) for FastAPI using TestClient.
-- Chain a minimal workflow across endpoints (e.g., POST -> GET -> PUT/DELETE) with deterministic payloads.
-- Assert status codes and response JSON keys/values.
-Constraints:
-- Output MUST contain at least one test function named test_*.
-- Import the app INSIDE the test body (lazy import).
-Return ONLY Python code, no backticks.
-"""
+# --------------------------------------------------------------------
+# Prompt style: set TESTGEN_PROMPT_STYLE=ultra_bare to avoid heavy templates
+# --------------------------------------------------------------------
+PROMPT_STYLE = os.getenv("TESTGEN_PROMPT_STYLE", "ultra_bare").strip().lower()
 
 # ---------------- Minimal Azure OpenAI helpers ----------------
 def _get_any_env(*names: str) -> str:
@@ -104,7 +27,31 @@ def _deployment_name() -> str:
     return _get_any_env("AZURE_OPENAI_DEPLOYMENT", "OPENAI_DEPLOYMENT")
 
 def _chat_completion_create(client: AzureOpenAI, deployment: str, messages: list):
+    # No temperature/max_tokens; let Azure defaults apply (avoids 400s on some deployments)
     return client.chat.completions.create(model=deployment, messages=messages)
+
+# ---------------- Path helpers ----------------
+REPO_ROOT = pathlib.Path(".").resolve()
+
+def _norm_rel(p: str) -> str:
+    try:
+        pp = pathlib.Path(p)
+        if pp.is_absolute():
+            try:
+                pp = pp.resolve().relative_to(REPO_ROOT)
+            except Exception:
+                pass
+        s = str(pp.as_posix())
+    except Exception:
+        s = str(p).replace("\\", "/")
+    if s.startswith("./"):
+        s = s[2:]
+    if s.startswith("target/"):
+        s = s[len("target/"):]
+    return s
+
+def _basename_set(paths: Set[str]) -> Set[str]:
+    return {pathlib.Path(p).name for p in paths}
 
 # ---------------- Sanitizers & validators ----------------
 def _extract_python_only(text: str) -> str:
@@ -129,7 +76,7 @@ def _validate_code(code: str) -> Tuple[bool, str]:
         return False, f"syntax error: {e}"
     return True, ""
 
-# --- Brittle patterns to avoid in generated tests ---
+# --- Filter brittle patterns ---
 BANNED_IMPORT_SUBSTRS = ["_pytest", "pytest._code"]
 BRITTLE_SNIPPETS = [r"assert\s+repr\(", r"\.fullsource\b", r"\.source\b", r"0x[0-9a-fA-F]+"]
 
@@ -183,49 +130,7 @@ def _header_guard_for_banned_imports(code: str) -> str:
         ) + code
     return code
 
-# ---------------- LLM wrapper with basic regeneration ----------------
-def _gen_validated(prompt: str, attempts_per_file: int = 3, backoff_seq=(3, 7, 15)) -> str:
-    client = _client()
-    deployment = _deployment_name()
-
-    messages = [
-        {"role": "system", "content": SYSTEM},
-        {"role": "user",   "content": prompt},
-    ]
-
-    attempts = 0
-    while attempts < attempts_per_file:
-        attempts += 1
-        last_err = None
-        for sleep_s in (0, *backoff_seq):
-            try:
-                if sleep_s:
-                    time.sleep(sleep_s)
-                resp = _chat_completion_create(client, deployment, messages)
-                break
-            except RateLimitError as e:
-                last_err = e
-                continue
-        else:
-            raise RuntimeError(f"Azure OpenAI rate-limited after retries: {last_err}")
-
-        raw = resp.choices[0].message.content or ""
-        cleaned = _extract_python_only(raw)
-
-        ok, reason = _validate_code(cleaned)
-        if ok:
-            code = _skip_brittle_test_functions(cleaned)
-            code = _header_guard_for_banned_imports(code)
-            return code
-
-        messages.append({
-            "role": "user",
-            "content": f"Previous attempt invalid: {reason}. Regenerate STRICT Python tests with at least one test_ function, no markdown, no prose. Import inside tests only."
-        })
-
-    raise RuntimeError(f"Test generation failed after {attempts_per_file} attempts (last reason: {reason}).")
-
-# ---------------- Analysis compaction (light dedupe) ----------------
+# ---------------- Analysis compaction ----------------
 def _dedupe_keep(items: List[Dict[str, str]], key: str, limit: int = None) -> List[Dict[str, str]]:
     seen, out = set(), []
     for it in items or []:
@@ -286,17 +191,14 @@ COMMON_PKG_ALIASES = {
     "pytest": "pytest",
 }
 
-# strong filtering for pip-installable names
 VALID_PIP_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 DENY_TOPS = {
     "__future__", "__main__", "__builtin__", "builtins",
-    # common stdlib always-deny (caught earlier but explicit is fine)
     "typing", "types", "dataclasses", "importlib", "asyncio", "json", "re", "os", "sys", "pathlib",
     "logging", "argparse", "functools", "itertools", "collections", "subprocess", "datetime", "time",
     "math", "decimal", "fractions", "statistics", "sqlite3", "http", "urllib", "hmac", "hashlib",
     "base64", "csv", "glob", "shutil", "tempfile", "inspect", "traceback", "enum", "textwrap",
     "pprint", "string",
-    # Py2 aliases that sometimes appear
     "ConfigParser", "Queue", "HTMLParser", "StringIO",
 }
 
@@ -316,7 +218,6 @@ def _is_stdlib(name: str) -> bool:
         return False
 
 def _is_local_import(top: str) -> bool:
-    # honor TARGET_ROOT if set
     roots: List[pathlib.Path] = []
     env_root = os.environ.get("TARGET_ROOT")
     if env_root:
@@ -325,7 +226,6 @@ def _is_local_import(top: str) -> bool:
         pathlib.Path("."), pathlib.Path("src"), pathlib.Path("backend"),
         pathlib.Path("app"), pathlib.Path("target"),
     ])
-    # direct file/dir check
     if pathlib.Path(top).exists() or pathlib.Path(top.replace(".", "/")).exists():
         return True
     for base in roots:
@@ -377,18 +277,21 @@ def _partition(lst: List[Dict[str, str]], n_parts: int) -> List[List[Dict[str, s
         groups.append([])
     return groups
 
-def _auto_files_per_kind(compact: Dict[str, Any], kind: str) -> int:
+def _targets_count_for_kind(compact: Dict[str, Any], kind: str) -> int:
     if kind == "unit":
+        return len(compact.get("functions", [])) + len(compact.get("classes", []))
+    n = len(compact.get("routes", []) or [])
+    if n == 0:
         n = len(compact.get("functions", [])) + len(compact.get("classes", []))
-    else:
-        n = len(compact.get("routes", []))
-        if n == 0:
-            n = len(compact.get("functions", [])) + len(compact.get("classes", []))
-    if n <= 8:    return 3
-    if n <= 20:   return 4
-    if n <= 40:   return 6
-    if n <= 100:  return 8
-    return 12
+    return n
+
+def _auto_files_per_kind(compact: Dict[str, Any], kind: str) -> int:
+    n = _targets_count_for_kind(compact, kind)
+    if n <= 0:
+        return 0
+    base = 3 if n <= 8 else 4 if n <= 20 else 6 if n <= 40 else 8 if n <= 100 else 12
+    cap = int(os.getenv("TESTGEN_FILES_PER_KIND_MAX", "6"))
+    return min(base, max(1, min(n, cap)))
 
 def _focus_for_shard(compact: Dict[str, Any], kind: str, shard_idx: int, total: int) -> Tuple[str, List[str]]:
     if kind == "unit":
@@ -446,18 +349,36 @@ def _guess_app_module_name(compact: Dict[str, Any]) -> str:
     return "main"
 
 # ---------------- Filtering analysis by changed files ----------------
-def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Set[str]]) -> Dict[str, Any]:
+def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Set[str]]) -> Tuple[Dict[str, Any], bool]:
     if not focus_files:
-        return analysis
-    def keep(it): return it.get("file") in focus_files
-    return {
-        "functions": [d for d in analysis.get("functions", []) if keep(d)],
-        "classes":   [d for d in analysis.get("classes",   []) if keep(d)],
-        "routes":    [d for d in analysis.get("routes",    []) if keep(d)],
+        return analysis, False
+
+    focus_norm: Set[str] = {_norm_rel(f) for f in focus_files}
+    focus_basenames = _basename_set(focus_norm)
+
+    def keep(entry: Dict[str, Any]) -> bool:
+        f = entry.get("file") or ""
+        fn = _norm_rel(f)
+        if fn in focus_norm:
+            return True
+        if any(fn.endswith("/" + rel) for rel in focus_norm):
+            return True
+        if pathlib.Path(fn).name in focus_basenames:
+            return True
+        return False
+
+    filt = {
+        "functions": [d for d in (analysis.get("functions") or []) if keep(d)],
+        "classes":   [d for d in (analysis.get("classes")   or []) if keep(d)],
+        "routes":    [d for d in (analysis.get("routes")    or []) if keep(d)],
         "modules":   analysis.get("modules", []),
     }
+    if not (filt["functions"] or filt["classes"] or filt["routes"]):
+        print("⚠️ Focus filter yielded 0 targets. Falling back to full analysis to ensure tests are generated.")
+        return analysis, True
+    return filt, False
 
-# ---------------- Universal bootstrap (always prepended to tests) ----------------
+# ---------------- Universal bootstrap (prepended to tests) ----------------
 def _universal_bootstrap(compact: Dict[str, Any]) -> str:
     tops: List[str] = []
     for m in compact.get("modules") or []:
@@ -479,18 +400,18 @@ def _universal_bootstrap(compact: Dict[str, Any]) -> str:
     return f'''# --- UNIVERSAL BOOTSTRAP (generated) ---
 import os, sys, importlib.util as _iu, types as _types, pytest as _pytest
 
-# Ensure target root is importable for test imports
+# Ensure target root importable
 _target = os.environ.get("TARGET_ROOT") or os.environ.get("ANALYZE_ROOT") or "target"
 if _target and _target not in sys.path:
     sys.path.insert(0, _target)
 
-# Safe DB defaults for frameworks that read URLs at import-time
+# Safe DB defaults
 for _k in ("DATABASE_URL","DB_URL","SQLALCHEMY_DATABASE_URI"):
     _v = os.environ.get(_k)
     if not _v or "://" not in str(_v):
         os.environ[_k] = "sqlite:///:memory:"
 
-# Minimal Django configuration if present but not configured
+# Minimal Django config
 try:
     if _iu.find_spec("django") is not None:
         import django
@@ -507,7 +428,7 @@ try:
 except Exception:
     pass
 
-# Make SQLAlchemy create_engine resilient (fallback to SQLite on bad URL)
+# SQLAlchemy safe create_engine
 try:
     if _iu.find_spec("sqlalchemy") is not None:
         import sqlalchemy as _s_sa
@@ -525,7 +446,7 @@ try:
 except Exception:
     pass
 
-# Map a few Python2 module names to their Py3 equivalents if imported
+# Py2 alias maps if imported
 _PY2_ALIASES = {py2_alias_map_lit}
 for _old, _new in list(_PY2_ALIASES.items()):
     if _old in sys.modules:
@@ -542,7 +463,7 @@ def _safe_find_spec(name):
     except Exception:
         return None
 
-# Stub any missing third-party tops so imports don't explode during collection
+# Stub missing third-party tops
 _THIRD_PARTY_TOPS = {tops_lit}
 for _name in list(_THIRD_PARTY_TOPS):
     _top = (_name or "").split(".")[0]
@@ -553,7 +474,6 @@ for _name in list(_THIRD_PARTY_TOPS):
     _spec = _safe_find_spec(_top)
     if _spec is None:
         _m = _types.ModuleType(_top)
-        # minimal helpful stubs
         if _top == "sqlalchemy" and not hasattr(_m, "create_engine"):
             def create_engine(url, *a, **k): return object()
             _m.create_engine = create_engine
@@ -574,10 +494,130 @@ def _runtime_guard_for(compact: Dict[str, Any]) -> str:
     bootstrap = _universal_bootstrap(compact)
     return ("import importlib.util, pytest\n" + checks + "\n" + bootstrap + "\n")
 
-# ---------------- Main generation ----------------
+# ---------------- Prompt builders ----------------
+_SYSTEM_MIN = "Return ONLY valid Python test code for pytest. No Markdown, no explanations. Import target modules inside test functions. Deterministic I/O; mock external calls; no private pytest APIs."
+
+_UNIT_BARE = (
+    "Write concise UNIT tests (3–6 tests). "
+    "Cover public functions/classes from focus list. "
+    "Assert outputs/exceptions precisely. Use tmp_path for files if needed. "
+    "No network; no repr-based asserts. Import inside tests."
+)
+
+_INTEG_BARE = (
+    "Write INTEGRATION tests (2–5 tests). "
+    "Test interactions across modules; mock I/O/db/http via monkeypatch. "
+    "No framework assumptions unless detected. Import inside tests."
+)
+
+_E2E_BARE = (
+    "Write E2E tests (2–4 tests). "
+    "Compose a realistic black-box workflow using available functions/classes. "
+    "No private APIs; deterministic; import inside tests."
+)
+
+def _limit_str(s: str, max_chars: int = 12000) -> str:
+    if len(s) <= max_chars:
+        return s
+    return s[:max_chars] + "...(truncated)"
+
+def _sample_targets(names: List[str], k: int) -> List[str]:
+    if not names:
+        return []
+    if len(names) <= k:
+        return names
+    random.seed(1234)
+    return sorted(random.sample(names, k))
+
+def _build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int, compact: Dict[str, Any]) -> List[Dict[str, str]]:
+    # Minimal prompt style
+    if PROMPT_STYLE == "ultra_bare":
+        sys_msg = _SYSTEM_MIN
+
+        # Build a tiny context with explicit target names to ground the model
+        fnames = [f.get("name") for f in (compact.get("functions") or []) if f.get("name")]
+        cnames = [c.get("name") for c in (compact.get("classes") or []) if c.get("name")]
+        rnames = [r.get("handler") for r in (compact.get("routes") or []) if r.get("handler")]
+        pick = _sample_targets(fnames + cnames + rnames, 16)
+        context = {
+            "focus": focus_label or "(none)",
+            "suggested_targets": pick,
+        }
+        brief = json.dumps(context, ensure_ascii=False)
+
+        if kind == "unit":
+            user = f"[UNIT shard {shard}/{total}] { _UNIT_BARE }\nContext: {brief}\nAnalysis: { _limit_str(compact_json) }"
+        elif kind == "integ":
+            user = f"[INTEG shard {shard}/{total}] { _INTEG_BARE }\nContext: {brief}\nAnalysis: { _limit_str(compact_json) }"
+        else:
+            user = f"[E2E shard {shard}/{total}] { _E2E_BARE }\nContext: {brief}\nAnalysis: { _limit_str(compact_json) }"
+
+        return [{"role": "system", "content": sys_msg}, {"role": "user", "content": user}]
+
+    # Classic style (fallback)
+    SYSTEM = """You are an expert Python test engineer.
+Return ONLY valid Python source code (no Markdown, no backticks, no prose).
+Hard rules:
+- Test ONLY project modules and stdlib; no private pytest internals.
+- No repr-based assertions; deterministic I/O; import targets inside each test.
+- Ensure at least one function named test_*."""
+    if kind == "unit":
+        user = f"Shard {shard}/{total} • Focus: {focus_label}\nAnalysis:\n{compact_json}\nWrite UNIT tests (4–8)."
+    elif kind == "integ":
+        user = f"Shard {shard}/{total} • Focus: {focus_label}\nAnalysis:\n{compact_json}\nWrite INTEGRATION tests (3–6)."
+    else:
+        user = f"Shard {shard}/{total} • Focus: {focus_label}\nAnalysis:\n{compact_json}\nWrite E2E tests (2–4)."
+    return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
+
+# ---------------- Smoke fallback if LLM fails ----------------
+def _smoke_from_modules(compact: Dict[str, Any]) -> str:
+    mods = sorted(set([m for m in compact.get("modules") or [] if m and (m[0].isalpha() or m[0] == "_")]))
+    body = ["import importlib, pytest"]
+    body.append("def test_import_all_modules():")
+    body.append("    mods = " + repr(mods))
+    body.append("    for m in mods:")
+    body.append("        try:")
+    body.append("            importlib.import_module(m)")
+    body.append("        except Exception as e:")
+    body.append("            pytest.skip(f'cannot import {m}: {e}')")
+    body.append("")
+    return "\n".join(body)
+
+# ---------------- Main LLM call with validation ----------------
+def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, backoff_seq=(3, 7, 15)) -> str:
+    client = _client()
+    deployment = _deployment_name()
+
+    attempts = 0
+    last_err = None
+    reason = "unknown"
+    while attempts < attempts_per_file:
+        attempts += 1
+        for sleep_s in (0, *backoff_seq):
+            try:
+                if sleep_s:
+                    time.sleep(sleep_s)
+                resp = _chat_completion_create(client, deployment, messages)
+                raw = resp.choices[0].message.content or ""
+                cleaned = _extract_python_only(raw)
+                ok, reason = _validate_code(cleaned)
+                if ok:
+                    code = _skip_brittle_test_functions(cleaned)
+                    code = _header_guard_for_banned_imports(code)
+                    return code
+                messages.append({"role": "user", "content": f"Invalid: {reason}. Regenerate STRICT pytest code (no markdown), with at least one test_ function, import targets inside tests."})
+                break
+            except RateLimitError as e:
+                last_err = e
+                continue
+    # If still failing, return smoke test
+    return _smoke_from_modules(json.loads(messages[-1]["content"].split("Analysis: ",1)[-1].rstrip(")")) if "Analysis:" in messages[-1]["content"] else {})
+
+# ---------------- Manifest helpers ----------------
 def write(path: pathlib.Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+    print(f"📝 wrote {path}")
 
 def _load_list(path: Optional[str]) -> Optional[List[str]]:
     if not path:
@@ -601,8 +641,6 @@ def _update_manifest(outdir: pathlib.Path, created_files: List[str]):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except Exception:
             manifest = {}
-
-    # Update hashes if provided
     hashes_path = os.getenv("CODE_HASHES_PATH")
     if hashes_path and pathlib.Path(hashes_path).exists():
         try:
@@ -610,7 +648,6 @@ def _update_manifest(outdir: pathlib.Path, created_files: List[str]):
             manifest["source_hashes"] = cur_hashes
         except Exception:
             pass
-
     runs = manifest.get("runs", [])
     runs.append({
         "ts": datetime.datetime.utcnow().isoformat() + "Z",
@@ -621,17 +658,17 @@ def _update_manifest(outdir: pathlib.Path, created_files: List[str]):
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
+# ---------------- Generation ----------------
 def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files: Optional[List[str]] = None):
     out = pathlib.Path(outdir)
     ts = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
-    # Optional focus files (changed files only)
-    focus_set = set(focus_files or _load_list(os.getenv("FOCUS_FILES_JSON_PATH")) or [])
-    if focus_set:
-        analysis = _filter_analysis_by_files(analysis, focus_set)
+    raw_focus = set(focus_files or _load_list(os.getenv("FOCUS_FILES_JSON_PATH")) or [])
+    filtered_analysis, _ = _filter_analysis_by_files(analysis, raw_focus if raw_focus else None)
 
-    # Install inferred third-party deps BEFORE generating tests
-    compact = _compact_analysis(analysis)
+    compact = _compact_analysis(filtered_analysis)
+
+    # Install inferred third-party deps first
     _pip_install(_infer_required_packages(compact))
 
     compact_json = json.dumps(compact, separators=(",",":"))
@@ -641,52 +678,25 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
     app_module = _guess_app_module_name(compact) if fastapi_present else None
 
     guard = _runtime_guard_for(compact)
-
     created_files: List[str] = []
 
     for kind in kinds:
         files_per_kind = _auto_files_per_kind(compact, kind)
-
-        if kind == "unit" and not (compact.get("functions") or compact.get("classes")):
-            print(f"⚠️ No functions/classes found → skipping {kind} test generation")
-            continue
-        if kind in ("integ", "e2e") and not (compact.get("routes") or compact.get("functions") or compact.get("classes")):
-            print(f"⚠️ No routes or modules found → skipping {kind} test generation")
+        if files_per_kind <= 0:
+            print(f"⚠️ No targets for {kind} → skipping {kind}")
             continue
 
         for i in range(files_per_kind):
             focus_label, _ = _focus_for_shard(compact, kind, i, files_per_kind)
+            messages = _build_prompt(kind, compact_json, focus_label, i+1, files_per_kind, compact)
 
-            if kind == "unit":
-                prompt = UNIT_TEMPLATE.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
-                code = _gen_validated(prompt)
-                path = out / f"test_unit_{ts}_{i+1:02d}.py"
-                write(path, guard + code)
-                created_files.append(str(path))
+            code = _gen_validated(messages)
 
-            elif kind == "integ":
-                if fastapi_present:
-                    prompt = INTEG_FASTAPI.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
-                    prompt += f"\n\nIMPORTANT: Import the FastAPI app from '{app_module}' and use TestClient({app_module}.app), but import INSIDE the test."
-                else:
-                    prompt = INTEG_GENERIC.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
-                code = _gen_validated(prompt)
-                path = out / f"test_integ_{ts}_{i+1:02d}.py"
-                write(path, guard + code)
-                created_files.append(str(path))
+            fname = f"test_{kind}_{ts}_{i+1:02d}.py"
+            path = out / fname
+            write(path, guard + code)
+            created_files.append(str(path))
 
-            elif kind == "e2e":
-                if fastapi_present:
-                    prompt = E2E_FASTAPI.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
-                    prompt += f"\n\nIMPORTANT: Use TestClient with '{app_module}.app', importing inside the test."
-                else:
-                    prompt = E2E_GENERIC.format(analysis=compact_json, shard=i+1, total=files_per_kind, focus=focus_label)
-                code = _gen_validated(prompt)
-                path = out / f"test_e2e_{ts}_{i+1:02d}.py"
-                write(path, guard + code)
-                created_files.append(str(path))
-
-    # Write generated list if requested
     out_list = os.getenv("GENERATED_LIST_PATH")
     if out_list:
         try:
@@ -694,7 +704,6 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
         except Exception:
             pass
 
-    # Update manifest (source_hashes + run info)
     _update_manifest(out, created_files)
 
 if __name__ == "__main__":

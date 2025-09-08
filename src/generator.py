@@ -414,29 +414,11 @@ for _old, _new in list(_PY2_ALIASES.items()):
     except Exception:
         pass
 
-# ---------- Exception resolver for tolerant asserts ----------
-def _exc_lookup(name_or_type, fallback=Exception):
-    import builtins
-    if isinstance(name_or_type, type):
-        return name_or_type
-    name = str(name_or_type)
+def _safe_find_spec(name):
     try:
-        if "." in name:
-            modname, attr = name.rsplit(".", 1)
-            try:
-                mod = sys.modules.get(modname) or importlib.import_module(modname)
-            except Exception:
-                return fallback
-            return getattr(mod, attr, fallback)
-        for _m in list(sys.modules.values()):
-            try:
-                if hasattr(_m, name):
-                    return getattr(_m, name)
-            except Exception:
-                pass
-        return getattr(builtins, name, fallback) if hasattr(builtins, name) else fallback
+        return _iu.find_spec(name)
     except Exception:
-        return fallback
+        return None
 
 # ---------- Dummy object & generic autostub for missing packages ----------
 class _Dummy:
@@ -458,22 +440,19 @@ def _mk_package(fullname):
     m = _types.ModuleType(fullname)
     m.__file__ = "<stub>"
     m.__package__ = fullname
-    # Create a valid ModuleSpec so importlib.util.find_spec() doesn't raise
     spec = _im.ModuleSpec(fullname, loader=None)
     spec.submodule_search_locations = []  # mark as package/namespace
     m.__spec__ = spec
-    m.__path__ = []  # packages should have __path__
+    m.__path__ = []
     def __getattr__(name): return _Dummy()
     m.__getattr__ = __getattr__
     return m
 
-# Pre-stub top-level third-party packages referenced by analysis (safe no-ops)
+# Pre-stub top-level third-party packages referenced by analysis
 _THIRD_PARTY_TOPS = {tops_lit}
 for _name in list(_THIRD_PARTY_TOPS):
     _top = (_name or "").split(".")[0]
-    if not _top:
-        continue
-    if _top not in sys.modules and _iu.find_spec(_top) is None:
+    if _top and _top not in sys.modules and _safe_find_spec(_top) is None:
         sys.modules[_top] = _mk_package(_top)
 
 # ----- Robust Qt shims (PyQt5/6, PySide2/6) -----
@@ -481,8 +460,7 @@ def _install_qt_shims(root):
     if root not in sys.modules:
         sys.modules[root] = _mk_package(root)
 
-    # QtCore
-    core_name = "{{}}.QtCore".format(root)
+    core_name = f"{root}.QtCore"
     if core_name not in sys.modules:
         core = _mk_package(core_name)
         class QObject: pass
@@ -500,11 +478,10 @@ def _install_qt_shims(root):
         core.Qt = Qt
         sys.modules[core_name] = core
 
-    # QtGui
-    gui_name = "{{}}.QtGui".format(root)
+    gui_name = f"{root}.QtGui"
     if gui_name not in sys.modules:
         gui = _mk_package(gui_name)
-        class QFont:  # enough for code that just constructs it
+        class QFont:  # simple constructor
             def __init__(self, *a, **k): pass
         class QDoubleValidator:
             def __init__(self, *a, **k): pass
@@ -518,8 +495,7 @@ def _install_qt_shims(root):
         gui.QPixmap = QPixmap
         sys.modules[gui_name] = gui
 
-    # QtWidgets
-    widgets_name = "{{}}.QtWidgets".format(root)
+    widgets_name = f"{root}.QtWidgets"
     if widgets_name not in sys.modules:
         widgets = _mk_package(widgets_name)
         class QWidget:
@@ -576,15 +552,17 @@ def _install_qt_shims(root):
         widgets.QFileDialog = QFileDialog
         sys.modules[widgets_name] = widgets
 
-# Only consider Qt "present" if a real/usable Widgets submodule is discoverable
-_qt_fams = ("PyQt5","PyQt6","PySide2","PySide6")
-_qt_widget_candidates = [ "{{}}.QtWidgets".format(f) for f in _qt_fams ]
-if not any(_iu.find_spec(name) is not None for name in _qt_widget_candidates):
-    for fam in _qt_fams:
-        _install_qt_shims(fam)
+# Install shims *without* probing parents with find_spec (avoids ModuleNotFoundError)
+for fam in ("PyQt5","PyQt6","PySide2","PySide6"):
+    try:
+        if fam not in sys.modules and _safe_find_spec(fam) is None:
+            _install_qt_shims(fam)
+    except Exception:
+        pass
 
 # --- /UNIVERSAL BOOTSTRAP ---
 '''
+
 
 
 

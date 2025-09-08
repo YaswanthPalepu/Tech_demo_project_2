@@ -363,8 +363,6 @@ def _universal_bootstrap(compact: Dict[str, Any]) -> str:
     }
     py2_alias_map_lit = repr(py2_alias_map)
 
-    # IMPORTANT: This returns a normal f-string that only interpolates
-    # tops_lit and py2_alias_map_lit. There are NO nested f-strings inside.
     return f'''# --- UNIVERSAL BOOTSTRAP (generated) ---
 import os, sys, importlib as _importlib, importlib.util as _iu, importlib.machinery as _im, types as _types, pytest as _pytest
 
@@ -465,7 +463,6 @@ except Exception:
 def _ensure_pkg(name, is_pkg=None):
     if name in sys.modules:
         m = sys.modules[name]
-        # Fix previously created modules that lack a proper spec/path
         if getattr(m, "__spec__", None) is None:
             m.__spec__ = _im.ModuleSpec(name, loader=None, is_package=(is_pkg if is_pkg is not None else ("." not in name)))
         if "." not in name and not hasattr(m, "__path__"):
@@ -597,21 +594,6 @@ for _name in list(_THIRD_PARTY_TOPS):
 # --- /UNIVERSAL BOOTSTRAP ---
 '''
 
-def _runtime_guard_for(compact: Dict[str, Any]) -> str:
-    critical = {"fastapi", "flask", "django", "sqlalchemy", "starlette", "pydantic"}
-    mods = {m.split(".")[0].lower() for m in (compact.get("modules") or [])}
-    needed = sorted(critical & mods)
-    checks = ""
-    if needed:
-        checks = "\n".join(
-            [
-                f"if importlib.util.find_spec('{m}') is None:\n    pytest.skip('{m} not installed; skipping module', allow_module_level=True)"
-                for m in needed
-            ]
-        ) + "\n"
-    bootstrap = _universal_bootstrap(compact)
-    return ("import importlib.util, pytest\n" + checks + "\n" + bootstrap + "\n")
-
 # ---------------- Prompt builders ----------------
 _SYSTEM_MIN = (
     "Return ONLY valid Python test code for pytest. No Markdown, no explanations. "
@@ -619,7 +601,7 @@ _SYSTEM_MIN = (
     "Deterministic I/O; no network; mock file/db/http/UI as needed (monkeypatch/tmp_path). "
     "Do NOT use private pytest internals. "
     "Do NOT use custom pytest markers. "
-    "If GUIs are present (Qt/PySide), DO NOT start event loops; assume lightweight shims exist. "
+    "If GUIs are present (Qt/PySide), DO NOT start event loops; rely on shims. "
     "For exceptions NEVER assume custom names; always call _exc_lookup('Name', Exception) inside pytest.raises and isinstance."
 )
 
@@ -707,6 +689,90 @@ _RAISES_BARE = re.compile(r"pytest\.raises\(\s*([A-Za-z_][\w]*)\s*(,|\))")
 _ISINSTANCE_QUAL = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\s*\)")
 _ISINSTANCE_BARE = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)")
 
+_CANONICAL_QT_SHIM = r'''
+# --- canonical PyQt5 shim (covers Widgets + Gui used by common UIs) ---
+def __qt_shim_canonical():
+    import types as _t
+    PyQt5 = _t.ModuleType("PyQt5")
+    QtWidgets = _t.ModuleType("PyQt5.QtWidgets")
+    QtGui = _t.ModuleType("PyQt5.QtGui")
+
+    class QApplication:
+        def __init__(self, *a, **k): pass
+        def exec_(self): return 0
+        def exec(self): return 0
+    class QWidget:
+        def __init__(self, *a, **k): pass
+    class QLabel(QWidget):
+        def __init__(self, *a, **k):
+            super().__init__(); self._text = ""
+        def setText(self, t): self._text = str(t)
+        def text(self): return self._text
+    class QLineEdit(QWidget):
+        def __init__(self, *a, **k):
+            super().__init__(); self._text = ""
+        def setText(self, t): self._text = str(t)
+        def text(self): return self._text
+        def clear(self): self._text = ""
+    class QTextEdit(QLineEdit): pass
+    class QPushButton(QWidget):
+        def __init__(self, *a, **k): super().__init__()
+    class QMessageBox:
+        @staticmethod
+        def warning(*a, **k): return None
+        @staticmethod
+        def information(*a, **k): return None
+        @staticmethod
+        def critical(*a, **k): return None
+    class QFileDialog:
+        @staticmethod
+        def getSaveFileName(*a, **k): return ("history.txt", "")
+        @staticmethod
+        def getOpenFileName(*a, **k): return ("history.txt", "")
+    class QFormLayout:
+        def __init__(self, *a, **k): pass
+        def addRow(self, *a, **k): pass
+    class QGridLayout(QFormLayout):
+        def addWidget(self, *a, **k): pass
+
+    # QtGui bits commonly imported
+    class QFont:
+        def __init__(self, *a, **k): pass
+    class QDoubleValidator:
+        def __init__(self, *a, **k): pass
+        def setBottom(self, *a, **k): pass
+        def setTop(self, *a, **k): pass
+    class QIcon:
+        def __init__(self, *a, **k): pass
+    class QPixmap:
+        def __init__(self, *a, **k): pass
+
+    # Export
+    QtWidgets.QApplication = QApplication
+    QtWidgets.QWidget = QWidget
+    QtWidgets.QLabel = QLabel
+    QtWidgets.QLineEdit = QLineEdit
+    QtWidgets.QTextEdit = QTextEdit
+    QtWidgets.QPushButton = QPushButton
+    QtWidgets.QMessageBox = QMessageBox
+    QtWidgets.QFileDialog = QFileDialog
+    QtWidgets.QFormLayout = QFormLayout
+    QtWidgets.QGridLayout = QGridLayout
+
+    QtGui.QFont = QFont
+    QtGui.QDoubleValidator = QDoubleValidator
+    QtGui.QIcon = QIcon
+    QtGui.QPixmap = QPixmap
+
+    return PyQt5, QtWidgets, QtGui
+'''
+
+def _ensure_qt_shim_alias_if_needed(code: str) -> str:
+    """If tests reference _make_pyqt5_shim, ensure a robust canonical shim is present and aliased."""
+    if "_make_pyqt5_shim" in code and "__qt_shim_canonical" not in code:
+        code += "\n" + _CANONICAL_QT_SHIM + "\n" + "_make_pyqt5_shim = __qt_shim_canonical\n"
+    return code
+
 def _massage_generated_code(code: str) -> str:
     # pytest.raises(X) -> pytest.raises(_exc_lookup("X", Exception))
     def _repl_qual(m): return f'pytest.raises(_exc_lookup("{m.group(1)}", Exception){m.group(2)}'
@@ -719,6 +785,9 @@ def _massage_generated_code(code: str) -> str:
     def _repl_is_b(m): return f'isinstance({m.group(1)}, _exc_lookup("{m.group(2)}", Exception))'
     code = _ISINSTANCE_QUAL.sub(_repl_is_q, code)
     code = _ISINSTANCE_BARE.sub(_repl_is_b, code)
+
+    # Ensure robust Qt shim when referenced
+    code = _ensure_qt_shim_alias_if_needed(code)
 
     return code
 
@@ -837,6 +906,21 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
     _update_manifest(out, created_files)
 
 # ---------------- LLM call with validation ----------------
+def _runtime_guard_for(compact: Dict[str, Any]) -> str:
+    critical = {"fastapi", "flask", "django", "sqlalchemy", "starlette", "pydantic"}
+    mods = {m.split(".")[0].lower() for m in (compact.get("modules") or [])}
+    needed = sorted(critical & mods)
+    checks = ""
+    if needed:
+        checks = "\n".join(
+            [
+                f"if importlib.util.find_spec('{m}') is None:\n    pytest.skip('{m} not installed; skipping module', allow_module_level=True)"
+                for m in needed
+            ]
+        ) + "\n"
+    bootstrap = _universal_bootstrap(compact)
+    return ("import importlib.util, pytest\n" + checks + "\n" + bootstrap + "\n")
+
 def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, backoff_seq=(3, 7, 15), compact: Optional[Dict[str, Any]] = None) -> str:
     client = _client()
     deployment = _deployment_name()

@@ -689,6 +689,7 @@ _RAISES_BARE = re.compile(r"pytest\.raises\(\s*([A-Za-z_][\w]*)\s*(,|\))")
 _ISINSTANCE_QUAL = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\s*\)")
 _ISINSTANCE_BARE = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)")
 
+# add near the other regex helpers
 _CANONICAL_QT_SHIM = r'''
 # --- canonical PyQt5 shim (covers Widgets + Gui used by common UIs) ---
 def __qt_shim_canonical():
@@ -747,7 +748,6 @@ def __qt_shim_canonical():
     class QPixmap:
         def __init__(self, *a, **k): pass
 
-    # Export
     QtWidgets.QApplication = QApplication
     QtWidgets.QWidget = QWidget
     QtWidgets.QLabel = QLabel
@@ -766,6 +766,17 @@ def __qt_shim_canonical():
 
     return PyQt5, QtWidgets, QtGui
 '''
+def _always_append_qt_shim(code: str) -> str:
+    # Always append the canonical shim + alias common helper names to it,
+    # so even if tests define their own stubs, the LAST assignment wins.
+    suffix = "\n" + _CANONICAL_QT_SHIM + "\n" + "\n".join([
+        "_make_pyqt5_shim = __qt_shim_canonical",
+        "_make_pyqt_shim = __qt_shim_canonical",
+        "_make_pyqt_shims = __qt_shim_canonical",
+        "_make_qt_shims = __qt_shim_canonical",
+    ]) + "\n"
+    return code + suffix
+
 
 def _ensure_qt_shim_alias_if_needed(code: str) -> str:
     """If tests reference _make_pyqt5_shim, ensure a robust canonical shim is present and aliased."""
@@ -774,22 +785,20 @@ def _ensure_qt_shim_alias_if_needed(code: str) -> str:
     return code
 
 def _massage_generated_code(code: str) -> str:
-    # pytest.raises(X) -> pytest.raises(_exc_lookup("X", Exception))
+    # normalize pytest.raises / isinstance
     def _repl_qual(m): return f'pytest.raises(_exc_lookup("{m.group(1)}", Exception){m.group(2)}'
     def _repl_bare(m): return f'pytest.raises(_exc_lookup("{m.group(1)}", Exception){m.group(2)}'
     code = _RAISES_QUAL.sub(_repl_qual, code)
     code = _RAISES_BARE.sub(_repl_bare, code)
-
-    # isinstance(err, X) -> isinstance(err, _exc_lookup("X", Exception))
     def _repl_is_q(m): return f'isinstance({m.group(1)}, _exc_lookup("{m.group(2)}", Exception))'
     def _repl_is_b(m): return f'isinstance({m.group(1)}, _exc_lookup("{m.group(2)}", Exception))'
     code = _ISINSTANCE_QUAL.sub(_repl_is_q, code)
     code = _ISINSTANCE_BARE.sub(_repl_is_b, code)
 
-    # Ensure robust Qt shim when referenced
-    code = _ensure_qt_shim_alias_if_needed(code)
-
+    # Always append robust Qt shim + aliases
+    code = _always_append_qt_shim(code)
     return code
+
 
 # ---------------- Manifest helpers ----------------
 def write(path: pathlib.Path, content: str):

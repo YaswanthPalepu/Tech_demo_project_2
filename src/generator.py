@@ -363,10 +363,8 @@ def _universal_bootstrap(compact: Dict[str, Any]) -> str:
     }
     py2_alias_map_lit = repr(py2_alias_map)
 
-    # NOTE: keep this as an f-string ONLY for injecting tops_lit / py2_alias_map_lit.
-    # Inside the string, do NOT use f-strings—use .format(root) instead—to avoid early interpolation.
     return f'''# --- UNIVERSAL BOOTSTRAP (generated) ---
-import os, sys, importlib, importlib.util as _iu, importlib.abc, importlib.machinery, types as _types, pytest as _pytest
+import os, sys, importlib, importlib.util as _iu, importlib.machinery as _im, types as _types, pytest as _pytest
 
 # Ensure target root importable
 _target = os.environ.get("TARGET_ROOT") or os.environ.get("ANALYZE_ROOT") or "target"
@@ -458,7 +456,13 @@ class _Dummy:
 
 def _mk_package(fullname):
     m = _types.ModuleType(fullname)
-    m.__path__ = []  # mark as package
+    m.__file__ = "<stub>"
+    m.__package__ = fullname
+    # Create a valid ModuleSpec so importlib.util.find_spec() doesn't raise
+    spec = _im.ModuleSpec(fullname, loader=None)
+    spec.submodule_search_locations = []  # mark as package/namespace
+    m.__spec__ = spec
+    m.__path__ = []  # packages should have __path__
     def __getattr__(name): return _Dummy()
     m.__getattr__ = __getattr__
     return m
@@ -467,10 +471,9 @@ def _mk_package(fullname):
 _THIRD_PARTY_TOPS = {tops_lit}
 for _name in list(_THIRD_PARTY_TOPS):
     _top = (_name or "").split(".")[0]
-    if not _top or _top in sys.modules:
+    if not _top:
         continue
-    _spec = _iu.find_spec(_top)
-    if _spec is None:
+    if _top not in sys.modules and _iu.find_spec(_top) is None:
         sys.modules[_top] = _mk_package(_top)
 
 # ----- Robust Qt shims (PyQt5/6, PySide2/6) -----
@@ -501,7 +504,7 @@ def _install_qt_shims(root):
     gui_name = "{{}}.QtGui".format(root)
     if gui_name not in sys.modules:
         gui = _mk_package(gui_name)
-        class QFont:
+        class QFont:  # enough for code that just constructs it
             def __init__(self, *a, **k): pass
         class QDoubleValidator:
             def __init__(self, *a, **k): pass
@@ -573,14 +576,16 @@ def _install_qt_shims(root):
         widgets.QFileDialog = QFileDialog
         sys.modules[widgets_name] = widgets
 
-# Always ensure at least one shim family exists
+# Only consider Qt "present" if a real/usable Widgets submodule is discoverable
 _qt_fams = ("PyQt5","PyQt6","PySide2","PySide6")
-if not any(_iu.find_spec(f) is not None for f in _qt_fams):
+_qt_widget_candidates = [ "{{}}.QtWidgets".format(f) for f in _qt_fams ]
+if not any(_iu.find_spec(name) is not None for name in _qt_widget_candidates):
     for fam in _qt_fams:
         _install_qt_shims(fam)
 
 # --- /UNIVERSAL BOOTSTRAP ---
 '''
+
 
 
 def _runtime_guard_for(compact: Dict[str, Any]) -> str:

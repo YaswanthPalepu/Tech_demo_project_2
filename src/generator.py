@@ -363,6 +363,8 @@ def _universal_bootstrap(compact: Dict[str, Any]) -> str:
     }
     py2_alias_map_lit = repr(py2_alias_map)
 
+    # IMPORTANT: This returns a normal f-string that only interpolates
+    # tops_lit and py2_alias_map_lit. There are NO nested f-strings inside.
     return f'''# --- UNIVERSAL BOOTSTRAP (generated) ---
 import os, sys, importlib as _importlib, importlib.util as _iu, importlib.machinery as _im, types as _types, pytest as _pytest
 
@@ -444,7 +446,6 @@ def _ensure_pkg(name, is_pkg=None):
     if name in sys.modules:
         m = sys.modules[name]
         if getattr(m, "__spec__", None) is None:
-            # fix broken spec
             m.__spec__ = _im.ModuleSpec(name, loader=None, is_package=(is_pkg if is_pkg is not None else ("." not in name)))
             if "." not in name and not hasattr(m, "__path__"):
                 m.__path__ = []
@@ -459,13 +460,12 @@ def _ensure_pkg(name, is_pkg=None):
     return m
 
 _qt_roots = ["PyQt5", "PyQt6", "PySide2", "PySide6"]
-for _root in _qt_roots:
-    if _safe_find_spec(_root) is None:
-        # create root package and its submodules
-        _pkg = _ensure_pkg(_root, is_pkg=True)
-        _core = _ensure_pkg(f"{_root}.QtCore", is_pkg=False)
-        _gui = _ensure_pkg(f"{_root}.QtGui", is_pkg=False)
-        _widgets = _ensure_pkg(f"{_root}.QtWidgets", is_pkg=False)
+for __qt_root in _qt_roots:
+    if _safe_find_spec(__qt_root) is None:
+        _pkg = _ensure_pkg(__qt_root, is_pkg=True)
+        _core = _ensure_pkg(__qt_root + ".QtCore", is_pkg=False)
+        _gui = _ensure_pkg(__qt_root + ".QtGui", is_pkg=False)
+        _widgets = _ensure_pkg(__qt_root + ".QtWidgets", is_pkg=False)
 
         # ---- QtCore minimal API ----
         class QObject: pass
@@ -548,8 +548,7 @@ for _root in _qt_roots:
         _widgets.QFormLayout = QFormLayout
         _widgets.QGridLayout = QGridLayout
 
-        # Some projects (or generated tests) import widget names from QtGui by mistake.
-        # Mirror common widget symbols into QtGui to avoid ImportError.
+        # Mirror common widget symbols into QtGui to tolerate odd imports
         for _name in ("QApplication","QWidget","QLabel","QLineEdit","QTextEdit","QPushButton","QMessageBox","QFileDialog","QFormLayout","QGridLayout"):
             setattr(_gui, _name, getattr(_widgets, _name))
 

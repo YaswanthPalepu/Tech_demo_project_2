@@ -373,6 +373,17 @@ _target = os.environ.get("TARGET_ROOT") or os.environ.get("ANALYZE_ROOT") or "ta
 if _target and _target not in sys.path:
     sys.path.insert(0, _target)
 
+# Provide a helper for exception lookups used by generated tests
+def _exc_lookup(name, default):
+    try:
+        mod_name, _, cls_name = str(name).rpartition(".")
+        if mod_name:
+            mod = __import__(mod_name, fromlist=[cls_name])
+            return getattr(mod, cls_name, default)
+        return getattr(sys.modules.get("builtins"), str(name), default)
+    except Exception:
+        return default
+
 # Safe DB defaults
 for _k in ("DATABASE_URL","DB_URL","SQLALCHEMY_DATABASE_URI"):
     _v = os.environ.get(_k)
@@ -435,20 +446,30 @@ for _old, _new in list(_PY2_ALIASES.items()):
     except Exception:
         pass
 
-def _safe_find_spec(name):
-    try:
-        return _iu.find_spec(name)
-    except Exception:
-        return None
+# ---- Qt / PySide families: make importlib.util.find_spec safe & add stubs ----
+_qt_roots = ("PyQt5","PyQt6","PySide2","PySide6")
 
-# ---- Qt family stubs (PyQt5/6, PySide2/6) for headless CI ----
+try:
+    _orig_find_spec = _iu.find_spec
+    def _find_spec_safe(name, *a, **k):
+        try:
+            return _orig_find_spec(name, *a, **k)
+        except Exception:
+            if any(name == q or name.startswith(q + ".") for q in _qt_roots):
+                return None
+            raise
+    _iu.find_spec = _find_spec_safe
+except Exception:
+    pass
+
 def _ensure_pkg(name, is_pkg=None):
     if name in sys.modules:
         m = sys.modules[name]
+        # Fix previously created modules that lack a proper spec/path
         if getattr(m, "__spec__", None) is None:
             m.__spec__ = _im.ModuleSpec(name, loader=None, is_package=(is_pkg if is_pkg is not None else ("." not in name)))
-            if "." not in name and not hasattr(m, "__path__"):
-                m.__path__ = []
+        if "." not in name and not hasattr(m, "__path__"):
+            m.__path__ = []
         return m
     m = _types.ModuleType(name)
     if is_pkg is None:
@@ -459,7 +480,12 @@ def _ensure_pkg(name, is_pkg=None):
     sys.modules[name] = m
     return m
 
-_qt_roots = ["PyQt5", "PyQt6", "PySide2", "PySide6"]
+def _safe_find_spec(name):
+    try:
+        return _iu.find_spec(name)
+    except Exception:
+        return None
+
 for __qt_root in _qt_roots:
     if _safe_find_spec(__qt_root) is None:
         _pkg = _ensure_pkg(__qt_root, is_pkg=True)
@@ -562,7 +588,7 @@ for _name in list(_THIRD_PARTY_TOPS):
         continue
     if _safe_find_spec(_top) is not None:
         continue
-    if _top in {{"PyQt5","PyQt6","PySide2","PySide6"}}:
+    if _top in set(_qt_roots):
         continue
     _m = _types.ModuleType(_top)
     _m.__spec__ = _im.ModuleSpec(_top, loader=None, is_package=False)
@@ -570,9 +596,6 @@ for _name in list(_THIRD_PARTY_TOPS):
 
 # --- /UNIVERSAL BOOTSTRAP ---
 '''
-
-
-
 
 def _runtime_guard_for(compact: Dict[str, Any]) -> str:
     critical = {"fastapi", "flask", "django", "sqlalchemy", "starlette", "pydantic"}

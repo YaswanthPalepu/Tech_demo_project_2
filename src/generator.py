@@ -363,6 +363,8 @@ def _universal_bootstrap(compact: Dict[str, Any]) -> str:
     }
     py2_alias_map_lit = repr(py2_alias_map)
 
+    # NOTE: keep this as an f-string ONLY for injecting tops_lit / py2_alias_map_lit.
+    # Inside the string, do NOT use f-strings—use .format(root) instead—to avoid early interpolation.
     return f'''# --- UNIVERSAL BOOTSTRAP (generated) ---
 import os, sys, importlib, importlib.util as _iu, importlib.abc, importlib.machinery, types as _types, pytest as _pytest
 
@@ -477,7 +479,7 @@ def _install_qt_shims(root):
         sys.modules[root] = _mk_package(root)
 
     # QtCore
-    core_name = f"{root}.QtCore"
+    core_name = "{{}}.QtCore".format(root)
     if core_name not in sys.modules:
         core = _mk_package(core_name)
         class QObject: pass
@@ -496,10 +498,10 @@ def _install_qt_shims(root):
         sys.modules[core_name] = core
 
     # QtGui
-    gui_name = f"{root}.QtGui"
+    gui_name = "{{}}.QtGui".format(root)
     if gui_name not in sys.modules:
         gui = _mk_package(gui_name)
-        class QFont: 
+        class QFont:
             def __init__(self, *a, **k): pass
         class QDoubleValidator:
             def __init__(self, *a, **k): pass
@@ -514,7 +516,7 @@ def _install_qt_shims(root):
         sys.modules[gui_name] = gui
 
     # QtWidgets
-    widgets_name = f"{root}.QtWidgets"
+    widgets_name = "{{}}.QtWidgets".format(root)
     if widgets_name not in sys.modules:
         widgets = _mk_package(widgets_name)
         class QWidget:
@@ -557,6 +559,7 @@ def _install_qt_shims(root):
         class QFileDialog:
             @staticmethod
             def getSaveFileName(*a, **k):
+                import os
                 return (os.path.join(os.getcwd(), "tmp_test_output.txt"), "")
         widgets.QWidget = QWidget
         widgets.QApplication = QApplication
@@ -578,6 +581,7 @@ if not any(_iu.find_spec(f) is not None for f in _qt_fams):
 
 # --- /UNIVERSAL BOOTSTRAP ---
 '''
+
 
 def _runtime_guard_for(compact: Dict[str, Any]) -> str:
     critical = {"fastapi", "flask", "django", "sqlalchemy", "starlette", "pydantic"}

@@ -451,7 +451,7 @@ except Exception:
 try:
     import collections as _collections
     import collections.abc as _abc
-    for _n in ("Mapping","MutableMapping","Sequence","MutableSequence","Set","MutableSet","Iterable"):
+    for _n in ("Mapping","MutableMapping","Sequence","MutableSequence","Set","MutableSet","Iterable","Iterator"):
         if not hasattr(_collections, _n) and hasattr(_abc, _n):
             setattr(_collections, _n, getattr(_abc, _n))
 except Exception:
@@ -489,6 +489,24 @@ for _name in list(_THIRD_PARTY_TOPS):
             def create_engine(url, *a, **k): return object()
             _m.create_engine = create_engine
         sys.modules[_top] = _m
+
+# Autostub any submodules under stubbed tops (e.g., PyQt5.QtWidgets, pkg.sub.mod)
+try:
+    import importlib, importlib.abc, importlib.machinery
+    class _StubFinder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+        def find_spec(self, fullname, path=None, target=None):
+            top = fullname.split(".", 1)[0]
+            if top in _THIRD_PARTY_TOPS:
+                return importlib.machinery.ModuleSpec(fullname, self)
+        def create_module(self, spec):
+            return None  # default module creation
+        def exec_module(self, module):
+            pass       # no-op body
+    if not any(isinstance(f, _StubFinder) for f in sys.meta_path):
+        sys.meta_path.insert(0, _StubFinder())
+except Exception:
+    pass
+
 # --- /UNIVERSAL BOOTSTRAP ---
 '''
 

@@ -189,6 +189,7 @@ COMMON_PKG_ALIASES = {
     "pymongo": "pymongo",
     "redis": "redis",
     "pytest": "pytest",
+    "jwt": "PyJWT",  # ← ensure 'import jwt' resolves to PyJWT on Py3.10+
 }
 
 VALID_PIP_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
@@ -446,6 +447,16 @@ try:
 except Exception:
     pass
 
+# collections.abc compatibility for older libs (Py3.10+)
+try:
+    import collections as _collections
+    import collections.abc as _abc
+    for _n in ("Mapping","MutableMapping","Sequence","MutableSequence","Set","MutableSet","Iterable"):
+        if not hasattr(_collections, _n) and hasattr(_abc, _n):
+            setattr(_collections, _n, getattr(_abc, _n))
+except Exception:
+    pass
+
 # Py2 alias maps if imported
 _PY2_ALIASES = {py2_alias_map_lit}
 for _old, _new in list(_PY2_ALIASES.items()):
@@ -584,7 +595,7 @@ def _smoke_from_modules(compact: Dict[str, Any]) -> str:
     return "\n".join(body)
 
 # ---------------- Main LLM call with validation ----------------
-def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, backoff_seq=(3, 7, 15)) -> str:
+def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, backoff_seq=(3, 7, 15), compact: Optional[Dict[str, Any]] = None) -> str:
     client = _client()
     deployment = _deployment_name()
 
@@ -610,8 +621,8 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
             except RateLimitError as e:
                 last_err = e
                 continue
-    # If still failing, return smoke test
-    return _smoke_from_modules(json.loads(messages[-1]["content"].split("Analysis: ",1)[-1].rstrip(")")) if "Analysis:" in messages[-1]["content"] else {})
+    # If still failing, return smoke test (no brittle prompt parsing)
+    return _smoke_from_modules(compact or {})
 
 # ---------------- Manifest helpers ----------------
 def write(path: pathlib.Path, content: str):
@@ -690,7 +701,7 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
             focus_label, _ = _focus_for_shard(compact, kind, i, files_per_kind)
             messages = _build_prompt(kind, compact_json, focus_label, i+1, files_per_kind, compact)
 
-            code = _gen_validated(messages)
+            code = _gen_validated(messages, compact=compact)
 
             fname = f"test_{kind}_{ts}_{i+1:02d}.py"
             path = out / fname

@@ -27,7 +27,6 @@ def _deployment_name() -> str:
     return _get_any_env("AZURE_OPENAI_DEPLOYMENT", "OPENAI_DEPLOYMENT")
 
 def _chat_completion_create(client: AzureOpenAI, deployment: str, messages: list):
-    # No temperature/max_tokens; let Azure defaults apply
     return client.chat.completions.create(model=deployment, messages=messages)
 
 # ---------------- Path helpers ----------------
@@ -213,11 +212,11 @@ def _is_stdlib(name: str) -> bool:
         if stdmods:
             return name in stdmods
         return name in {
-            "os", "sys", "re", "json", "pathlib", "math", "itertools", "functools", "typing", "subprocess",
-            "datetime", "time", "collections", "dataclasses", "ast", "logging", "unittest", "argparse",
-            "asyncio", "multiprocessing", "threading", "sqlite3", "email", "http", "urllib", "hashlib",
-            "hmac", "base64", "statistics", "random", "fractions", "decimal", "csv", "shutil", "tempfile",
-            "glob", "inspect", "traceback", "textwrap", "string", "pprint", "enum", "types"
+            "os","sys","re","json","pathlib","math","itertools","functools","typing","subprocess",
+            "datetime","time","collections","dataclasses","ast","logging","unittest","argparse",
+            "asyncio","multiprocessing","threading","sqlite3","email","http","urllib","hashlib",
+            "hmac","base64","statistics","random","fractions","decimal","csv","shutil","tempfile",
+            "glob","inspect","traceback","textwrap","string","pprint","enum","types"
         }
     except Exception:
         return False
@@ -335,14 +334,61 @@ def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Se
 
     filt = {
         "functions": [d for d in (analysis.get("functions") or []) if keep(d)],
-        "classes": [d for d in (analysis.get("classes") or []) if keep(d)],
-        "routes": [d for d in (analysis.get("routes") or []) if keep(d)],
+        "classes":  [d for d in (analysis.get("classes")  or []) if keep(d)],
+        "routes":   [d for d in (analysis.get("routes")   or []) if keep(d)],
         "modules": analysis.get("modules", []),
     }
     if not (filt["functions"] or filt["classes"] or filt["routes"]):
         print("⚠️ Focus filter yielded 0 targets. Falling back to full analysis to ensure tests are generated.")
         return analysis, True
     return filt, False
+
+# ---------------- GUI suppression ----------------
+_GUI_RE = re.compile(r"(?i)(pyqt|pyside|qtwidgets|qtgui|qtcore|qt[^a-z]|tkinter|wx|kivy|gui|simplecalculatorpyqt|mainwindow|ui)")
+
+def _exclude_gui_from_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop anything that looks GUI-related (default enabled). Toggle with TESTGEN_EXCLUDE_GUI=0."""
+    if os.getenv("TESTGEN_EXCLUDE_GUI", "1") == "0":
+        return analysis
+
+    def is_gui_file(s: str) -> bool:
+        return bool(_GUI_RE.search(s or ""))
+
+    def drop_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for d in (entries or []):
+            blob = " ".join([str(d.get("file","")), str(d.get("name","")), str(d.get("handler",""))])
+            if not is_gui_file(blob):
+                out.append(d)
+        return out
+
+    modules = [m for m in (analysis.get("modules") or []) if not is_gui_file(m)]
+    return {
+        "functions": drop_entries(analysis.get("functions")),
+        "classes":   drop_entries(analysis.get("classes")),
+        "routes":    drop_entries(analysis.get("routes")),
+        "modules":   modules,
+    }
+
+def _purge_gui_tests(outdir: pathlib.Path):
+    """Delete already-generated GUI tests so they don't break subsequent runs."""
+    if not outdir.exists():
+        return
+    removed = 0
+    for p in outdir.rglob("test_*.py"):
+        try:
+            txt = p.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        if _GUI_RE.search(txt) or "SimpleCalculatorPyQt" in txt:
+            try:
+                p.unlink()
+                removed += 1
+                print(f"🧹 removed GUI-oriented test: {p}")
+            except Exception:
+                pass
+    if removed:
+        print(f"🧹 Purged {removed} GUI tests")
 
 # ---------------- Universal bootstrap (prepended to tests) ----------------
 def _universal_bootstrap(compact: Dict[str, Any]) -> str:
@@ -355,23 +401,18 @@ def _universal_bootstrap(compact: Dict[str, Any]) -> str:
     tops_lit = repr(tops)
 
     py2_alias_map = {
-        "ConfigParser": "configparser",
-        "Queue": "queue",
-        "StringIO": "io",
-        "cStringIO": "io",
-        "urllib2": "urllib.request",
+        "ConfigParser":"configparser","Queue":"queue","StringIO":"io","cStringIO":"io","urllib2":"urllib.request",
     }
     py2_alias_map_lit = repr(py2_alias_map)
 
+    # Keep bootstrap minimal; no GUI shims needed since we exclude GUI tests.
     return f'''# --- UNIVERSAL BOOTSTRAP (generated) ---
 import os, sys, importlib as _importlib, importlib.util as _iu, importlib.machinery as _im, types as _types, pytest as _pytest
 
-# Ensure target root importable
 _target = os.environ.get("TARGET_ROOT") or os.environ.get("ANALYZE_ROOT") or "target"
 if _target and _target not in sys.path:
     sys.path.insert(0, _target)
 
-# Provide a helper for exception lookups used by generated tests
 def _exc_lookup(name, default):
     try:
         mod_name, _, cls_name = str(name).rpartition(".")
@@ -382,30 +423,24 @@ def _exc_lookup(name, default):
     except Exception:
         return default
 
-# Safe DB defaults
 for _k in ("DATABASE_URL","DB_URL","SQLALCHEMY_DATABASE_URI"):
     _v = os.environ.get(_k)
     if not _v or "://" not in str(_v):
         os.environ[_k] = "sqlite:///:memory:"
 
-# Minimal Django config (only if actually installed)
 try:
     if _iu.find_spec("django") is not None:
         import django
         from django.conf import settings as _dj_settings
         if not _dj_settings.configured:
             _dj_settings.configure(
-                SECRET_KEY="test",
-                DEBUG=True,
-                ALLOWED_HOSTS=["*"],
-                INSTALLED_APPS=[],
+                SECRET_KEY="test", DEBUG=True, ALLOWED_HOSTS=["*"], INSTALLED_APPS=[],
                 DATABASES={{"default": {{"ENGINE":"django.db.backends.sqlite3","NAME":":memory:"}}}},
             )
             django.setup()
 except Exception:
     pass
 
-# SQLAlchemy safe create_engine
 try:
     if _iu.find_spec("sqlalchemy") is not None:
         import sqlalchemy as _s_sa
@@ -423,17 +458,14 @@ try:
 except Exception:
     pass
 
-# collections.abc compatibility for older libs (Py3.10+)
 try:
-    import collections as _collections
-    import collections.abc as _abc
+    import collections as _collections, collections.abc as _abc
     for _n in ("Mapping","MutableMapping","Sequence","MutableSequence","Set","MutableSet","Iterable"):
         if not hasattr(_collections, _n) and hasattr(_abc, _n):
             setattr(_collections, _n, getattr(_abc, _n))
 except Exception:
     pass
 
-# Py2 alias maps if imported
 _PY2_ALIASES = {py2_alias_map_lit}
 for _old, _new in list(_PY2_ALIASES.items()):
     if _old in sys.modules:
@@ -444,176 +476,38 @@ for _old, _new in list(_PY2_ALIASES.items()):
     except Exception:
         pass
 
-# ---- Qt / PySide families: make importlib.util.find_spec safe & add stubs ----
-_qt_roots = ("PyQt5","PyQt6","PySide2","PySide6")
-
-try:
-    _orig_find_spec = _iu.find_spec
-    def _find_spec_safe(name, *a, **k):
-        try:
-            return _orig_find_spec(name, *a, **k)
-        except Exception:
-            if any(name == q or name.startswith(q + ".") for q in _qt_roots):
-                return None
-            raise
-    _iu.find_spec = _find_spec_safe
-except Exception:
-    pass
-
-def _ensure_pkg(name, is_pkg=None):
-    if name in sys.modules:
-        m = sys.modules[name]
-        if getattr(m, "__spec__", None) is None:
-            m.__spec__ = _im.ModuleSpec(name, loader=None, is_package=(is_pkg if is_pkg is not None else ("." not in name)))
-        if "." not in name and not hasattr(m, "__path__"):
-            m.__path__ = []
-        return m
-    m = _types.ModuleType(name)
-    if is_pkg is None:
-        is_pkg = ("." not in name)
-    if is_pkg and not hasattr(m, "__path__"):
-        m.__path__ = []
-    m.__spec__ = _im.ModuleSpec(name, loader=None, is_package=is_pkg)
-    sys.modules[name] = m
-    return m
-
-def _safe_find_spec(name):
-    try:
-        return _iu.find_spec(name)
-    except Exception:
-        return None
-
-for __qt_root in _qt_roots:
-    if _safe_find_spec(__qt_root) is None:
-        _pkg = _ensure_pkg(__qt_root, is_pkg=True)
-        _core = _ensure_pkg(__qt_root + ".QtCore", is_pkg=False)
-        _gui = _ensure_pkg(__qt_root + ".QtGui", is_pkg=False)
-        _widgets = _ensure_pkg(__qt_root + ".QtWidgets", is_pkg=False)
-
-        # ---- QtCore minimal API ----
-        class QObject: pass
-        def pyqtSignal(*a, **k): return object()
-        def pyqtSlot(*a, **k):
-            def _decorator(fn): return fn
-            return _decorator
-        class QCoreApplication:
-            def __init__(self, *a, **k): pass
-            def exec_(self): return 0
-            def exec(self): return 0
-        _core.QObject = QObject
-        _core.pyqtSignal = pyqtSignal
-        _core.pyqtSlot = pyqtSlot
-        _core.QCoreApplication = QCoreApplication
-
-        # ---- QtGui minimal API ----
-        class QFont:
-            def __init__(self, *a, **k): pass
-        class QDoubleValidator:
-            def __init__(self, *a, **k): pass
-            def setBottom(self, *a, **k): pass
-            def setTop(self, *a, **k): pass
-        class QIcon:
-            def __init__(self, *a, **k): pass
-        class QPixmap:
-            def __init__(self, *a, **k): pass
-        _gui.QFont = QFont
-        _gui.QDoubleValidator = QDoubleValidator
-        _gui.QIcon = QIcon
-        _gui.QPixmap = QPixmap
-
-        # ---- QtWidgets minimal API ----
-        class QApplication:
-            def __init__(self, *a, **k): pass
-            def exec_(self): return 0
-            def exec(self): return 0
-        class QWidget:
-            def __init__(self, *a, **k): pass
-        class QLabel(QWidget):
-            def __init__(self, *a, **k):
-                super().__init__(); self._text = ""
-            def setText(self, t): self._text = str(t)
-            def text(self): return self._text
-        class QLineEdit(QWidget):
-            def __init__(self, *a, **k):
-                super().__init__(); self._text = ""
-            def setText(self, t): self._text = str(t)
-            def text(self): return self._text
-            def clear(self): self._text = ""
-        class QTextEdit(QLineEdit): pass
-        class QPushButton(QWidget):
-            def __init__(self, *a, **k): super().__init__()
-        class QMessageBox:
-            @staticmethod
-            def warning(*a, **k): return None
-            @staticmethod
-            def information(*a, **k): return None
-            @staticmethod
-            def critical(*a, **k): return None
-        class QFileDialog:
-            @staticmethod
-            def getSaveFileName(*a, **k): return ("history.txt", "")
-            @staticmethod
-            def getOpenFileName(*a, **k): return ("history.txt", "")
-        class QFormLayout:
-            def __init__(self, *a, **k): pass
-            def addRow(self, *a, **k): pass
-        class QGridLayout(QFormLayout):
-            def addWidget(self, *a, **k): pass
-
-        _widgets.QApplication = QApplication
-        _widgets.QWidget = QWidget
-        _widgets.QLabel = QLabel
-        _widgets.QLineEdit = QLineEdit
-        _widgets.QTextEdit = QTextEdit
-        _widgets.QPushButton = QPushButton
-        _widgets.QMessageBox = QMessageBox
-        _widgets.QFileDialog = QFileDialog
-        _widgets.QFormLayout = QFormLayout
-        _widgets.QGridLayout = QGridLayout
-
-        # Mirror common widget symbols into QtGui to tolerate odd imports
-        for _name in ("QApplication","QWidget","QLabel","QLineEdit","QTextEdit","QPushButton","QMessageBox","QFileDialog","QFormLayout","QGridLayout"):
-            setattr(_gui, _name, getattr(_widgets, _name))
-
-# ---- Generic stub for other missing third-party tops (non-stdlib, non-local) ----
 _THIRD_PARTY_TOPS = {tops_lit}
 for _name in list(_THIRD_PARTY_TOPS):
     _top = (_name or "").split(".")[0]
-    if not _top:
+    if not _top or _top in sys.modules:
         continue
-    if _top in sys.modules:
-        continue
-    if _safe_find_spec(_top) is not None:
-        continue
-    if _top in set(_qt_roots):
-        continue
+    try:
+        if _iu.find_spec(_top) is not None:
+            continue
+    except Exception:
+        pass
     _m = _types.ModuleType(_top)
     _m.__spec__ = _im.ModuleSpec(_top, loader=None, is_package=False)
     sys.modules[_top] = _m
-
 # --- /UNIVERSAL BOOTSTRAP ---
 '''
 
 # ---------------- Prompt builders ----------------
 _SYSTEM_MIN = (
     "Return ONLY valid Python test code for pytest. No Markdown, no explanations. "
-    "Import target modules INSIDE each test. "
-    "Deterministic I/O; no network; mock file/db/http/UI as needed (monkeypatch/tmp_path). "
-    "Do NOT use private pytest internals. "
-    "Do NOT use custom pytest markers. "
-    "If GUIs are present (Qt/PySide), DO NOT start event loops; rely on shims. "
-    "For exceptions NEVER assume custom names; always call _exc_lookup('Name', Exception) inside pytest.raises and isinstance."
+    "Import target modules INSIDE each test. Deterministic I/O; no network; mock file/db/http as needed. "
+    "Do NOT use private pytest internals or custom markers. "
+    "For exceptions NEVER assume custom names; always call _exc_lookup('Name', Exception)."
 )
 
 _UNIT_BARE = (
     "Write concise UNIT tests (3–6). Cover public functions/classes from the focus list. "
     "Assert outputs and error conditions precisely; for exceptions use _exc_lookup('CustomError', Exception). "
-    "Use tmp_path for filesystem; avoid repr-based asserts and custom markers."
+    "Use tmp_path for filesystem."
 )
 
 _INTEG_BARE = (
     "Write INTEGRATION tests (2–5). Exercise interactions across modules. "
-    "If GUI imports exist, avoid real event loops and windows; rely on shims. "
     "Mock external effects with monkeypatch; import targets inside tests."
 )
 
@@ -623,15 +517,11 @@ _E2E_BARE = (
 )
 
 def _limit_str(s: str, max_chars: int = 12000) -> str:
-    if len(s) <= max_chars:
-        return s
-    return s[:max_chars] + "...(truncated)"
+    return s if len(s) <= max_chars else s[:max_chars] + "...(truncated)"
 
 def _sample_targets(names: List[str], k: int) -> List[str]:
-    if not names:
-        return []
-    if len(names) <= k:
-        return names
+    if not names: return []
+    if len(names) <= k: return names
     random.seed(1234)
     return sorted(random.sample(names, k))
 
@@ -642,7 +532,7 @@ def _build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, to
         cnames = [c.get("name") for c in (compact.get("classes") or []) if c.get("name")]
         rnames = [r.get("handler") for r in (compact.get("routes") or []) if r.get("handler")]
         pick = _sample_targets(fnames + cnames + rnames, 16)
-        context = {"focus": focus_label or "(none)", "suggested_targets": pick}
+        context = {"focus": focus_label or "(none)", "suggested_targets": pick, "note": "GUI excluded"}
         brief = json.dumps(context, ensure_ascii=False)
 
         if kind == "unit":
@@ -654,12 +544,11 @@ def _build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, to
         return [{"role": "system", "content": sys_msg}, {"role": "user", "content": user}]
 
     SYSTEM = """You are an expert Python test engineer.
-Return ONLY valid Python source code (no Markdown, no backticks, no prose).
+Return ONLY valid Python source code (no Markdown/backticks/prose).
 Hard rules:
 - Test ONLY project modules and stdlib; no private pytest internals or custom markers.
 - Deterministic I/O; import targets inside each test.
-- If GUIs exist, avoid event loops and rely on shims.
-- For exceptions, call _exc_lookup('Name', Exception) with a string, not a bare symbol.
+- For exceptions, call _exc_lookup('Name', Exception) with a string.
 - Ensure at least one function named test_*."""
     if kind == "unit":
         user = f"Shard {shard}/{total} • Focus: {focus_label}\nAnalysis:\n{compact_json}\nWrite UNIT tests (4–8)."
@@ -689,103 +578,7 @@ _RAISES_BARE = re.compile(r"pytest\.raises\(\s*([A-Za-z_][\w]*)\s*(,|\))")
 _ISINSTANCE_QUAL = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\s*\)")
 _ISINSTANCE_BARE = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)")
 
-# add near the other regex helpers
-_CANONICAL_QT_SHIM = r'''
-# --- canonical PyQt5 shim (covers Widgets + Gui used by common UIs) ---
-def __qt_shim_canonical():
-    import types as _t
-    PyQt5 = _t.ModuleType("PyQt5")
-    QtWidgets = _t.ModuleType("PyQt5.QtWidgets")
-    QtGui = _t.ModuleType("PyQt5.QtGui")
-
-    class QApplication:
-        def __init__(self, *a, **k): pass
-        def exec_(self): return 0
-        def exec(self): return 0
-    class QWidget:
-        def __init__(self, *a, **k): pass
-    class QLabel(QWidget):
-        def __init__(self, *a, **k):
-            super().__init__(); self._text = ""
-        def setText(self, t): self._text = str(t)
-        def text(self): return self._text
-    class QLineEdit(QWidget):
-        def __init__(self, *a, **k):
-            super().__init__(); self._text = ""
-        def setText(self, t): self._text = str(t)
-        def text(self): return self._text
-        def clear(self): self._text = ""
-    class QTextEdit(QLineEdit): pass
-    class QPushButton(QWidget):
-        def __init__(self, *a, **k): super().__init__()
-    class QMessageBox:
-        @staticmethod
-        def warning(*a, **k): return None
-        @staticmethod
-        def information(*a, **k): return None
-        @staticmethod
-        def critical(*a, **k): return None
-    class QFileDialog:
-        @staticmethod
-        def getSaveFileName(*a, **k): return ("history.txt", "")
-        @staticmethod
-        def getOpenFileName(*a, **k): return ("history.txt", "")
-    class QFormLayout:
-        def __init__(self, *a, **k): pass
-        def addRow(self, *a, **k): pass
-    class QGridLayout(QFormLayout):
-        def addWidget(self, *a, **k): pass
-
-    # QtGui bits commonly imported
-    class QFont:
-        def __init__(self, *a, **k): pass
-    class QDoubleValidator:
-        def __init__(self, *a, **k): pass
-        def setBottom(self, *a, **k): pass
-        def setTop(self, *a, **k): pass
-    class QIcon:
-        def __init__(self, *a, **k): pass
-    class QPixmap:
-        def __init__(self, *a, **k): pass
-
-    QtWidgets.QApplication = QApplication
-    QtWidgets.QWidget = QWidget
-    QtWidgets.QLabel = QLabel
-    QtWidgets.QLineEdit = QLineEdit
-    QtWidgets.QTextEdit = QTextEdit
-    QtWidgets.QPushButton = QPushButton
-    QtWidgets.QMessageBox = QMessageBox
-    QtWidgets.QFileDialog = QFileDialog
-    QtWidgets.QFormLayout = QFormLayout
-    QtWidgets.QGridLayout = QGridLayout
-
-    QtGui.QFont = QFont
-    QtGui.QDoubleValidator = QDoubleValidator
-    QtGui.QIcon = QIcon
-    QtGui.QPixmap = QPixmap
-
-    return PyQt5, QtWidgets, QtGui
-'''
-def _always_append_qt_shim(code: str) -> str:
-    # Always append the canonical shim + alias common helper names to it,
-    # so even if tests define their own stubs, the LAST assignment wins.
-    suffix = "\n" + _CANONICAL_QT_SHIM + "\n" + "\n".join([
-        "_make_pyqt5_shim = __qt_shim_canonical",
-        "_make_pyqt_shim = __qt_shim_canonical",
-        "_make_pyqt_shims = __qt_shim_canonical",
-        "_make_qt_shims = __qt_shim_canonical",
-    ]) + "\n"
-    return code + suffix
-
-
-def _ensure_qt_shim_alias_if_needed(code: str) -> str:
-    """If tests reference _make_pyqt5_shim, ensure a robust canonical shim is present and aliased."""
-    if "_make_pyqt5_shim" in code and "__qt_shim_canonical" not in code:
-        code += "\n" + _CANONICAL_QT_SHIM + "\n" + "_make_pyqt5_shim = __qt_shim_canonical\n"
-    return code
-
 def _massage_generated_code(code: str) -> str:
-    # normalize pytest.raises / isinstance
     def _repl_qual(m): return f'pytest.raises(_exc_lookup("{m.group(1)}", Exception){m.group(2)}'
     def _repl_bare(m): return f'pytest.raises(_exc_lookup("{m.group(1)}", Exception){m.group(2)}'
     code = _RAISES_QUAL.sub(_repl_qual, code)
@@ -794,11 +587,7 @@ def _massage_generated_code(code: str) -> str:
     def _repl_is_b(m): return f'isinstance({m.group(1)}, _exc_lookup("{m.group(2)}", Exception))'
     code = _ISINSTANCE_QUAL.sub(_repl_is_q, code)
     code = _ISINSTANCE_BARE.sub(_repl_is_b, code)
-
-    # Always append robust Qt shim + aliases
-    code = _always_append_qt_shim(code)
     return code
-
 
 # ---------------- Manifest helpers ----------------
 def write(path: pathlib.Path, content: str):
@@ -845,23 +634,6 @@ def _update_manifest(outdir: pathlib.Path, created_files: List[str]):
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-# ---------------- Outdir cleanup ----------------
-def _cleanup_outdir(outdir: pathlib.Path):
-    """Remove old generated tests so stale failures don't linger."""
-    if outdir.exists():
-        for p in outdir.rglob("test_*.py"):
-            try:
-                p.unlink()
-            except Exception:
-                pass
-        # remove empty timestamp subfolders under outdir
-        for d in sorted(outdir.glob("*")):
-            if d.is_dir():
-                try:
-                    next(d.rglob("*"))
-                except StopIteration:
-                    shutil.rmtree(d, ignore_errors=True)
-
 # ---------------- Generation ----------------
 def _build_guard_and_messages(compact: Dict[str, Any], compact_json: str, kind: str, focus_label: str, shard: int, total: int):
     guard = _runtime_guard_for(compact)
@@ -870,16 +642,31 @@ def _build_guard_and_messages(compact: Dict[str, Any], compact_json: str, kind: 
 
 def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files: Optional[List[str]] = None):
     out = pathlib.Path(outdir)
-    _cleanup_outdir(out)  # ensure previous failing tests are removed
+
+    # Always purge any GUI tests that may exist from prior runs
+    _purge_gui_tests(out)
+
+    # Skip regenerating if no changed files and tests already exist (post-purge)
+    if not focus_files:
+        try:
+            focus_env_list = _load_list(os.getenv("FOCUS_FILES_JSON_PATH")) or []
+        except Exception:
+            focus_env_list = []
+        if not focus_env_list and any(out.glob("test_*.py")):
+            print("ℹ️ No changed files detected and tests already exist — skipping generation.")
+            _update_manifest(out, [])
+            return
 
     ts = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
     raw_focus = set(focus_files or _load_list(os.getenv("FOCUS_FILES_JSON_PATH")) or [])
     filtered_analysis, _ = _filter_analysis_by_files(analysis, raw_focus if raw_focus else None)
 
+    # NEW: exclude GUI things entirely
+    filtered_analysis = _exclude_gui_from_analysis(filtered_analysis)
+
     compact = _compact_analysis(filtered_analysis)
 
-    # Install inferred third-party deps first (GUI libs are intentionally NOT installed)
     _pip_install(_infer_required_packages(compact))
 
     compact_json = json.dumps(compact, separators=(",", ":"))

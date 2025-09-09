@@ -183,6 +183,6 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "chore: append tests for changed files [skip ci]"
-            git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/DeviPrasad372002/test-calculator.git HEAD:test
+            git push https://x-access-token:${{ secrets.GH_PAT3 }}@github.com/DeviPrasad372002/test-calculator.git HEAD:test
           fi
 

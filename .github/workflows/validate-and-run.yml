@@ -262,26 +262,51 @@ jobs:
 
       - name: Security and quality analysis
         run: |
-          echo "🔒 Running security and quality checks..."
+          echo "Running security and quality checks..."
           
-          # Security scan with bandit
-          echo "🔍 Security scan..."
-          bandit -r src/ -f json -o reports/security.json || true
-          bandit -r src/ || echo "Security issues found (see reports/security.json)"
+          # Determine source directory for analysis
+          if [ -d "target_repo" ]; then
+            SRC_DIR="target_repo"
+            cd target_repo
+          else
+            SRC_DIR="."
+          fi
+          
+          # Create reports directory relative to current location
+          mkdir -p ../reports 2>/dev/null || mkdir -p reports
+          
+          # Security scan with bandit - check if src directory exists
+          echo "Security scan..."
+          if [ -d "src" ]; then
+            bandit -r src/ -f json -o ../reports/security.json 2>/dev/null || bandit -r src/ -f json -o reports/security.json || true
+            bandit -r src/ || echo "Security issues found (see security.json)"
+          else
+            bandit -r . -f json -o ../reports/security.json 2>/dev/null || bandit -r . -f json -o reports/security.json || true
+            bandit -r . || echo "Security scan completed"
+          fi
           
           # Safety check for vulnerable dependencies
-          echo "🔍 Dependency vulnerability scan..."
-          safety check --json --output reports/safety.json || true
+          echo "Dependency vulnerability scan..."
+          safety check --json --output ../reports/safety.json 2>/dev/null || safety check --json --output reports/safety.json || true
           
           # Code quality checks
-          echo "🔍 Code style checks..."
-          flake8 src/ --output-file=reports/flake8.txt || true
+          echo "Code style checks..."
+          if [ -d "src" ]; then
+            flake8 src/ --output-file=../reports/flake8.txt 2>/dev/null || flake8 src/ --output-file=reports/flake8.txt || true
+          else
+            flake8 . --output-file=../reports/flake8.txt 2>/dev/null || flake8 . --output-file=reports/flake8.txt || true
+          fi
           
           # Type checking (if applicable)
-          if find src/ -name "*.py" | head -5 | xargs grep -l "from typing import\|import typing\|: *[A-Z]" >/dev/null 2>&1; then
-            echo "🔍 Type checking..."
-            mypy src/ --ignore-missing-imports --json-report reports/mypy || true
+          if [ -d "src" ]; then
+            if find src/ -name "*.py" | head -5 | xargs grep -l "from typing import\|import typing\|: *[A-Z]" >/dev/null 2>&1; then
+              echo "Type checking..."
+              mypy src/ --ignore-missing-imports --json-report ../reports/mypy 2>/dev/null || mypy src/ --ignore-missing-imports --json-report reports/mypy || true
+            fi
           fi
+          
+          # Return to original directory
+          cd - >/dev/null 2>&1 || true
 
   sonarqube-analysis:
     runs-on: ubuntu-latest

@@ -1,82 +1,208 @@
-name: Validate & Scan
+name: CI/CD - Validate Tests & Deploy
 
 on:
   workflow_run:
     workflows: ["AI Test Generation"]
     types: [completed]
+  # Allow manual triggering for debugging
+  workflow_dispatch:
+    inputs:
+      skip_deployment:
+        description: 'Skip deployment step'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  PYTHON_VERSION: "3.10"
+  COVERAGE_THRESHOLD: 80
 
 jobs:
-  test_and_scan:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+  validate_and_test:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+    outputs:
+      validation_status: ${{ steps.validation.outputs.status }}
+      coverage_percentage: ${{ steps.coverage.outputs.percentage }}
+      
     steps:
-      - name: Checkout repository
+      - name: Checkout source repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for SonarCloud
 
-      - name: Setup Python
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
 
-      - name: Download test artifacts
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
+            build-essential python3-dev libpq-dev default-libmysqlclient-dev \
+            libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
+            libxml2-dev libxslt1-dev curl jq
+
+      - name: Download generated tests artifact
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-          path: artifacts/
+          run-id: ${{ github.event.workflow_run.id || github.run_id }}
+          name: generated-tests
+          path: tests/generated
 
-      - name: List downloaded artifacts
+      - name: Verify generated tests exist
         run: |
-          echo "Downloaded artifacts:"
-          find artifacts/ -type f -name "*.py" | head -20
-          ls -la artifacts/
-
-      - name: Install test dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
-          # Install common test dependencies
-          pip install pytest pytest-cov httpx requests
-          # Try to install any requirements from artifacts
-          find artifacts/ -name "requirements.txt" -exec pip install -r {} \; || true
-
-      - name: Prepare test environment
-        run: |
-          # Copy test files to appropriate locations
-          if [ -d "artifacts/" ]; then
-            find artifacts/ -name "test_*.py" -exec cp {} . \; || true
-            find artifacts/ -name "test_*.py" -exec echo "Found test file: {}" \;
+          echo "Checking for generated tests..."
+          if [ ! -d "tests/generated" ] || [ -z "$(find tests/generated -name '*.py' -type f)" ]; then
+            echo "❌ No generated tests found!"
+            exit 1
           fi
-          # List all test files
-          echo "Available test files:"
-          find . -name "test_*.py" -type f | head -20
-
-      - name: Run pytest with coverage (skip if no tests)
-        id: pytest
-        run: |
-          TEST_FILES=$(find . -name "test_*.py" -type f | wc -l)
-          echo "Found $TEST_FILES test files"
           
-          if [ "$TEST_FILES" -gt 0 ]; then
-            echo "Running pytest with coverage..."
-            pytest -v --tb=short --cov=. --cov-report=xml:coverage.xml --cov-report=term-missing --cov-report=html:htmlcov/ || true
-            echo "pytest_ran=true" >> $GITHUB_OUTPUT
+          echo "✅ Found generated test files:"
+          find tests/generated -name "*.py" -type f | head -10
+
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip wheel setuptools
+          
+          # Install project requirements
+          if [ -f "requirements.txt" ]; then 
+            pip install -r requirements.txt
+          elif [ -f "pyproject.toml" ]; then
+            pip install -e .
+          fi
+          
+          # Install testing dependencies
+          pip install pytest pytest-cov pytest-html pytest-xvfb \
+                      httpx requests mock freezegun \
+                      "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" \
+                      "uvicorn>=0.23" "SQLAlchemy>=2" "typing-extensions>=4.8"
+
+      - name: Lint generated tests
+        run: |
+          echo "🔍 Linting generated tests..."
+          pip install flake8 black isort
+          
+          # Check code formatting
+          black --check tests/generated/ || echo "⚠️ Formatting issues found"
+          
+          # Check imports
+          isort --check-only tests/generated/ || echo "⚠️ Import order issues found"
+          
+          # Basic linting
+          flake8 tests/generated/ --max-line-length=100 --ignore=E203,W503 || echo "⚠️ Linting issues found"
+
+      - name: Run unit tests (existing tests first)
+        if: always()
+        run: |
+          echo "🧪 Running existing unit tests..."
+          if [ -d "tests" ] && [ -n "$(find tests -name 'test_*.py' -not -path 'tests/generated/*' -type f)" ]; then
+            pytest tests/ --ignore=tests/generated \
+              -v --tb=short \
+              --junitxml=existing-tests-report.xml || echo "⚠️ Some existing tests failed"
           else
-            echo "No test files found, creating minimal coverage report..."
-            echo '<?xml version="1.0" encoding="UTF-8"?><coverage version="7.0"><sources></sources><packages></packages></coverage>' > coverage.xml
-            echo "pytest_ran=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ No existing unit tests found"
           fi
 
-      - name: Upload test results
+      - name: Validate generated tests against source code
+        id: validation
+        run: |
+          echo "🔬 Validating generated tests against source code..."
+          
+          # Create a comprehensive test run
+          PYTEST_EXIT_CODE=0
+          pytest tests/generated/ \
+            --cov=. \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-report=html:htmlcov \
+            --junitxml=generated-tests-report.xml \
+            -v --tb=long \
+            --maxfail=10 \
+            --durations=10 || PYTEST_EXIT_CODE=$?
+          
+          echo "status=$([[ $PYTEST_EXIT_CODE -eq 0 ]] && echo 'success' || echo 'failure')" >> $GITHUB_OUTPUT
+          
+          if [ $PYTEST_EXIT_CODE -ne 0 ]; then
+            echo "❌ Generated tests validation failed with exit code: $PYTEST_EXIT_CODE"
+            echo "This indicates issues in the source code or test generation quality"
+            exit 1
+          fi
+          
+          echo "✅ All generated tests passed!"
+
+      - name: Check test coverage
+        id: coverage
+        if: always()
+        run: |
+          if [ -f "coverage.xml" ]; then
+            # Extract coverage percentage
+            COVERAGE=$(python -c "
+            import xml.etree.ElementTree as ET
+            try:
+                tree = ET.parse('coverage.xml')
+                root = tree.getroot()
+                coverage = root.attrib.get('line-rate', '0')
+                print(f'{float(coverage)*100:.1f}')
+            except:
+                print('0')
+            ")
+            
+            echo "percentage=$COVERAGE" >> $GITHUB_OUTPUT
+            echo "📊 Test coverage: ${COVERAGE}%"
+            
+            # Check if coverage meets threshold
+            if (( $(echo "$COVERAGE >= $COVERAGE_THRESHOLD" | bc -l) )); then
+              echo "✅ Coverage threshold ($COVERAGE_THRESHOLD%) met"
+            else
+              echo "⚠️ Coverage below threshold ($COVERAGE_THRESHOLD%): ${COVERAGE}%"
+            fi
+          else
+            echo "⚠️ No coverage report found"
+            echo "percentage=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate test summary
+        if: always()
+        run: |
+          echo "## Test Validation Summary 📋" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Generated Tests | ${{ steps.validation.outputs.status == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage | ${{ steps.coverage.outputs.percentage }}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Threshold | ${{ env.COVERAGE_THRESHOLD }}% |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload test artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results
+          name: test-validation-results
           path: |
             coverage.xml
             htmlcov/
-            pytest.xml
-            .coverage
+            *-tests-report.xml
+            tests/generated/**/*.py
+          retention-days: 30
+
+  code_quality_scan:
+    needs: validate_and_test
+    if: always() && needs.validate_and_test.result != 'cancelled'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download test results
+        uses: actions/download-artifact@v4
+        with:
+          name: test-validation-results
+          path: .
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3.0.0
@@ -84,43 +210,84 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
-          projectBaseDir: .
           args: >
             -Dsonar.python.coverage.reportPaths=coverage.xml
             -Dsonar.sources=.
-            -Dsonar.exclusions=**/*test*.py,**/test_*,**/tests/**,**/venv/**,**/.git/**
-            -Dsonar.tests=.
-            -Dsonar.test.inclusions=**/*test*.py,**/test_*
-            -Dsonar.python.version=3.10
+            -Dsonar.exclusions=**/*test*.py,**/tests/**,**/venv/**,**/.git/**,**/htmlcov/**
+            -Dsonar.tests=tests/generated
+            -Dsonar.test.inclusions=**/*test*.py
+            -Dsonar.python.version=${{ env.PYTHON_VERSION }}
+            -Dsonar.junit.reportPaths=*-tests-report.xml
 
       - name: SonarCloud Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@v1.3.0
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: https://sonarcloud.io
-        continue-on-error: true
+        continue-on-error: false
 
-      - name: Comment PR with test results
-        if: github.event.workflow_run.event == 'pull_request' && steps.pytest.outputs.pytest_ran == 'true'
-        uses: actions/github-script@v7
+  deploy:
+    needs: [validate_and_test, code_quality_scan]
+    if: |
+      always() && 
+      needs.validate_and_test.result == 'success' && 
+      needs.code_quality_scan.result == 'success' &&
+      (github.event.inputs.skip_deployment != 'true')
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
         with:
-          script: |
-            const fs = require('fs');
-            let comment = '## Test Results\n\n';
-            
-            try {
-              if (fs.existsSync('coverage.xml')) {
-                comment += '✅ Tests executed with coverage report generated\n';
-              }
-              if (fs.existsSync('htmlcov/index.html')) {
-                comment += '📊 Coverage report available in artifacts\n';
-              }
-            } catch (error) {
-              comment += '❌ Error reading test results\n';
-            }
-            
-            comment += '\nTest artifacts have been uploaded and SonarCloud analysis completed.';
-            
-            // This would need the PR number to actually post
-            console.log('Test results comment:', comment);
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/myapp:latest
+            ${{ secrets.DOCKER_USERNAME }}/myapp:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy notification
+        run: |
+          echo "🚀 Deployment initiated successfully!"
+          echo "## Deployment Status 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Docker image built and pushed" >> $GITHUB_STEP_SUMMARY
+          echo "📊 Test Coverage: ${{ needs.validate_and_test.outputs.coverage_percentage }}%" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 Image: \`${{ secrets.DOCKER_USERNAME }}/myapp:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+
+      # Add your actual deployment steps here:
+      # - Deploy to Kubernetes
+      # - Update Helm charts  
+      # - Trigger ArgoCD sync
+      # - Deploy to cloud platform
+      # - Update infrastructure
+
+  notification:
+    needs: [validate_and_test, code_quality_scan, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Send notification
+        run: |
+          if [[ "${{ needs.validate_and_test.result }}" == "success" && "${{ needs.code_quality_scan.result }}" == "success" && "${{ needs.deploy.result }}" == "success" ]]; then
+            echo "✅ Pipeline completed successfully!"
+          else
+            echo "❌ Pipeline failed at one or more stages"
+            echo "- Test validation: ${{ needs.validate_and_test.result }}"
+            echo "- Code quality: ${{ needs.code_quality_scan.result }}"  
+            echo "- Deployment: ${{ needs.deploy.result }}"
+          fi

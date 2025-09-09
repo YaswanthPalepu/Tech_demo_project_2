@@ -1,4 +1,3 @@
-# .github/workflows/testgen.yml
 name: AI Test Generation
 
 on:
@@ -25,6 +24,8 @@ jobs:
       AZURE_OPENAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT    || secrets.AZURE_OPENAI_API_ENDPOINT }}
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION || secrets.OPENAI_API_VERSION }}
       AZURE_OPENAI_DEPLOYMENT:  ${{ secrets.AZURE_OPENAI_DEPLOYMENT  || secrets.OPENAI_DEPLOYMENT }}
+
+      # Safe DB defaults for import-time engines
       DATABASE_URL: "sqlite:///:memory:"
       DB_URL: "sqlite:///:memory:"
       SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
@@ -59,7 +60,7 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install system build tools
+      - name: Install system build tools (for native wheels)
         run: |
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
@@ -67,30 +68,79 @@ jobs:
             libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
             libxml2-dev libxslt1-dev curl
 
-      - name: Install Python deps
+      - name: Install Python deps (project + tools)
         run: |
           python -m pip install --upgrade pip wheel setuptools
+          # Try installing target's dependencies FIRST (from target/)
           if [ -f "target/requirements.txt" ]; then pip install -r target/requirements.txt || true; fi
-          # (rest same as before, truncated for brevity...)
+          if ls target/requirements/*.txt >/dev/null 2>&1; then pip install -r target/requirements/*.txt || true; fi
+          if [ -f "target/pyproject.toml" ] && grep -q "\[tool.poetry\]" target/pyproject.toml; then
+            pip install poetry || true
+            (cd target && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req) || true
+            if [ -s /tmp/poetry.lock.req ]; then pip install -r /tmp/poetry.lock.req || true; fi
+          fi
+          if [ -f "target/pyproject.toml" ] && grep -q "\[tool.pdm\]" target/pyproject.toml; then
+            pip install pdm || true
+            (cd target && pdm export -o /tmp/pdm.lock.req --without-hashes --dev) || true
+            if [ -s /tmp/pdm.lock.req ]; then pip install -r /tmp/pdm.lock.req || true; fi
+          fi
+          if [ -f "target/Pipfile.lock" ] || [ -f "target/Pipfile" ]; then
+            pip install pipenv || true
+            (cd target && pipenv requirements > /tmp/pipenv.lock.req) || true
+            if [ -s /tmp/pipenv.lock.req ]; then pip install -r /tmp/pipenv.lock.req || true; fi
+          fi
+          if [ -f "target/setup.py" ] || [ -f "target/setup.cfg" ]; then
+            pip install -e target || true
+          fi
+          # Core test tooling + common backend libs
           pip install "openai>=1.51.0" pytest pytest-cov httpx requests \
-                      "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" \
+                      "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" "annotated-types>=0.6" \
                       "uvicorn>=0.23" "SQLAlchemy>=2" "typing-extensions>=4.8"
 
-      - name: Analyze codebase
+      - name: Analyze codebase (only target/)
         run: python -m src.analyzer --root target > /tmp/analysis.json
 
-      - name: Diff scan
+      - name: Diff scan (compute changed .py files in target/ vs manifest)
         run: |
           python -m src.diffscan --root target \
             --manifest "${OUTDIR}/_manifest.json" \
             --out-changed /tmp/changed.json \
             --out-hashes  /tmp/code-hashes.json
-          # logic same as before...
 
-      - name: Install deps inferred from analysis
-        run: python -m src.install_from_analysis /tmp/analysis.json || true
+          CHANGED_COUNT=$(python - <<'PY'
+          import json
+          try:
+              arr = json.load(open('/tmp/changed.json'))
+              print(len(arr))
+          except Exception:
+              print(0)
+          PY
+          )
+          FOUND_TESTS=$(find "${OUTDIR}" -type f -name 'test_*.py' | wc -l | tr -d ' ')
+          FORCE="${{ github.event.inputs.force_gen }}"
 
-      - name: Generate tests
+          echo "CHANGED_COUNT=$CHANGED_COUNT" >> $GITHUB_ENV
+          echo "FOUND_TESTS=$FOUND_TESTS" >> $GITHUB_ENV
+
+          if [ "${FORCE}" = "true" ]; then
+            echo "Forcing generation due to manual input."
+            echo "SKIP_GEN=0" >> $GITHUB_ENV
+          elif [ "$CHANGED_COUNT" = "0" ] && [ "$FOUND_TESTS" = "0" ]; then
+            echo "First run (no manifest tests yet) — forcing initial generation."
+            echo "SKIP_GEN=0" >> $GITHUB_ENV
+          elif [ "$CHANGED_COUNT" = "0" ]; then
+            echo "No changed Python files — skipping generation."
+            echo "SKIP_GEN=1" >> $GITHUB_ENV
+          else
+            echo "Changed Python files: $CHANGED_COUNT — will generate."
+            echo "SKIP_GEN=0" >> $GITHUB_ENV
+          fi
+
+      - name: Install deps inferred from imports (filtered)
+        run: |
+          python -m src.install_from_analysis /tmp/analysis.json || true
+
+      - name: Generate tests (only for changed files) — append into OUTDIR
         if: env.SKIP_GEN == '0'
         env:
           TARGET_ROOT: target
@@ -106,26 +156,33 @@ jobs:
           g.generate_all(analysis, outdir=outdir, focus_files=changed)
           PY
 
-      - name: Upload generated tests
-        uses: actions/upload-artifact@v4
-        with:
-          name: tests-${{ steps.paths.outputs.repo_slug }}-current
-          if-no-files-found: warn
-          path: |
-            ${{ steps.paths.outputs.outdir }}/**/*.py
-            /tmp/analysis.json
-            /tmp/changed.json
-            /tmp/code-hashes.json
-            /tmp/generated-files.json
-
-      - name: Commit generated tests
+      - name: List generated tests (current folder)
         run: |
+          echo "Listing ${OUTDIR}"
+          ls -lah "${OUTDIR}" || true
+          echo "Preview .py files:"
+          find "${OUTDIR}" -type f -name 'test_*.py' | sed 's/^/ - /' || true
+          if [ -f /tmp/generated-files.json ]; then
+            echo "New files:"; cat /tmp/generated-files.json
+          fi
+
+      - name: Move generated tests into target repo
+        run: |
+          mkdir -p target/tests/generated
+          cp -r "${OUTDIR}"/* target/tests/generated/ || true
+          echo "Final tests copied into target repo:"
+          find target/tests/generated -name "test_*.py" | head -20
+
+      - name: Commit generated tests (append-only; retains previous)
+        run: |
+          cd target
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${OUTDIR}" || true
+          git add tests/generated || true
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "chore: append tests for changed files in ${REPO_URL} [skip ci]"
-            git push
+            git commit -m "chore: append tests for changed files [skip ci]"
+            git push https://x-access-token:${{ secrets.GH_PAT3 }}@github.com/OWNER/REPO HEAD:main
           fi
+

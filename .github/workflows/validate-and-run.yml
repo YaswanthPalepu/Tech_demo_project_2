@@ -1,16 +1,13 @@
+# .github/workflows/validate-and-deploy.yml
 name: CI/CD - Validate Tests & Deploy
 
 on:
-  workflow_run:
-    workflows: ["AI Test Generation"]
-    types: [completed]
-  # Allow manual triggering for debugging
   workflow_dispatch:
     inputs:
       skip_deployment:
         description: 'Skip deployment step'
         required: false
-        default: 'false'
+        default: false
         type: boolean
 
 env:
@@ -19,7 +16,6 @@ env:
 
 jobs:
   validate_and_test:
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     outputs:
       validation_status: ${{ steps.validation.outputs.status }}
@@ -60,22 +56,17 @@ jobs:
             echo "❌ No generated tests found!"
             exit 1
           fi
-          
           echo "✅ Found generated test files:"
           find tests/generated -name "*.py" -type f | head -10
 
       - name: Install project dependencies
         run: |
           python -m pip install --upgrade pip wheel setuptools
-          
-          # Install project requirements
           if [ -f "requirements.txt" ]; then 
             pip install -r requirements.txt
           elif [ -f "pyproject.toml" ]; then
             pip install -e .
           fi
-          
-          # Install testing dependencies
           pip install pytest pytest-cov pytest-html pytest-xvfb \
                       httpx requests mock freezegun \
                       "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" \
@@ -83,20 +74,12 @@ jobs:
 
       - name: Lint generated tests
         run: |
-          echo "🔍 Linting generated tests..."
           pip install flake8 black isort
-          
-          # Check code formatting
           black --check tests/generated/ || echo "⚠️ Formatting issues found"
-          
-          # Check imports
           isort --check-only tests/generated/ || echo "⚠️ Import order issues found"
-          
-          # Basic linting
           flake8 tests/generated/ --max-line-length=100 --ignore=E203,W503 || echo "⚠️ Linting issues found"
 
       - name: Run unit tests (existing tests first)
-        if: always()
         run: |
           echo "🧪 Running existing unit tests..."
           if [ -d "tests" ] && [ -n "$(find tests -name 'test_*.py' -not -path 'tests/generated/*' -type f)" ]; then
@@ -111,8 +94,6 @@ jobs:
         id: validation
         run: |
           echo "🔬 Validating generated tests against source code..."
-          
-          # Create a comprehensive test run
           PYTEST_EXIT_CODE=0
           pytest tests/generated/ \
             --cov=. \
@@ -123,23 +104,14 @@ jobs:
             -v --tb=long \
             --maxfail=10 \
             --durations=10 || PYTEST_EXIT_CODE=$?
-          
           echo "status=$([[ $PYTEST_EXIT_CODE -eq 0 ]] && echo 'success' || echo 'failure')" >> $GITHUB_OUTPUT
-          
-          if [ $PYTEST_EXIT_CODE -ne 0 ]; then
-            echo "❌ Generated tests validation failed with exit code: $PYTEST_EXIT_CODE"
-            echo "This indicates issues in the source code or test generation quality"
-            exit 1
-          fi
-          
-          echo "✅ All generated tests passed!"
+          exit $PYTEST_EXIT_CODE
 
       - name: Check test coverage
         id: coverage
         if: always()
         run: |
           if [ -f "coverage.xml" ]; then
-            # Extract coverage percentage
             COVERAGE=$(python -c "
             import xml.etree.ElementTree as ET
             try:
@@ -150,30 +122,11 @@ jobs:
             except:
                 print('0')
             ")
-            
             echo "percentage=$COVERAGE" >> $GITHUB_OUTPUT
             echo "📊 Test coverage: ${COVERAGE}%"
-            
-            # Check if coverage meets threshold
-            if (( $(echo "$COVERAGE >= $COVERAGE_THRESHOLD" | bc -l) )); then
-              echo "✅ Coverage threshold ($COVERAGE_THRESHOLD%) met"
-            else
-              echo "⚠️ Coverage below threshold ($COVERAGE_THRESHOLD%): ${COVERAGE}%"
-            fi
           else
-            echo "⚠️ No coverage report found"
             echo "percentage=0" >> $GITHUB_OUTPUT
           fi
-
-      - name: Generate test summary
-        if: always()
-        run: |
-          echo "## Test Validation Summary 📋" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Generated Tests | ${{ steps.validation.outputs.status == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Coverage | ${{ steps.coverage.outputs.percentage }}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Threshold | ${{ env.COVERAGE_THRESHOLD }}% |" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4
@@ -191,15 +144,12 @@ jobs:
     needs: validate_and_test
     if: always() && needs.validate_and_test.result != 'cancelled'
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Download test results
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: test-validation-results
           path: .
@@ -234,60 +184,9 @@ jobs:
       needs.code_quality_scan.result == 'success' &&
       (github.event.inputs.skip_deployment != 'true')
     runs-on: ubuntu-latest
-    environment: production
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Container Registry
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/myapp:latest
-            ${{ secrets.DOCKER_USERNAME }}/myapp:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Deploy notification
+      - name: Deployment placeholder
         run: |
-          echo "🚀 Deployment initiated successfully!"
-          echo "## Deployment Status 🚀" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Docker image built and pushed" >> $GITHUB_STEP_SUMMARY
-          echo "📊 Test Coverage: ${{ needs.validate_and_test.outputs.coverage_percentage }}%" >> $GITHUB_STEP_SUMMARY
-          echo "🔗 Image: \`${{ secrets.DOCKER_USERNAME }}/myapp:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-
-      # Add your actual deployment steps here:
-      # - Deploy to Kubernetes
-      # - Update Helm charts  
-      # - Trigger ArgoCD sync
-      # - Deploy to cloud platform
-      # - Update infrastructure
-
-  notification:
-    needs: [validate_and_test, code_quality_scan, deploy]
-    if: always()
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Send notification
-        run: |
-          if [[ "${{ needs.validate_and_test.result }}" == "success" && "${{ needs.code_quality_scan.result }}" == "success" && "${{ needs.deploy.result }}" == "success" ]]; then
-            echo "✅ Pipeline completed successfully!"
-          else
-            echo "❌ Pipeline failed at one or more stages"
-            echo "- Test validation: ${{ needs.validate_and_test.result }}"
-            echo "- Code quality: ${{ needs.code_quality_scan.result }}"  
-            echo "- Deployment: ${{ needs.deploy.result }}"
-          fi
+          echo "🚀 Ready for deployment step."
+          echo "You can add Kubernetes/Helm/ArgoCD steps here."
+          echo "📊 Coverage: ${{ needs.validate_and_test.outputs.coverage_percentage }}%"

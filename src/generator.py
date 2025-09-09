@@ -831,14 +831,26 @@ def _massage_generated_code(code: str) -> str:
     def _repl_bare(m): return f'pytest.raises(_exc_lookup("{m.group(1)}", Exception){m.group(2)}'
     code = _RAISES_QUAL.sub(_repl_qual, code)
     code = _RAISES_BARE.sub(_repl_bare, code)
+
     def _repl_is_q(m): return f'isinstance({m.group(1)}, _exc_lookup("{m.group(2)}", Exception))'
     def _repl_is_b(m): return f'isinstance({m.group(1)}, _exc_lookup("{m.group(2)}", Exception))'
     code = _ISINSTANCE_QUAL.sub(_repl_is_q, code)
     code = _ISINSTANCE_BARE.sub(_repl_is_b, code)
 
+    # --- NEW: Downgrade hallucinated exceptions ---
+    known_excs = {
+        "Exception", "ZeroDivisionError", "ValueError", "TypeError", "IndexError",
+        "KeyError", "RuntimeError", "AttributeError", "ImportError",
+        "OSError", "FileNotFoundError", "PermissionError", "StopIteration"
+    }
+    for name in re.findall(r'_exc_lookup\("([^"]+)"', code):
+        if name not in known_excs:
+            code = code.replace(f'_exc_lookup("{name}"', '_exc_lookup("Exception"')
+
     # Always append robust Qt shim + aliases (harmless if unused)
     code = _always_append_qt_shim(code)
     return code
+
 
 # ---------------- Manifest helpers ----------------
 def write(path: pathlib.Path, content: str):

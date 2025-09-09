@@ -1,66 +1,60 @@
-name: AI Test Generation
+name: Test Validation & Quality Analysis
 
 on:
   workflow_dispatch:
     inputs:
       repo_url:
-        description: "Repo to analyze"
+        description: "Repository to validate"
         required: true
         default: "https://github.com/DeviPrasad372002/test-calculator.git"
-      force_gen:
-        description: "Force generation even if no code changes detected"
+      coverage_threshold:
+        description: "Minimum coverage threshold (%)"
         required: false
-        default: "false"
+        default: "80"
+      sonar_analysis:
+        description: "Run SonarCloud analysis"
+        required: false
+        default: "true"
   push:
-    branches: [ test ]
+    branches: [ main ]
+    paths: 
+      - 'tests/generated/**'
+      - 'src/**'
+      - '*.py'
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  generate:
+  validate-tests:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+      pull-requests: write
+      checks: write
     env:
-      AZURE_OPENAI_KEY:         ${{ secrets.AZURE_OPENAI_KEY         || secrets.AZURE_OPENAI_API_KEY }}
-      AZURE_OPENAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT    || secrets.AZURE_OPENAI_API_ENDPOINT }}
-      AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION || secrets.OPENAI_API_VERSION }}
-      AZURE_OPENAI_DEPLOYMENT:  ${{ secrets.AZURE_OPENAI_DEPLOYMENT  || secrets.OPENAI_DEPLOYMENT }}
-
-      # Safe DB defaults for import-time engines
       DATABASE_URL: "sqlite:///:memory:"
       DB_URL: "sqlite:///:memory:"
       SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
+      COVERAGE_THRESHOLD: ${{ github.event.inputs.coverage_threshold || '80' }}
+
+    outputs:
+      coverage-percentage: ${{ steps.coverage.outputs.coverage-percentage }}
+      tests-passed: ${{ steps.test-results.outputs.tests-passed }}
+      bugs-found: ${{ steps.test-results.outputs.bugs-found }}
+      ready-to-deploy: ${{ steps.deployment-check.outputs.ready }}
 
     steps:
-      - name: Checkout pipeline repo
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
-
-      - name: Clone target repository (kept under ./target)
-        run: |
-          REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/test-calculator.git' }}"
-          echo "REPO_URL=$REPO" >> $GITHUB_ENV
-          git clone --depth 1 "$REPO" target
-
-      - name: Derive canonical OUTDIR and TARGET_ROOT
-        id: paths
-        run: |
-          echo "TARGET_ROOT=target" >> $GITHUB_ENV
-          REPO_SLUG="$(echo "${REPO_URL}" | sed -E 's#^https?://github.com/##; s#[^A-Za-z0-9._-]#_#g')"
-          OUTDIR="tests/generated/${REPO_SLUG}/current"
-          echo "REPO_SLUG=$REPO_SLUG" >> $GITHUB_ENV
-          echo "OUTDIR=$OUTDIR"       >> $GITHUB_ENV
-          echo "repo_slug=$REPO_SLUG" >> $GITHUB_OUTPUT
-          echo "outdir=$OUTDIR"       >> $GITHUB_OUTPUT
-          mkdir -p "$OUTDIR"
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install system build tools (for native wheels)
+      - name: Install system dependencies
         run: |
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
@@ -68,122 +62,411 @@ jobs:
             libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
             libxml2-dev libxslt1-dev curl
 
-      - name: Install Python deps (project + tools)
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip wheel setuptools
-          # Try installing target's dependencies FIRST (from target/)
-          if [ -f "target/requirements.txt" ]; then pip install -r target/requirements.txt || true; fi
-          if ls target/requirements/*.txt >/dev/null 2>&1; then pip install -r target/requirements/*.txt || true; fi
-          if [ -f "target/pyproject.toml" ] && grep -q "\[tool.poetry\]" target/pyproject.toml; then
+          
+          # Install project dependencies
+          if [ -f "requirements.txt" ]; then pip install -r requirements.txt || true; fi
+          if ls requirements/*.txt >/dev/null 2>&1; then pip install -r requirements/*.txt || true; fi
+          
+          # Handle different dependency management tools
+          if [ -f "pyproject.toml" ] && grep -q "\[tool.poetry\]" pyproject.toml; then
             pip install poetry || true
-            (cd target && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req) || true
-            if [ -s /tmp/poetry.lock.req ]; then pip install -r /tmp/poetry.lock.req || true; fi
+            poetry export -f requirements.txt --without-hashes -o /tmp/poetry.req || true
+            if [ -s /tmp/poetry.req ]; then pip install -r /tmp/poetry.req || true; fi
           fi
-          if [ -f "target/pyproject.toml" ] && grep -q "\[tool.pdm\]" target/pyproject.toml; then
+          
+          if [ -f "pyproject.toml" ] && grep -q "\[tool.pdm\]" pyproject.toml; then
             pip install pdm || true
-            (cd target && pdm export -o /tmp/pdm.lock.req --without-hashes --dev) || true
-            if [ -s /tmp/pdm.lock.req ]; then pip install -r /tmp/pdm.lock.req || true; fi
+            pdm export -o /tmp/pdm.req --without-hashes --dev || true
+            if [ -s /tmp/pdm.req ]; then pip install -r /tmp/pdm.req || true; fi
           fi
-          if [ -f "target/Pipfile.lock" ] || [ -f "target/Pipfile" ]; then
+          
+          if [ -f "Pipfile.lock" ] || [ -f "Pipfile" ]; then
             pip install pipenv || true
-            (cd target && pipenv requirements > /tmp/pipenv.lock.req) || true
-            if [ -s /tmp/pipenv.lock.req ]; then pip install -r /tmp/pipenv.lock.req || true; fi
+            pipenv requirements > /tmp/pipenv.req || true
+            if [ -s /tmp/pipenv.req ]; then pip install -r /tmp/pipenv.req || true; fi
           fi
-          if [ -f "target/setup.py" ] || [ -f "target/setup.cfg" ]; then
-            pip install -e target || true
+          
+          if [ -f "setup.py" ] || [ -f "setup.cfg" ]; then
+            pip install -e . || true
           fi
-          # Core test tooling + common backend libs
-          pip install "openai>=1.51.0" pytest pytest-cov httpx requests \
-                      "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" "annotated-types>=0.6" \
-                      "uvicorn>=0.23" "SQLAlchemy>=2" "typing-extensions>=4.8"
+          
+          # Install testing and quality tools
+          pip install pytest pytest-cov pytest-html pytest-json-report \
+                     coverage bandit safety flake8 black isort mypy \
+                     pytest-xdist pytest-timeout pytest-mock
 
-      - name: Analyze codebase (only target/)
-        run: python -m src.analyzer --root target > /tmp/analysis.json
-
-      - name: Diff scan (compute changed .py files in target/ vs manifest)
+      - name: Validate generated tests structure
         run: |
-          python -m src.diffscan --root target \
-            --manifest "${OUTDIR}/_manifest.json" \
-            --out-changed /tmp/changed.json \
-            --out-hashes  /tmp/code-hashes.json
+          echo "🔍 Validating test structure..."
+          
+          if [ ! -d "tests/generated" ]; then
+            echo "❌ No generated tests directory found"
+            exit 1
+          fi
+          
+          TEST_COUNT=$(find tests/generated -name "test_*.py" | wc -l)
+          echo "📊 Found $TEST_COUNT generated test files"
+          
+          if [ "$TEST_COUNT" -eq 0 ]; then
+            echo "❌ No test files found in tests/generated/"
+            exit 1
+          fi
+          
+          # Validate test file syntax
+          echo "🔍 Validating test file syntax..."
+          python -m py_compile tests/generated/test_*.py || {
+            echo "❌ Syntax errors found in generated tests"
+            exit 1
+          }
+          
+          echo "✅ Test structure validation passed"
 
-          CHANGED_COUNT=$(python - <<'PY'
+      - name: Run tests with coverage and bug detection
+        id: test-results
+        run: |
+          echo "🧪 Running tests with coverage analysis..."
+          
+          # Create reports directory
+          mkdir -p reports
+          
+          # Run tests with coverage, timeout, and detailed output
+          python -m pytest tests/generated/ \
+            --cov=src --cov=. \
+            --cov-report=html:reports/coverage-html \
+            --cov-report=xml:reports/coverage.xml \
+            --cov-report=json:reports/coverage.json \
+            --cov-report=term-missing \
+            --html=reports/test-report.html \
+            --json-report --json-report-file=reports/test-results.json \
+            --tb=short \
+            --timeout=300 \
+            -v \
+            --continue-on-collection-errors \
+            || TEST_EXIT_CODE=$?
+          
+          # Analyze test results
+          python << 'EOF'
           import json
+          import os
+          
+          # Parse test results
           try:
-              arr = json.load(open('/tmp/changed.json'))
-              print(len(arr))
-          except Exception:
-              print(0)
-          PY
-          )
-          FOUND_TESTS=$(find "${OUTDIR}" -type f -name 'test_*.py' | wc -l | tr -d ' ')
-          FORCE="${{ github.event.inputs.force_gen }}"
+              with open('reports/test-results.json', 'r') as f:
+                  results = json.load(f)
+              
+              total_tests = results['summary']['total']
+              failed_tests = results['summary'].get('failed', 0)
+              errors = results['summary'].get('error', 0)
+              passed_tests = results['summary'].get('passed', 0)
+              
+              print(f"📊 Test Summary:")
+              print(f"   Total: {total_tests}")
+              print(f"   Passed: {passed_tests}")
+              print(f"   Failed: {failed_tests}")
+              print(f"   Errors: {errors}")
+              
+              # Check for potential bugs indicated by test failures
+              bugs_found = []
+              if 'tests' in results:
+                  for test in results['tests']:
+                      if test['outcome'] in ['failed', 'error']:
+                          bug_info = {
+                              'test': test['nodeid'],
+                              'outcome': test['outcome'],
+                              'message': test.get('call', {}).get('longrepr', 'No details available')
+                          }
+                          bugs_found.append(bug_info)
+              
+              # Output results for GitHub Actions
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f"tests-passed={passed_tests}\n")
+                  f.write(f"tests-failed={failed_tests}\n")
+                  f.write(f"bugs-found={len(bugs_found)}\n")
+              
+              if bugs_found:
+                  print(f"\n🐛 Potential bugs detected in {len(bugs_found)} areas:")
+                  for i, bug in enumerate(bugs_found[:10]):  # Limit output
+                      print(f"   {i+1}. {bug['test']}")
+                      print(f"      Issue: {bug['outcome']}")
+                      if len(str(bug['message'])) < 200:
+                          print(f"      Details: {bug['message']}")
+                      print()
+              
+          except Exception as e:
+              print(f"❌ Error analyzing test results: {e}")
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f"tests-passed=0\n")
+                  f.write(f"bugs-found=unknown\n")
+          EOF
 
-          echo "CHANGED_COUNT=$CHANGED_COUNT" >> $GITHUB_ENV
-          echo "FOUND_TESTS=$FOUND_TESTS" >> $GITHUB_ENV
+      - name: Generate detailed coverage report
+        id: coverage
+        run: |
+          echo "📊 Generating detailed coverage analysis..."
+          
+          # Parse coverage results
+          python << 'EOF'
+          import json
+          import os
+          
+          try:
+              with open('reports/coverage.json', 'r') as f:
+                  coverage = json.load(f)
+              
+              total_coverage = coverage['totals']['percent_covered']
+              
+              print(f"📊 Coverage Analysis:")
+              print(f"   Overall Coverage: {total_coverage:.2f}%")
+              
+              # File-level coverage details
+              files_coverage = []
+              for filename, file_data in coverage['files'].items():
+                  if filename.endswith('.py') and not filename.startswith('test_'):
+                      file_coverage = file_data['summary']['percent_covered']
+                      files_coverage.append({
+                          'file': filename,
+                          'coverage': file_coverage,
+                          'missing_lines': file_data['summary']['missing_lines']
+                      })
+              
+              # Sort by coverage (lowest first)
+              files_coverage.sort(key=lambda x: x['coverage'])
+              
+              print(f"\n📈 File Coverage Details:")
+              for file_info in files_coverage[:10]:  # Show top 10 lowest coverage
+                  print(f"   {file_info['file']}: {file_info['coverage']:.1f}%")
+                  if file_info['missing_lines'] > 0:
+                      print(f"      Missing {file_info['missing_lines']} lines")
+              
+              # Output for GitHub Actions
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f"coverage-percentage={total_coverage:.2f}\n")
+              
+              # Check coverage threshold
+              threshold = float(os.environ.get('COVERAGE_THRESHOLD', 80))
+              if total_coverage < threshold:
+                  print(f"❌ Coverage {total_coverage:.2f}% below threshold {threshold}%")
+                  exit(1)
+              else:
+                  print(f"✅ Coverage {total_coverage:.2f}% meets threshold {threshold}%")
+              
+          except Exception as e:
+              print(f"❌ Error analyzing coverage: {e}")
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f"coverage-percentage=0\n")
+              exit(1)
+          EOF
 
-          if [ "${FORCE}" = "true" ]; then
-            echo "Forcing generation due to manual input."
-            echo "SKIP_GEN=0" >> $GITHUB_ENV
-          elif [ "$CHANGED_COUNT" = "0" ] && [ "$FOUND_TESTS" = "0" ]; then
-            echo "First run (no manifest tests yet) — forcing initial generation."
-            echo "SKIP_GEN=0" >> $GITHUB_ENV
-          elif [ "$CHANGED_COUNT" = "0" ]; then
-            echo "No changed Python files — skipping generation."
-            echo "SKIP_GEN=1" >> $GITHUB_ENV
-          else
-            echo "Changed Python files: $CHANGED_COUNT — will generate."
-            echo "SKIP_GEN=0" >> $GITHUB_ENV
+      - name: Security and quality analysis
+        run: |
+          echo "🔒 Running security and quality checks..."
+          
+          # Security scan with bandit
+          echo "🔍 Security scan..."
+          bandit -r src/ -f json -o reports/security.json || true
+          bandit -r src/ || echo "Security issues found (see reports/security.json)"
+          
+          # Safety check for vulnerable dependencies
+          echo "🔍 Dependency vulnerability scan..."
+          safety check --json --output reports/safety.json || true
+          
+          # Code quality checks
+          echo "🔍 Code style checks..."
+          flake8 src/ --output-file=reports/flake8.txt || true
+          
+          # Type checking (if applicable)
+          if find src/ -name "*.py" | head -5 | xargs grep -l "from typing import\|import typing\|: *[A-Z]" >/dev/null 2>&1; then
+            echo "🔍 Type checking..."
+            mypy src/ --ignore-missing-imports --json-report reports/mypy || true
           fi
 
-      - name: Install deps inferred from imports (filtered)
-        run: |
-          python -m src.install_from_analysis /tmp/analysis.json || true
+  sonarqube-analysis:
+    runs-on: ubuntu-latest
+    needs: validate-tests
+    if: ${{ github.event.inputs.sonar_analysis != 'false' }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Generate tests (only for changed files) — append into OUTDIR
-        if: env.SKIP_GEN == '0'
+      - name: Download coverage reports
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-reports
+          path: reports/
+        continue-on-error: true
+
+      - name: SonarQube Scan
+        uses: sonarqube-quality-gate-action@master
         env:
-          TARGET_ROOT: target
-          FOCUS_FILES_JSON_PATH: /tmp/changed.json
-          CODE_HASHES_PATH: /tmp/code-hashes.json
-          GENERATED_LIST_PATH: /tmp/generated-files.json
-        run: |
-          python - <<'PY'
-          import os, json, src.generator as g
-          analysis = json.load(open('/tmp/analysis.json'))
-          outdir = os.environ['OUTDIR']
-          changed = json.load(open('/tmp/changed.json')) if os.path.exists('/tmp/changed.json') else []
-          g.generate_all(analysis, outdir=outdir, focus_files=changed)
-          PY
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
+        with:
+          scanMetadataReportFile: reports/sonar-report.json
+        continue-on-error: true
 
-      - name: List generated tests (current folder)
+      - name: Setup SonarQube Scanner
         run: |
-          echo "Listing ${OUTDIR}"
-          ls -lah "${OUTDIR}" || true
-          echo "Preview .py files:"
-          find "${OUTDIR}" -type f -name 'test_*.py' | sed 's/^/ - /' || true
-          if [ -f /tmp/generated-files.json ]; then
-            echo "New files:"; cat /tmp/generated-files.json
+          # Download and setup SonarQube scanner
+          wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
+          unzip -q sonar-scanner-cli-4.8.0.2856-linux.zip
+          export PATH=$PATH:$(pwd)/sonar-scanner-4.8.0.2856-linux/bin
+          
+          # Create sonar-project.properties if it doesn't exist
+          if [ ! -f "sonar-project.properties" ]; then
+            cat > sonar-project.properties << EOF
+          sonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}
+          sonar.organization=${{ github.repository_owner }}
+          sonar.sources=src
+          sonar.tests=tests
+          sonar.python.coverage.reportPaths=reports/coverage.xml
+          sonar.python.xunit.reportPath=reports/test-results.xml
+          sonar.exclusions=**/*_test.py,**/test_*.py
+          EOF
           fi
+          
+          # Run SonarQube analysis
+          sonar-scanner \
+            -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }} \
+            -Dsonar.organization=${{ github.repository_owner }} \
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }} \
+            -Dsonar.token=${{ secrets.SONAR_TOKEN }} || echo "SonarQube analysis completed with warnings"
 
-      - name: Move generated tests into target repo
+  deployment-readiness:
+    runs-on: ubuntu-latest
+    needs: [validate-tests, sonarqube-analysis]
+    if: always()
+    
+    steps:
+      - name: Evaluate deployment readiness
+        id: deployment-check
         run: |
-          mkdir -p target/tests/generated
-          cp -r "${OUTDIR}"/* target/tests/generated/ || true
-          echo "Final tests copied into target repo:"
-          find target/tests/generated -name "test_*.py" | head -20
-
-      - name: Commit generated tests (append-only; retains previous)
-        run: |
-          cd target
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${{ secrets.GH_PAT3 }}@github.com/DeviPrasad372002/test-calculator.git
-          git add tests/generated || true
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
+          echo "🚀 Evaluating deployment readiness..."
+          
+          # Get results from previous jobs
+          TESTS_PASSED="${{ needs.validate-tests.outputs.tests-passed }}"
+          COVERAGE="${{ needs.validate-tests.outputs.coverage-percentage }}"
+          BUGS_FOUND="${{ needs.validate-tests.outputs.bugs-found }}"
+          COVERAGE_THRESHOLD="${{ github.event.inputs.coverage_threshold || '80' }}"
+          
+          echo "📊 Deployment Readiness Assessment:"
+          echo "   Tests Passed: $TESTS_PASSED"
+          echo "   Coverage: $COVERAGE%"
+          echo "   Bugs Found: $BUGS_FOUND"
+          echo "   Coverage Threshold: $COVERAGE_THRESHOLD%"
+          
+          READY="false"
+          ISSUES=()
+          
+          # Check if tests passed
+          if [ "$TESTS_PASSED" = "0" ] || [ -z "$TESTS_PASSED" ]; then
+            ISSUES+=("No tests passed")
+          fi
+          
+          # Check coverage threshold
+          if [ -n "$COVERAGE" ]; then
+            if (( $(echo "$COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
+              ISSUES+=("Coverage $COVERAGE% below threshold $COVERAGE_THRESHOLD%")
+            fi
+          fi
+          
+          # Check for bugs
+          if [ "$BUGS_FOUND" != "0" ] && [ "$BUGS_FOUND" != "" ]; then
+            ISSUES+=("$BUGS_FOUND potential bugs found")
+          fi
+          
+          # Final assessment
+          if [ ${#ISSUES[@]} -eq 0 ]; then
+            READY="true"
+            echo ""
+            echo "✅ 🚀 READY TO DEPLOY! 🚀 ✅"
+            echo "   All quality gates passed:"
+            echo "   ✅ Tests are passing ($TESTS_PASSED tests)"
+            echo "   ✅ Coverage meets threshold ($COVERAGE% >= $COVERAGE_THRESHOLD%)"
+            echo "   ✅ No critical bugs detected"
+            echo "   ✅ Code quality checks completed"
+            echo ""
+            echo "🎉 Your application is ready for deployment! 🎉"
           else
-            git commit -m "chore: append tests for changed files [skip ci]"
-            git push origin HEAD:main
+            echo ""
+            echo "❌ NOT READY TO DEPLOY ❌"
+            echo "   Issues that need to be addressed:"
+            for issue in "${ISSUES[@]}"; do
+              echo "   ❌ $issue"
+            done
+            echo ""
+            echo "🔧 Please fix these issues before deployment."
           fi
+          
+          echo "ready=$READY" >> $GITHUB_OUTPUT
 
+      - name: Create deployment summary
+        if: always()
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## 🚀 Deployment Readiness Report
+          
+          | Metric | Value | Status |
+          |--------|-------|--------|
+          | Tests Passed | ${{ needs.validate-tests.outputs.tests-passed }} | ${{ needs.validate-tests.outputs.tests-passed > 0 && '✅' || '❌' }} |
+          | Code Coverage | ${{ needs.validate-tests.outputs.coverage-percentage }}% | ${{ needs.validate-tests.outputs.coverage-percentage >= github.event.inputs.coverage_threshold && '✅' || '❌' }} |
+          | Bugs Found | ${{ needs.validate-tests.outputs.bugs-found }} | ${{ needs.validate-tests.outputs.bugs-found == 0 && '✅' || '⚠️' }} |
+          | Ready to Deploy | ${{ steps.deployment-check.outputs.ready }} | ${{ steps.deployment-check.outputs.ready == 'true' && '🚀 YES' || '❌ NO' }} |
+          
+          ### 📊 Quality Gates
+          - **Test Validation**: Generated tests are syntactically correct and executable
+          - **Coverage Threshold**: Minimum ${{ github.event.inputs.coverage_threshold || '80' }}% code coverage required
+          - **Bug Detection**: Tests identify potential issues in source code  
+          - **Security Analysis**: Code scanned for security vulnerabilities
+          - **Code Quality**: Style and type checking performed
+          
+          ${{ steps.deployment-check.outputs.ready == 'true' && '🎉 **All quality gates passed! Ready for deployment!** 🎉' || '🔧 **Please address the issues above before deployment.** 🔧' }}
+          EOF
+
+      - name: Upload test and coverage reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quality-reports
+          path: |
+            reports/
+            !reports/**/*.pyc
+          retention-days: 30
+
+      - name: Comment on PR (if applicable)
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request' && always()
+        continue-on-error: true
+        with:
+          script: |
+            const ready = '${{ steps.deployment-check.outputs.ready }}';
+            const coverage = '${{ needs.validate-tests.outputs.coverage-percentage }}';
+            const testsPasssed = '${{ needs.validate-tests.outputs.tests-passed }}';
+            const bugsFound = '${{ needs.validate-tests.outputs.bugs-found }}';
+            
+            const body = `
+            ## 🧪 Test Validation Results
+            
+            | Metric | Result |
+            |--------|--------|
+            | Tests Passed | ${testsPasssed} |
+            | Coverage | ${coverage}% |
+            | Bugs Found | ${bugsFound} |
+            | **Ready to Deploy** | ${ready === 'true' ? '✅ YES' : '❌ NO'} |
+            
+            ${ready === 'true' ? '🚀 All quality checks passed! This PR is ready to merge.' : '⚠️ Some quality checks failed. Please review the issues above.'}
+            
+            View detailed reports in the [workflow run](${context.payload.pull_request.html_url}/checks).
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

@@ -41,13 +41,19 @@ jobs:
       coverage-percentage: ${{ steps.coverage.outputs.coverage-percentage }}
       tests-passed: ${{ steps.test-results.outputs.tests-passed }}
       bugs-found: ${{ steps.test-results.outputs.bugs-found }}
-      ready-to-deploy: ${{ steps.deployment-check.outputs.ready }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout pipeline repo (this repo)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Clone target repository to ./target_repo
+        run: |
+          REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/test-calculator.git' }}"
+          echo "Cloning ${REPO}"
+          git clone --depth 1 "$REPO" target_repo
+          echo "TARGET_ROOT=$PWD/target_repo" >> $GITHUB_ENV
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -62,251 +68,187 @@ jobs:
             libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
             libxml2-dev libxslt1-dev curl
 
-      - name: Install Python dependencies
+      - name: Install Python dependencies (target repo + tooling)
         run: |
           python -m pip install --upgrade pip wheel setuptools
-          
-          # Install project dependencies
-          if [ -f "requirements.txt" ]; then pip install -r requirements.txt || true; fi
-          if ls requirements/*.txt >/dev/null 2>&1; then pip install -r requirements/*.txt || true; fi
-          
-          # Handle different dependency management tools
-          if [ -f "pyproject.toml" ] && grep -q "\[tool.poetry\]" pyproject.toml; then
+
+          # Install target repo deps if present
+          if [ -f "target_repo/requirements.txt" ]; then pip install -r target_repo/requirements.txt || true; fi
+          if ls target_repo/requirements/*.txt >/dev/null 2>&1; then pip install -r target_repo/requirements/*.txt || true; fi
+
+          if [ -f "target_repo/pyproject.toml" ] && grep -q "\[tool.poetry\]" target_repo/pyproject.toml; then
             pip install poetry || true
-            poetry export -f requirements.txt --without-hashes -o /tmp/poetry.req || true
+            (cd target_repo && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.req) || true
             if [ -s /tmp/poetry.req ]; then pip install -r /tmp/poetry.req || true; fi
           fi
-          
-          if [ -f "pyproject.toml" ] && grep -q "\[tool.pdm\]" pyproject.toml; then
+
+          if [ -f "target_repo/pyproject.toml" ] && grep -q "\[tool.pdm\]" target_repo/pyproject.toml; then
             pip install pdm || true
-            pdm export -o /tmp/pdm.req --without-hashes --dev || true
+            (cd target_repo && pdm export -o /tmp/pdm.req --without-hashes --dev) || true
             if [ -s /tmp/pdm.req ]; then pip install -r /tmp/pdm.req || true; fi
           fi
-          
-          if [ -f "Pipfile.lock" ] || [ -f "Pipfile" ]; then
+
+          if [ -f "target_repo/Pipfile" ] || [ -f "target_repo/Pipfile.lock" ]; then
             pip install pipenv || true
-            pipenv requirements > /tmp/pipenv.req || true
+            (cd target_repo && pipenv requirements > /tmp/pipenv.req) || true
             if [ -s /tmp/pipenv.req ]; then pip install -r /tmp/pipenv.req || true; fi
           fi
-          
-          if [ -f "setup.py" ] || [ -f "setup.cfg" ]; then
-            pip install -e . || true
+
+          if [ -f "target_repo/setup.py" ] || [ -f "target_repo/setup.cfg" ]; then
+            pip install -e target_repo || true
           fi
-          
-          # Install testing and quality tools
+
+          # Testing & quality tools
           pip install pytest pytest-cov pytest-html pytest-json-report \
                      coverage bandit safety flake8 black isort mypy \
                      pytest-xdist pytest-timeout pytest-mock
 
-      - name: Validate generated tests structure
+      - name: Locate tests (existing + generated) and coverage sources
+        id: discover
         run: |
-          echo "🔍 Validating test structure..."
-          
-          if [ ! -d "tests/generated" ]; then
-            echo "❌ No generated tests directory found"
-            exit 1
-          fi
-          
-          TEST_COUNT=$(find tests/generated -name "test_*.py" | wc -l)
-          echo "📊 Found $TEST_COUNT generated test files"
-          
-          if [ "$TEST_COUNT" -eq 0 ]; then
-            echo "❌ No test files found in tests/generated/"
-            exit 1
-          fi
-          
-          # Validate test file syntax
-          echo "🔍 Validating test file syntax..."
-          python -m py_compile tests/generated/test_*.py || {
-            echo "❌ Syntax errors found in generated tests"
-            exit 1
-          }
-          
-          echo "✅ Test structure validation passed"
+          set -e
+          cd "$TARGET_ROOT"
 
-      - name: Run tests with coverage and bug detection
+          # Ensure tests dir exists and contains tests
+          if [ ! -d "tests" ]; then
+            echo "❌ No tests directory found in target_repo/"
+            exit 1
+          fi
+
+          TEST_COUNT=$(find tests -type f -name "test_*.py" | wc -l | tr -d ' ')
+          echo "Found ${TEST_COUNT} test files."
+          if [ "$TEST_COUNT" = "0" ]; then
+            echo "❌ No 'test_*.py' files discovered in target_repo/tests/"
+            exit 1
+          fi
+
+          # Determine coverage source roots
+          COV_ARGS=()
+
+          # Prefer conventional src/
+          if [ -d "src" ]; then
+            COV_ARGS+=("--cov=src")
+          fi
+
+          # Add top-level Python package directories (folder with __init__.py)
+          for d in */ ; do
+            [ -d "$d" ] || continue
+            [ "$d" = "tests/" ] && continue
+            [ "$d" = "venv/" ] && continue
+            [ -f "${d}__init__.py" ] && COV_ARGS+=("--cov=${d%/}")
+          done
+
+          # If none detected, fall back to repo root
+          if [ ${#COV_ARGS[@]} -eq 0 ]; then
+            COV_ARGS+=("--cov=.")
+          fi
+
+          echo "COV_ARGS=${COV_ARGS[*]}"
+
+          # Persist for next steps
+          echo "cov_args=${COV_ARGS[*]}" >> $GITHUB_OUTPUT
+
+      - name: Run ALL tests (existing + generated) with coverage
         id: test-results
+        env:
+          PYTHONPATH: ${{ env.TARGET_ROOT }}
         run: |
-          echo "🧪 Running tests with coverage analysis..."
-          
-          # Create reports directory
+          echo "🧪 Running tests..."
           mkdir -p reports
-          
-          # Run tests with coverage, timeout, and detailed output
-          python -m pytest tests/generated/ \
-            --cov=src --cov=. \
-            --cov-report=html:reports/coverage-html \
-            --cov-report=xml:reports/coverage.xml \
-            --cov-report=json:reports/coverage.json \
+          cd "$TARGET_ROOT"
+
+          COV_ARGS="${{ steps.discover.outputs.cov_args }}"
+
+          set +e
+          python -m pytest tests \
+            ${COV_ARGS} \
+            --cov-report=html:../reports/coverage-html \
+            --cov-report=xml:../reports/coverage.xml \
+            --cov-report=json:../reports/coverage.json \
             --cov-report=term-missing \
-            --html=reports/test-report.html \
-            --json-report --json-report-file=reports/test-results.json \
+            --html=../reports/test-report.html \
+            --json-report --json-report-file=../reports/test-results.json \
             --tb=short \
             --timeout=300 \
             -v \
-            --continue-on-collection-errors \
-            || TEST_EXIT_CODE=$?
-          
-          # Analyze test results
-          python << 'EOF'
-          import json
-          import os
-          
-          # Parse test results
-          try:
-              with open('reports/test-results.json', 'r') as f:
-                  results = json.load(f)
-              
-              total_tests = results['summary']['total']
-              failed_tests = results['summary'].get('failed', 0)
-              errors = results['summary'].get('error', 0)
-              passed_tests = results['summary'].get('passed', 0)
-              
-              print(f"📊 Test Summary:")
-              print(f"   Total: {total_tests}")
-              print(f"   Passed: {passed_tests}")
-              print(f"   Failed: {failed_tests}")
-              print(f"   Errors: {errors}")
-              
-              # Check for potential bugs indicated by test failures
-              bugs_found = []
-              if 'tests' in results:
-                  for test in results['tests']:
-                      if test['outcome'] in ['failed', 'error']:
-                          bug_info = {
-                              'test': test['nodeid'],
-                              'outcome': test['outcome'],
-                              'message': test.get('call', {}).get('longrepr', 'No details available')
-                          }
-                          bugs_found.append(bug_info)
-              
-              # Output results for GitHub Actions
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f"tests-passed={passed_tests}\n")
-                  f.write(f"tests-failed={failed_tests}\n")
-                  f.write(f"bugs-found={len(bugs_found)}\n")
-              
-              if bugs_found:
-                  print(f"\n🐛 Potential bugs detected in {len(bugs_found)} areas:")
-                  for i, bug in enumerate(bugs_found[:10]):  # Limit output
-                      print(f"   {i+1}. {bug['test']}")
-                      print(f"      Issue: {bug['outcome']}")
-                      if len(str(bug['message'])) < 200:
-                          print(f"      Details: {bug['message']}")
-                      print()
-              
-          except Exception as e:
-              print(f"❌ Error analyzing test results: {e}")
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f"tests-passed=0\n")
-                  f.write(f"bugs-found=unknown\n")
+            --continue-on-collection-errors
+          TEST_EXIT_CODE=$?
+          set -e
+
+          # Summarize for outputs
+          python - << 'EOF'
+          import json, os
+          p = 'reports/test-results.json'
+          if not os.path.exists(p):
+              print("No JSON test results found; creating a minimal stub.")
+              data = {"summary":{"total":0,"passed":0,"failed":0,"error":0}}
+          else:
+              data = json.load(open(p))
+
+          total = data.get("summary",{}).get("total",0)
+          passed = data.get("summary",{}).get("passed",0)
+          failed = data.get("summary",{}).get("failed",0)
+          errors = data.get("summary",{}).get("error",0)
+
+          print(f"📊 Test Summary: total={total}, passed={passed}, failed={failed}, errors={errors}")
+
+          bugs = (failed or 0) + (errors or 0)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"tests-passed={passed}\n")
+              f.write(f"bugs-found={bugs}\n")
           EOF
 
-      - name: Generate detailed coverage report
+          exit 0
+
+      - name: Generate detailed coverage report (with threshold)
         id: coverage
         run: |
-          echo "📊 Generating detailed coverage analysis..."
-          
-          # Parse coverage results
-          python << 'EOF'
-          import json
-          import os
-          
-          try:
-              with open('reports/coverage.json', 'r') as f:
-                  coverage = json.load(f)
-              
-              total_coverage = coverage['totals']['percent_covered']
-              
-              print(f"📊 Coverage Analysis:")
-              print(f"   Overall Coverage: {total_coverage:.2f}%")
-              
-              # File-level coverage details
-              files_coverage = []
-              for filename, file_data in coverage['files'].items():
-                  if filename.endswith('.py') and not filename.startswith('test_'):
-                      file_coverage = file_data['summary']['percent_covered']
-                      files_coverage.append({
-                          'file': filename,
-                          'coverage': file_coverage,
-                          'missing_lines': file_data['summary']['missing_lines']
-                      })
-              
-              # Sort by coverage (lowest first)
-              files_coverage.sort(key=lambda x: x['coverage'])
-              
-              print(f"\n📈 File Coverage Details:")
-              for file_info in files_coverage[:10]:  # Show top 10 lowest coverage
-                  print(f"   {file_info['file']}: {file_info['coverage']:.1f}%")
-                  if file_info['missing_lines'] > 0:
-                      print(f"      Missing {file_info['missing_lines']} lines")
-              
-              # Output for GitHub Actions
+          echo "📊 Generating coverage analysis..."
+          python - << 'EOF'
+          import os, json, sys
+          p='reports/coverage.json'
+          if not os.path.exists(p):
+              print("❌ coverage.json not found. Did tests run?")
               with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f"coverage-percentage={total_coverage:.2f}\n")
-              
-              # Check coverage threshold
-              threshold = float(os.environ.get('COVERAGE_THRESHOLD', 80))
-              if total_coverage < threshold:
-                  print(f"❌ Coverage {total_coverage:.2f}% below threshold {threshold}%")
-                  exit(1)
-              else:
-                  print(f"✅ Coverage {total_coverage:.2f}% meets threshold {threshold}%")
-              
-          except Exception as e:
-              print(f"❌ Error analyzing coverage: {e}")
+                  f.write("coverage-percentage=0\n")
+              sys.exit(1)
+
+          cov=json.load(open(p))
+          totals=cov.get("totals") or {}
+          pct=totals.get("percent_covered")
+          if pct is None:
+              print("❌ No percent_covered in coverage totals.")
               with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f"coverage-percentage=0\n")
-              exit(1)
+                  f.write("coverage-percentage=0\n")
+              sys.exit(1)
+
+          print(f"Overall coverage: {pct:.2f}%")
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"coverage-percentage={pct:.2f}\n")
+
+          threshold=float(os.environ.get("COVERAGE_THRESHOLD","80"))
+          if pct < threshold:
+              print(f"❌ Coverage {pct:.2f}% below threshold {threshold}%")
+              sys.exit(1)
+          print(f"✅ Coverage {pct:.2f}% meets threshold {threshold}%")
           EOF
 
       - name: Security and quality analysis
         run: |
           echo "Running security and quality checks..."
-          
-          # Determine source directory for analysis
-          if [ -d "target_repo" ]; then
-            SRC_DIR="target_repo"
-            cd target_repo
-          else
-            SRC_DIR="."
-          fi
-          
-          # Create reports directory relative to current location
-          mkdir -p ../reports 2>/dev/null || mkdir -p reports
-          
-          # Security scan with bandit - check if src directory exists
-          echo "Security scan..."
+          cd "$TARGET_ROOT"
+          mkdir -p ../reports
+
           if [ -d "src" ]; then
-            bandit -r src/ -f json -o ../reports/security.json 2>/dev/null || bandit -r src/ -f json -o reports/security.json || true
-            bandit -r src/ || echo "Security issues found (see security.json)"
-          else
-            bandit -r . -f json -o ../reports/security.json 2>/dev/null || bandit -r . -f json -o reports/security.json || true
-            bandit -r . || echo "Security scan completed"
-          fi
-          
-          # Safety check for vulnerable dependencies
-          echo "Dependency vulnerability scan..."
-          safety check --json --output ../reports/safety.json 2>/dev/null || safety check --json --output reports/safety.json || true
-          
-          # Code quality checks
-          echo "Code style checks..."
-          if [ -d "src" ]; then
-            flake8 src/ --output-file=../reports/flake8.txt 2>/dev/null || flake8 src/ --output-file=reports/flake8.txt || true
-          else
-            flake8 . --output-file=../reports/flake8.txt 2>/dev/null || flake8 . --output-file=reports/flake8.txt || true
-          fi
-          
-          # Type checking (if applicable)
-          if [ -d "src" ]; then
+            bandit -r src/ -f json -o ../reports/security.json || true
+            flake8 src/ --output-file=../reports/flake8.txt || true
             if find src/ -name "*.py" | head -5 | xargs grep -l "from typing import\|import typing\|: *[A-Z]" >/dev/null 2>&1; then
-              echo "Type checking..."
-              mypy src/ --ignore-missing-imports --json-report ../reports/mypy 2>/dev/null || mypy src/ --ignore-missing-imports --json-report reports/mypy || true
+              mypy src/ --ignore-missing-imports --json-report ../reports/mypy || true
             fi
+          else
+            bandit -r . -f json -o ../reports/security.json || true
+            flake8 . --output-file=../reports/flake8.txt || true
           fi
-          
-          # Return to original directory
-          cd - >/dev/null 2>&1 || true
 
   sonarqube-analysis:
     runs-on: ubuntu-latest
@@ -324,15 +266,6 @@ jobs:
         with:
           name: coverage-reports
           path: reports/
-        continue-on-error: true
-
-      - name: SonarQube Scan
-        uses: sonarqube-quality-gate-action@master
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
-        with:
-          scanMetadataReportFile: reports/sonar-report.json
         continue-on-error: true
 
       - name: Setup SonarQube Scanner
@@ -355,12 +288,24 @@ jobs:
           EOF
           fi
           
-          # Run SonarQube analysis
-          sonar-scanner \
-            -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }} \
-            -Dsonar.organization=${{ github.repository_owner }} \
-            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }} \
-            -Dsonar.token=${{ secrets.SONAR_TOKEN }} || echo "SonarQube analysis completed with warnings"
+          # Run SonarQube analysis (if tokens are available)
+          if [ -n "${{ secrets.SONAR_TOKEN }}" ]; then
+            sonar-scanner \
+              -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }} \
+              -Dsonar.organization=${{ github.repository_owner }} \
+              -Dsonar.host.url=${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }} \
+              -Dsonar.token=${{ secrets.SONAR_TOKEN }} || echo "SonarQube analysis completed with warnings"
+          else
+            echo "SonarQube analysis skipped - SONAR_TOKEN not configured"
+          fi
+
+      - name: SonarCloud Scan (Alternative)
+        uses: SonarSource/sonarcloud-github-action@master
+        if: ${{ secrets.SONAR_TOKEN }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        continue-on-error: true
 
   deployment-readiness:
     runs-on: ubuntu-latest
@@ -395,8 +340,15 @@ jobs:
           
           # Check coverage threshold
           if [ -n "$COVERAGE" ]; then
-            if (( $(echo "$COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
-              ISSUES+=("Coverage $COVERAGE% below threshold $COVERAGE_THRESHOLD%")
+            if command -v bc >/dev/null 2>&1; then
+              if (( $(echo "$COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
+                ISSUES+=("Coverage $COVERAGE% below threshold $COVERAGE_THRESHOLD%")
+              fi
+            else
+              COVERAGE_INT=$(echo "$COVERAGE" | cut -d'.' -f1)
+              if [ "$COVERAGE_INT" -lt "$COVERAGE_THRESHOLD" ]; then
+                ISSUES+=("Coverage $COVERAGE% below threshold $COVERAGE_THRESHOLD%")
+              fi
             fi
           fi
           

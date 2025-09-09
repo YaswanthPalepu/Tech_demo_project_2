@@ -116,7 +116,7 @@ jobs:
               print(0)
           PY
           )
-          FOUND_TESTS=$(find "${OUTDIR}" -type f -name 'test_*.py' | wc -c | tr -d ' ')
+          FOUND_TESTS=$(find "${OUTDIR}" -type f -name 'test_*.py' | wc -l | tr -d ' ')
           FORCE="${{ github.event.inputs.force_gen }}"
 
           echo "CHANGED_COUNT=$CHANGED_COUNT" >> $GITHUB_ENV
@@ -169,7 +169,11 @@ jobs:
       - name: Package test files as zip
         run: |
           mkdir -p dist
-          zip -r "dist/tests-${REPO_SLUG}.zip" "${OUTDIR}" || true
+          if [ -d "${OUTDIR}" ] && [ "$(ls -A "${OUTDIR}")" ]; then
+            zip -r "dist/tests-${REPO_SLUG}.zip" "${OUTDIR}"
+          else
+            echo "No tests to package" > "dist/tests-${REPO_SLUG}-empty.txt"
+          fi
 
       - name: Upload tests (raw .py + zip + context)
         uses: actions/upload-artifact@v4
@@ -178,7 +182,7 @@ jobs:
           if-no-files-found: warn
           path: |
             ${{ steps.paths.outputs.outdir }}/**/*.py
-            dist/tests-${{ steps.paths.outputs.repo_slug }}.zip
+            dist/tests-${{ steps.paths.outputs.repo_slug }}*
             /tmp/analysis.json
             /tmp/changed.json
             /tmp/code-hashes.json
@@ -189,12 +193,23 @@ jobs:
           VALIDATOR_PYTEST_ARGS: -q -k "not e2e"
           VALIDATOR_TARGET_PATH: ${{ steps.paths.outputs.outdir }}
           TARGET_ROOT: target
-        run: python -m src.validator
+        run: |
+          if [ -d "${{ steps.paths.outputs.outdir }}" ] && find "${{ steps.paths.outputs.outdir }}" -name 'test_*.py' -type f | grep -q .; then
+            echo "Running validator on generated tests..."
+            python -m src.validator
+          else
+            echo "No test files found to validate"
+            exit 0
+          fi
 
       - name: Commit generated tests (append-only; retains previous)
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add "${OUTDIR}" || true
-          git commit -m "chore: append tests for changed files in ${REPO_URL} [skip ci]" || echo "no changes"
-          git push
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${OUTDIR}" dist/ || true
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: append tests for changed files in ${REPO_URL} [skip ci]"
+            git push
+          fi

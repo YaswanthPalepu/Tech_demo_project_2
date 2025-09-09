@@ -276,76 +276,60 @@ for _name in list(_THIRD_PARTY_TOPS):
 
 # --- /UNIVERSAL BOOTSTRAP ---
 
+import math
+import types
+import sys
 import pytest
 
-def test_divide_negative_and_mixed_workflow():
-    # Imports inside test for isolation
-    from Calculator import Calculator
-    def _exc_lookup(name, default):
-        try:
-            import Calculator as _m
-            return getattr(_m, name)
-        except Exception:
-            return default
+def _exc_lookup(name, base):
+    try:
+        # Attempt to find exception class in Calculator module
+        mod = __import__('Calculator')
+        exc = getattr(mod, name, None)
+        if isinstance(exc, type) and issubclass(exc, base):
+            return exc
+    except Exception:
+        pass
+    # Fallback to base exception so tests don't fail if custom exception not present
+    return base
 
-    calc = Calculator()
+def test_divide_negative():
+    # import target inside the test as required
+    import Calculator
+    calc = Calculator.Calculator()
+    result = calc.divide(-10, -2)
+    # Expect exact integer result
+    assert result == 5
+    assert isinstance(result, (int, float))
 
-    # Negative dividend
-    r1 = calc.divide(-10, 2)
-    assert r1 == -5 or r1 == pytest.approx(-5)
+def test_divide_mixed():
+    import Calculator
+    calc = Calculator.Calculator()
+    result = calc.divide(-9, 3)
+    assert result == -3
+    assert isinstance(result, (int, float))
 
-    # Negative divisor (mixed sign)
-    r2 = calc.divide(7, -3)
-    assert r2 == pytest.approx(-7/3)
-
-    # Chained workflow: add then divide
-    s = calc.add(-5, 3)   # -2
-    r3 = calc.divide(s, 2)  # -1
-    assert r3 == -1 or r3 == pytest.approx(-1)
-
-def test_divide_by_zero_raises_CalculatorError():
-    from Calculator import Calculator
-    def _exc_lookup(name, default):
-        try:
-            import Calculator as _m
-            return getattr(_m, name)
-        except Exception:
-            return default
-
-    calc = Calculator()
-    with pytest.raises(_exc_lookup('CalculatorError', Exception)) as excinfo:
+def test_divide_by_zero_raises_calculator_error():
+    import Calculator
+    calc = Calculator.Calculator()
+    exc_cls = _exc_lookup('CalculatorError', Exception)
+    with pytest.raises(exc_cls):
         calc.divide(5, 0)
 
-    # Ensure the raised exception is an instance of the expected error class
-    assert isinstance(excinfo.value, _exc_lookup('CalculatorError', Exception))
-
-def test_divide_large_and_small_numbers_precision():
-    from Calculator import Calculator
-    import math
-    def _exc_lookup(name, default):
-        try:
-            import Calculator as _m
-            return getattr(_m, name)
-        except Exception:
-            return default
-
-    calc = Calculator()
-
-    # Very large numbers
-    large = 10**18
-    r_large = calc.divide(large, 2)
-    # Allow either exact integer or float approximation
-    assert r_large == 5 * 10**17 or r_large == pytest.approx(5 * 10**17)
-
-    # Very small numbers
-    small = 1e-9
-    r_small = calc.divide(small, 2)
-    assert r_small == pytest.approx(5e-10)
-
-    # Check that dividing a large by a small yields a large-ish result deterministically
-    r_mixed = calc.divide(large, 1e-9)
-    assert math.isfinite(r_mixed)
-    assert r_mixed == pytest.approx(large / 1e-9)
+def test_divide_large_and_small_numbers():
+    import Calculator
+    calc = Calculator.Calculator()
+    # large integers
+    a = 10**12
+    b = 2
+    res_large = calc.divide(a, b)
+    assert res_large == a // b or res_large == a / b
+    # small floats
+    x = 1e-12
+    y = 1e6
+    res_small = calc.divide(x, y)
+    # Use isclose for float precision
+    assert math.isclose(res_small, x / y, rel_tol=1e-12, abs_tol=1e-24)
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

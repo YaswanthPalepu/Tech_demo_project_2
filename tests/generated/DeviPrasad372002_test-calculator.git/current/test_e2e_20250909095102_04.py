@@ -278,78 +278,68 @@ for _name in list(_THIRD_PARTY_TOPS):
 
 import pytest
 
-def test_calculator_arithmetic_and_divide_by_zero():
-    import importlib
-    Calculator_mod = importlib.import_module('Calculator')
-    Calculator = getattr(Calculator_mod, 'Calculator')
-    calc = Calculator()
-    # Basic arithmetic checks
-    assert calc.add(2, 3) == 5
-    assert calc.subtract(10, 4) == 6
-    assert calc.multiply(-2, 6) == -12
-    assert calc.divide(9, -3) == -3
+def test_e2e_multiply_and_chain():
+    # Import targets inside the test to follow constraints
+    import Calculator
+    # helper for exception lookup as required by instructions
+    def _exc_lookup(name, default=Exception):
+        try:
+            return getattr(Calculator, name)
+        except Exception:
+            return default
 
-    # Robust lookup for a potential custom exception class
-    def _exc_lookup(name, default):
-        import importlib
-        for modname in ('Calculator', 'SimpleCalculatorPyQt1'):
-            try:
-                mod = importlib.import_module(modname)
-            except Exception:
-                continue
-            if hasattr(mod, name):
-                return getattr(mod, name)
-        return default
+    calc = Calculator.Calculator()
+    # basic positive multiplication
+    r1 = calc.multiply(6, 7)
+    assert r1 == 42
+    # mixed sign multiplication
+    r2 = calc.multiply(-3, 4)
+    assert r2 == -12
+    # chain multiplications to simulate a small workflow
+    r3 = calc.multiply(r1, r2)  # 42 * -12 = -504
+    assert r3 == -504
+    # multiplying by one should be identity
+    r4 = calc.multiply(r3, 1)
+    assert r4 == r3
 
-    # Division by zero should raise the calculator's error (or a generic Exception)
+def test_e2e_divide_positive_and_divide_by_zero():
+    import pytest
+    import Calculator
+    def _exc_lookup(name, default=Exception):
+        try:
+            return getattr(Calculator, name)
+        except Exception:
+            return default
+
+    calc = Calculator.Calculator()
+    # positive division
+    out = calc.divide(100, 4)
+    assert out == 25
+    # ensure dividing yields float when appropriate
+    out2 = calc.divide(7, 2)
+    assert out2 == 3.5
+    # dividing by zero must raise the calculator-specific error if present, otherwise a generic exception
     with pytest.raises(_exc_lookup('CalculatorError', Exception)):
-        calc.divide(1, 0)
+        calc.divide(5, 0)
 
-def test_mainwindow_save_history_and_clear_input(monkeypatch, tmp_path):
-    import importlib, builtins
-    simple = importlib.import_module('SimpleCalculatorPyQt1')
-    MainWindow = getattr(simple, 'MainWindow')
-    mw = MainWindow()
+def test_e2e_large_and_small_number_multiplications():
+    import Calculator
+    def _exc_lookup(name, default=Exception):
+        try:
+            return getattr(Calculator, name)
+        except Exception:
+            return default
 
-    # Spy on open to ensure save_history attempts to write out history
-    opened = {'called': False}
-    class DummyFile:
-        def write(self, s):
-            opened['called'] = True
-        def __enter__(self): return self
-        def __exit__(self, exc, val, tb): return False
-    def fake_open(path, mode='r', *args, **kwargs):
-        opened['called'] = True
-        return DummyFile()
-    monkeypatch.setattr(builtins, 'open', fake_open)
-
-    # clear_input should run without raising
-    mw.clear_input()
-
-    # save_history should invoke file-writing behavior (captured by fake_open)
-    mw.save_history()
-    assert opened['called'] is True
-
-def test_mainwindow_clear_history_then_save_triggers_write(monkeypatch):
-    import importlib, builtins
-    simple = importlib.import_module('SimpleCalculatorPyQt1')
-    MainWindow = getattr(simple, 'MainWindow')
-    mw = MainWindow()
-
-    # Ensure clear_history can be called and subsequent save_history still tries to write
-    wrote = {'called': False}
-    class DummyFile:
-        def write(self, s):
-            wrote['called'] = True
-        def __enter__(self): return self
-        def __exit__(self, exc, val, tb): return False
-    def fake_open(path, mode='r', *args, **kwargs):
-        return DummyFile()
-    monkeypatch.setattr(builtins, 'open', fake_open)
-
-    mw.clear_history()
-    mw.save_history()
-    assert wrote['called'] is True
+    calc = Calculator.Calculator()
+    # very large numbers
+    big = calc.multiply(10**12, 10**6)
+    assert big == 10**18
+    # very small floats
+    small = calc.multiply(0.0001, 0.0002)
+    assert abs(small - 2e-8) <= 1e-20
+    # mixed large and small should behave numerically
+    mixed = calc.multiply(10**9, 0.000001)
+    assert mixed == 10**3  # 1,000
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

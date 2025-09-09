@@ -277,33 +277,52 @@ for _name in list(_THIRD_PARTY_TOPS):
 # --- /UNIVERSAL BOOTSTRAP ---
 
 import importlib
+import pytest
 
-def test_integration_multiply_suite():
-    # Import the packaged test module at runtime to exercise Calculator across modules
-    tests = importlib.import_module('target.Tests.test_calculator')
-    # Execute a few existing multiply-focused test functions to exercise integration
-    tests.test_multiply_positive()
-    tests.test_multiply_negative()
-    tests.test_multiply_mixed()
+def _get_calculator_api():
+    mod = importlib.import_module('Calculator')
+    if hasattr(mod, 'Calculator'):
+        calc = mod.Calculator()
+        multiply = getattr(calc, 'multiply')
+        divide = getattr(calc, 'divide')
+    else:
+        multiply = getattr(mod, 'multiply')
+        divide = getattr(mod, 'divide')
+    return multiply, divide
 
-def test_integration_multiply_edge_cases():
-    tests = importlib.import_module('target.Tests.test_calculator')
-    # Edge case multiply scenarios: zero, very large and small numbers
-    tests.test_multiply_zero()
-    tests.test_multiply_large_numbers()
-    tests.test_multiply_small_numbers()
+def test_multiply_positive():
+    multiply, _ = _get_calculator_api()
+    assert multiply(3, 4) == 12
+    assert multiply(1, 1) == 1
 
-def test_integration_divide_and_multiply_large():
-    # Directly exercise Calculator and also reuse packaged tests for cross-module coverage
-    calcmod = importlib.import_module('target.Calculator')
-    Calculator = getattr(calcmod, 'Calculator')
-    calc = Calculator()
-    # basic sanity check using Calculator API
-    assert calc.multiply(12, 12) == 144
-    # exercise divide positive and large multiply from the existing test suite
-    tests = importlib.import_module('target.Tests.test_calculator')
-    tests.test_divide_positive()
-    tests.test_multiply_large_numbers()
+def test_multiply_negative():
+    multiply, _ = _get_calculator_api()
+    assert multiply(-2, -5) == 10
+    assert multiply(-7, -1) == 7
+
+def test_multiply_mixed():
+    multiply, _ = _get_calculator_api()
+    assert multiply(-3, 7) == -21
+    assert multiply(8, -2) == -16
+
+def test_multiply_zero():
+    multiply, _ = _get_calculator_api()
+    assert multiply(0, 123456) == 0
+    # ensure float zero behaves as expected
+    assert multiply(0.0, 1.5) == 0.0
+
+def test_multiply_large_numbers():
+    multiply, _ = _get_calculator_api()
+    a = 10**12
+    b = 10**6
+    assert multiply(a, b) == 10**18
+
+def test_divide_positive():
+    _, divide = _get_calculator_api()
+    # exact integer division should be accepted whether int or float is returned
+    assert divide(20, 4) == 5
+    # float division case
+    assert divide(7.0, 2.0) == 3.5
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

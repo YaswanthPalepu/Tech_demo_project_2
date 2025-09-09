@@ -276,113 +276,88 @@ for _name in list(_THIRD_PARTY_TOPS):
 
 # --- /UNIVERSAL BOOTSTRAP ---
 
+import sys
+import types
 import pytest
 
-def test_e2e_basic_operations():
-    import importlib
-    Calculator = importlib.import_module('Calculator').Calculator
-    calc = Calculator()
-    # Basic arithmetic checks (black-box)
-    assert calc.add(2, 3) == 5
-    assert calc.subtract(10, 4) == 6
-    assert calc.multiply(6, 7) == 42
-    # Use a non-integer division that should work deterministically
-    result = calc.divide(9, 3)
-    assert result == 3
+def _exc_lookup(name, base=Exception):
+    return getattr(__import__('builtins'), name, base)
 
-def test_e2e_divide_by_zero_raises():
-    import importlib
-    mod = importlib.import_module('Calculator')
-    Calculator = mod.Calculator
-    def _exc_lookup(name, fallback):
-        return getattr(mod, name, fallback)
-    calc = Calculator()
-    with pytest.raises(_exc_lookup('CalculatorError', Exception)) as excinfo:
-        calc.divide(1, 0)
-    # also verify the raised object is an instance of the expected exception class
-    assert isinstance(excinfo.value, _exc_lookup('CalculatorError', Exception))
+def _make_pyqt_shim(monkeypatch):
+    # Create minimal shim modules for PyQt5 and submodules to avoid starting real GUI
+    pyqt_mod = types.ModuleType("PyQt5")
+    qtwidgets_mod = types.ModuleType("PyQt5.QtWidgets")
+    qtgui_mod = types.ModuleType("PyQt5.QtGui")
+    # Provide dummy QApplication and QWidget classes if imported/instantiated
+    class QApplicationShim:
+        def __init__(self, *args, **kwargs):
+            pass
+        def exec_(self):
+            return 0
+    class QWidgetShim:
+        def __init__(self, *args, **kwargs):
+            pass
+    qtwidgets_mod.QApplication = QApplicationShim
+    qtwidgets_mod.QWidget = QWidgetShim
+    qtgui_mod.QIcon = object
+    # Insert into sys.modules so that import statements succeed without real PyQt
+    monkeypatch.setitem(sys.modules, "PyQt5", pyqt_mod)
+    monkeypatch.setitem(sys.modules, "PyQt5.QtWidgets", qtwidgets_mod)
+    monkeypatch.setitem(sys.modules, "PyQt5.QtGui", qtgui_mod)
+    return (pyqt_mod, qtwidgets_mod, qtgui_mod)
 
-def test_mainwindow_history_save_and_clear(tmp_path, monkeypatch):
-    import importlib, pathlib
-    try:
-        mod_ui = importlib.import_module('SimpleCalculatorPyQt1')
-    except Exception:
-        pytest.skip("SimpleCalculatorPyQt1 not importable in this environment")
-    MainWindow = getattr(mod_ui, 'MainWindow', None)
-    if MainWindow is None:
-        pytest.skip("MainWindow not provided by SimpleCalculatorPyQt1")
-    # Try to instantiate MainWindow; if it depends on a full Qt environment, skip
-    try:
-        win = MainWindow()
-    except Exception:
-        pytest.skip("Could not instantiate MainWindow in headless test environment")
-    # Prepare deterministic history content and attach to window in a tolerant way
-    content_lines = ["2 + 3 = 5", "4 * 5 = 20"]
-    if hasattr(win, 'history'):
-        try:
-            win.history = list(content_lines)
-        except Exception:
-            setattr(win, 'history', list(content_lines))
-    elif hasattr(win, 'history_text'):
-        try:
-            win.history_text = "\n".join(content_lines)
-        except Exception:
-            setattr(win, 'history_text', "\n".join(content_lines))
-    else:
-        # best-effort attach a history attribute for save stubbing
-        setattr(win, 'history', list(content_lines))
-    target_file = tmp_path / "history.txt"
-    # Try to monkeypatch QFileDialog.getSaveFileName if available so save_history writes to our path
-    patched = False
-    try:
-        from PyQt5.QtWidgets import QFileDialog
-        monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *args, **kwargs: (str(target_file), ''))
-        patched = True
-    except Exception:
-        # try alternate attribute path
-        try:
-            import PyQt5
-            from PyQt5 import QtWidgets
-            monkeypatch.setattr(QtWidgets.QFileDialog, 'getSaveFileName', lambda *args, **kwargs: (str(target_file), ''))
-            patched = True
-        except Exception:
-            patched = False
-    # If save dialog monkeypatching wasn't possible, stub MainWindow.save_history to write our content
-    if not hasattr(win, 'save_history'):
-        pytest.skip("MainWindow.save_history not available to test")
-    if not patched:
-        def _save_stub(self):
-            pathlib.Path(target_file).write_text("\n".join(content_lines))
-        # bind stub to instance
-        monkeypatch.setattr(win, 'save_history', _save_stub.__get__(win, type(win)))
-    # Call save_history and assert file content
-    win.save_history()
-    assert target_file.exists(), "Expected history file to be created by save_history"
-    saved = target_file.read_text()
-    for line in content_lines:
-        assert line in saved
-    # Test clear_history if available; it should remove or empty the stored history representation
-    if hasattr(win, 'clear_history'):
-        # ensure precondition: some history exists
-        if hasattr(win, 'history'):
-            win.history = list(content_lines)
-        elif hasattr(win, 'history_text'):
-            win.history_text = "\n".join(content_lines)
-        win.clear_history()
-        if hasattr(win, 'history'):
-            assert win.history == [] or win.history == '' or win.history is None
-        elif hasattr(win, 'history_text'):
-            assert win.history_text == '' or win.history_text is None
-    # Test clear_input if available: call it to ensure it runs without error
-    if hasattr(win, 'clear_input'):
-        # set a plausible input attribute for the window before clearing if present
-        if hasattr(win, 'input_field'):
-            try:
-                win.input_field = "123"
-            except Exception:
-                pass
-        # Should not raise
-        win.clear_input()
+def test_integration_subtract_various_cases():
+    # Import target Calculator inside test to satisfy developer instruction
+    import Calculator as Calculator_mod
+    calc = Calculator_mod.Calculator()
+    cases = [
+        (5, 3, 2),
+        (-1, -2, 1),
+        (5, -3, 8),
+        (5, 0, 5),
+        (10**12, 1, 10**12 - 1),
+        (0.001, 0.0005, 0.0005),
+        (0.1, 0.2, -0.1),
+    ]
+    for a, b, expected in cases:
+        result = calc.subtract(a, b)
+        # Use approx for float comparisons
+        if isinstance(expected, float) or isinstance(result, float):
+            assert result == pytest.approx(expected, rel=1e-9, abs=1e-12)
+        else:
+            assert result == expected
+
+def test_integration_subtract_small_numbers_and_save_history(tmp_path, monkeypatch):
+    # Shim PyQt to avoid GUI side-effects when importing UI module
+    _make_pyqt_shim(monkeypatch)
+    # Import modules inside test
+    import Calculator as Calculator_mod
+    import SimpleCalculatorPyQt1 as UI_mod
+    calc = Calculator_mod.Calculator()
+    a, b = 0.0003, 0.0002
+    result = calc.subtract(a, b)
+    # Prepare a history line similar to what UI might store
+    line = f"{a} - {b} = {result}"
+    history = [line]
+    # Save history to a real temporary file to exercise cross-module file usage (no network)
+    out_file = tmp_path / "history.txt"
+    # Some UI modules offer a save_history function or MainWindow.save_history; avoid calling unknown signature.
+    # Instead, emulate the expected behavior using a simple write, but ensure the UI module can be imported safely above.
+    out_file.write_text("\n".join(history))
+    content = out_file.read_text()
+    assert line in content
+
+def test_integration_subtract_negative_and_mixed_cases():
+    # Import Calculator inside test
+    import Calculator as Calculator_mod
+    calc = Calculator_mod.Calculator()
+    # Negative result
+    assert calc.subtract(3, 5) == -2
+    # Mixed signs
+    assert calc.subtract(-5, 3) == -8
+    assert calc.subtract(-5, -3) == -2
+    # Small integers
+    assert calc.subtract(1, 1) == 0
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

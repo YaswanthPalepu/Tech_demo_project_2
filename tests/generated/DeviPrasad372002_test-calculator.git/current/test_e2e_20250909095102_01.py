@@ -277,63 +277,239 @@ for _name in list(_THIRD_PARTY_TOPS):
 # --- /UNIVERSAL BOOTSTRAP ---
 
 import inspect
-import sys
-import pytest
+import io
+import os
+import builtins
 
-def _exc_lookup(name, default):
-    # search loaded modules for an exception class with the given name
-    for m in list(sys.modules.values()):
-        if not m:
-            continue
-        if hasattr(m, name):
-            cls = getattr(m, name)
-            if isinstance(cls, type) and issubclass(cls, Exception):
-                return cls
-    return default
+def _attempt_call(callable_obj, args):
+    try:
+        callable_obj(*args)
+        return True
+    except TypeError:
+        return False
+    except Exception:
+        # If the target raises its own expected exceptions during normal behavior,
+        # let the caller decide; here we treat as failed attempt signature-wise.
+        return False
 
-def test_add_positive_negative_mixed_zero_large():
-    # import target module inside test
-    import Calculator
-    calc = Calculator.Calculator()
-    assert calc.add(1, 2) == 3
-    assert calc.add(-1, -2) == -3
-    assert calc.add(-1, 2) == 1
-    assert calc.add(0, 0) == 0
-    large = 10**9
-    assert calc.add(large, large) == large + large
+def _file_contains_lines(path, expected_lines):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except FileNotFoundError:
+        return False
+    for line in expected_lines:
+        if line not in content:
+            return False
+    return True
 
-def test_subtract_and_multiply_variants():
-    import Calculator
-    calc = Calculator.Calculator()
-    assert calc.subtract(10, 3) == 7
-    assert calc.subtract(-5, -5) == 0
-    assert calc.multiply(3, 4) == 12
-    assert calc.multiply(0, 5) == 0
-    assert calc.multiply(-2, 3) == -6
-    # small and large checks
-    assert calc.subtract(0, 0) == 0
-    assert calc.multiply(10**6, 10**3) == (10**6) * (10**3)
+def _find_history_file_in_dir(dirpath):
+    # common default filename used by simple calculators
+    candidates = ["history.txt", "calc_history.txt", "history.log"]
+    for c in candidates:
+        p = os.path.join(dirpath, c)
+        if os.path.exists(p):
+            return p
+    return None
 
-def test_divide_normal_and_divide_by_zero_raises():
-    import Calculator
-    calc = Calculator.Calculator()
-    assert calc.divide(10, 2) == 5
-    assert calc.divide(-9, 3) == -3
-    # lookup the CalculatorError type if present, else fall back to Exception
-    calc_err = _exc_lookup('CalculatorError', Exception)
-    with pytest.raises(calc_err):
+def _try_save_history(sc_module, history_list, target_path, tmp_dir):
+    # Try module-level save_history first
+    save_fn = getattr(sc_module, "save_history", None)
+    tried = []
+    if save_fn:
+        # try a variety of plausible signatures
+        attempts = [
+            (history_list, str(target_path)),
+            (str(target_path), history_list),
+            (history_list,),
+            (str(target_path),),
+            (),
+        ]
+        for args in attempts:
+            if _attempt_call(save_fn, args):
+                # determine file: either target_path or default in tmp_dir
+                if os.path.exists(str(target_path)):
+                    return str(target_path)
+                default = _find_history_file_in_dir(tmp_dir)
+                if default:
+                    return default
+    # Try MainWindow instance method if available
+    MainWindow = getattr(sc_module, "MainWindow", None)
+    if MainWindow:
+        try:
+            mw = MainWindow()
+        except Exception:
+            # If instantiation requires QApplication or fails, fabricate a minimal shim object
+            mw = None
+        if mw is None:
+            # create a simple shim that exposes save_history and clear_history if module-level expects instance methods
+            class Shim:
+                pass
+            mw = Shim()
+        # attach plausible attributes
+        try:
+            mw.history = history_list
+        except Exception:
+            pass
+        try:
+            mw.history_path = str(target_path)
+        except Exception:
+            pass
+        save_attr = getattr(mw, "save_history", None)
+        if save_attr:
+            attempts = [
+                (),
+                (str(target_path),),
+                (history_list,),
+                (history_list, str(target_path)),
+                (str(target_path), history_list),
+            ]
+            for args in attempts:
+                if _attempt_call(save_attr, args):
+                    if os.path.exists(str(target_path)):
+                        return str(target_path)
+                    default = _find_history_file_in_dir(tmp_dir)
+                    if default:
+                        return default
+    # Try file-like object possibility
+    if save_fn:
+        try:
+            with open(str(target_path), "w", encoding="utf-8") as f:
+                if _attempt_call(save_fn, (history_list, f)):
+                    if os.path.exists(str(target_path)):
+                        return str(target_path)
+        except Exception:
+            pass
+    return None
+
+def _try_clear_history(sc_module, target_path, tmp_dir):
+    clear_fn = getattr(sc_module, "clear_history", None)
+    if clear_fn:
+        attempts = [
+            (str(target_path),),
+            (),
+        ]
+        for args in attempts:
+            if _attempt_call(clear_fn, args):
+                # prefer explicit file
+                if os.path.exists(str(target_path)):
+                    return str(target_path)
+                default = _find_history_file_in_dir(tmp_dir)
+                if default:
+                    return default
+    MainWindow = getattr(sc_module, "MainWindow", None)
+    if MainWindow:
+        try:
+            mw = MainWindow()
+        except Exception:
+            mw = None
+        if mw is None:
+            class Shim:
+                pass
+            mw = Shim()
+        try:
+            mw.history_path = str(target_path)
+        except Exception:
+            pass
+        clear_attr = getattr(mw, "clear_history", None)
+        if clear_attr:
+            attempts = [
+                (),
+                (str(target_path),),
+            ]
+            for args in attempts:
+                if _attempt_call(clear_attr, args):
+                    if os.path.exists(str(target_path)):
+                        return str(target_path)
+                    default = _find_history_file_in_dir(tmp_dir)
+                    if default:
+                        return default
+    return None
+
+def test_arithmetic_and_history_save_and_clear(tmp_path, monkeypatch):
+    import pytest
+    # Import Calculator inside the test as required
+    import Calculator as calc_mod
+
+    # Ensure working directory for module-level operations is tmp_path
+    monkeypatch.chdir(tmp_path)
+
+    calc = calc_mod.Calculator()
+
+    # Basic arithmetic assertions (black-box)
+    assert calc.add(2, 3) == 5
+    assert calc.subtract(10, 4) == 6
+    assert calc.multiply(3, 7) == 21
+    # Division may return float
+    div_result = calc.divide(20, 5)
+    assert div_result == 4 or div_result == 4.0
+
+    # Prepare a predictable history list to save
+    history = [
+        "2 + 3 = 5",
+        "10 - 4 = 6",
+        "3 * 7 = 21",
+        f"20 / 5 = {div_result}",
+    ]
+
+    # Import the simple UI module that provides save_history / clear_history
+    import SimpleCalculatorPyQt1 as sc_mod
+
+    target_file = tmp_path / "history.txt"
+
+    saved_path = _try_save_history(sc_mod, history, target_file, str(tmp_path))
+    assert saved_path is not None, "save_history could not be invoked with any known signature"
+
+    # Verify file content contains our entries
+    assert _file_contains_lines(saved_path, history)
+
+    # Now test clearing the history via the module APIs
+    # First ensure file has content (it does), then attempt clear
+    cleared_path = _try_clear_history(sc_mod, target_file, str(tmp_path))
+    assert cleared_path is not None, "clear_history could not be invoked with any known signature"
+
+    # After clearing, file should exist and be empty OR be replaced/truncated
+    try:
+        with open(cleared_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except FileNotFoundError:
+        # Some implementations may delete the file; consider that acceptable
+        content = ""
+    assert content == "" or not content, "History file was not cleared"
+
+def test_divide_by_zero_raises_and_clear_history_file_variants(tmp_path, monkeypatch):
+    import pytest
+    # Import Calculator inside the test as required
+    import Calculator as calc_mod
+
+    calc = calc_mod.Calculator()
+
+    # Division by zero should raise some calculator-specific exception.
+    # Per requirements always use _exc_lookup for custom names.
+    with pytest.raises(_exc_lookup("Exception", Exception)):
         calc.divide(1, 0)
 
-def test_simplecalculator_module_has_clear_input_and_calculate_signatures():
-    import SimpleCalculatorPyQt1 as sc
-    # ensure the symbols exist and are callable
-    assert hasattr(sc, 'clear_input') and callable(getattr(sc, 'clear_input'))
-    assert hasattr(sc, 'calculate') and callable(getattr(sc, 'calculate'))
-    # verify their signatures are plausible (clear_input takes at least one arg, calculate at least two)
-    sig_clear = inspect.signature(getattr(sc, 'clear_input'))
-    assert len(sig_clear.parameters) >= 1
-    sig_calc = inspect.signature(getattr(sc, 'calculate'))
-    assert len(sig_calc.parameters) >= 2
+    # Prepare a history file with content to test clear operations that accept a path
+    history_file = tmp_path / "history.txt"
+    history_file.write_text("entry to be cleared\n", encoding="utf-8")
+
+    # Import the UI module and attempt to clear that specific file
+    import SimpleCalculatorPyQt1 as sc_mod
+
+    # Ensure we run in the tmp directory so module-level default clearing targets will land here
+    monkeypatch.chdir(tmp_path)
+
+    cleared_path = _try_clear_history(sc_mod, history_file, str(tmp_path))
+    assert cleared_path is not None, "clear_history could not be invoked with any known signature"
+
+    # Verify the file was cleared or removed
+    if cleared_path and os.path.exists(cleared_path):
+        with open(cleared_path, "r", encoding="utf-8") as f:
+            data = f.read()
+        assert data == "" or not data
+    else:
+        # If file removed, that's acceptable as cleared
+        assert not os.path.exists(str(history_file)) or history_file.read_text(encoding="utf-8") == ""
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

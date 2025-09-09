@@ -276,173 +276,158 @@ for _name in list(_THIRD_PARTY_TOPS):
 
 # --- /UNIVERSAL BOOTSTRAP ---
 
-import sys
+import builtins
+import io
 import inspect
-import pathlib
+import sys
+import types
+import pytest
 
 def _exc_lookup(name, default=Exception):
-    # Search loaded modules for an attribute with given name, return it or default
-    for m in list(sys.modules.values()):
-        try:
-            if m and hasattr(m, name):
-                return getattr(m, name)
-        except Exception:
-            continue
+    # Try to find an exception type by name from common modules, fallback to default
+    candidates = []
+    try:
+        import Calculator as _calc_mod
+        candidates.append(getattr(_calc_mod, name, None))
+    except Exception:
+        pass
+    try:
+        import SimpleCalculatorPyQt1 as _ui_mod
+        candidates.append(getattr(_ui_mod, name, None))
+    except Exception:
+        pass
+    for c in candidates:
+        if isinstance(c, type) and issubclass(c, BaseException):
+            return c
     return default
 
-def test_e2e_add_subtract_sequence():
-    # Import target inside test
-    from Calculator import Calculator
-    calc = Calculator()
+def _inject_fake_pyqt(monkeypatch):
+    # Provide minimal PyQt5 shim modules so importing UI code won't attempt to load real Qt libs
+    base = types.ModuleType("PyQt5")
+    qtwidgets = types.ModuleType("PyQt5.QtWidgets")
+    qtcore = types.ModuleType("PyQt5.QtCore")
+    qtgui = types.ModuleType("PyQt5.QtGui")
 
-    # Start with small additions
-    s1 = calc.add(1, 2)
-    assert s1 == 3
+    class QWidget:
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Subtract a positive number from the sum
-    s2 = calc.subtract(s1, 5)
-    assert s2 == -2
+    class QLineEdit:
+        def __init__(self, text=""):
+            self._text = str(text)
+        def text(self):
+            return self._text
+        def setText(self, t):
+            self._text = "" if t is None else str(t)
 
-    # Multiply by a negative to flip sign (realistic user corrective step)
-    s3 = calc.multiply(s2, -1)
-    assert s3 == 2
+    # attach minimal classes
+    qtwidgets.QWidget = QWidget
+    qtwidgets.QLineEdit = QLineEdit
+    qtcore.QObject = object
+    qtgui.QIcon = object
 
-    # Subtract zero should be a no-op
-    s4 = calc.subtract(s3, 0)
-    assert s4 == s3 == 2
+    base.QtWidgets = qtwidgets
+    base.QtCore = qtcore
+    base.QtGui = qtgui
 
-def test_e2e_save_history_and_clear_input(tmp_path):
-    # Build a short operation history using the Calculator API
-    from Calculator import Calculator
-    calc = Calculator()
-    ops = [
-        (1, '+', 2, calc.add(1, 2)),
-        (10, '-', 2, calc.subtract(10, 2)),
-        (2, '*', 5, calc.multiply(2, 5)),
-    ]
-    history_lines = [f"{a} {op} {b} = {res}" for (a, op, b, res) in ops]
+    monkeypatch.setitem(sys.modules, "PyQt5", base)
+    monkeypatch.setitem(sys.modules, "PyQt5.QtWidgets", qtwidgets)
+    monkeypatch.setitem(sys.modules, "PyQt5.QtCore", qtcore)
+    monkeypatch.setitem(sys.modules, "PyQt5.QtGui", qtgui)
 
-    # Try to use the UI module's save_history if available, otherwise fall back to writing file
-    saved_path = tmp_path / "history.txt"
-    ui_module = None
+def test_integration_arithmetic_chain():
+    # Import Calculator inside the test to ensure isolation
+    import Calculator
+    calc = Calculator.Calculator()
+    # Chain add, multiply, subtract to exercise multiple methods
+    a = calc.add(10, 5)
+    assert a == 15
+    m = calc.multiply(a, 3)
+    assert m == 45
+    s = calc.subtract(m, 20)
+    assert s == 25
+    # Also verify divide produces expected numeric result for a non-zero divisor
+    d = calc.divide(s, 5)
+    assert d == 5
+
+def test_clear_input_clears_widget(monkeypatch):
+    # Ensure PyQt shims are in place before importing UI module
+    _inject_fake_pyqt(monkeypatch)
+    import SimpleCalculatorPyQt1
+    # Build a fake line-edit like object (compatible with QLineEdit shim above)
+    class FakeLineEdit:
+        def __init__(self, text):
+            self._text = str(text)
+        def text(self):
+            return self._text
+        def setText(self, t):
+            self._text = "" if t is None else str(t)
+    widget = FakeLineEdit("initial")
+    # Some clear_input implementations accept a widget or the main window;
+    # try calling with the widget directly or with a simple container object.
+    clear_fn = getattr(SimpleCalculatorPyQt1, "clear_input", None)
+    assert clear_fn is not None, "clear_input not found in module"
+    # Inspect signature to decide how to call it
+    sig = inspect.signature(clear_fn)
+    if len(sig.parameters) == 1:
+        clear_fn(widget)
+    else:
+        # If it expects a window-like object, provide a simple container with an 'input' attribute
+        class Win:
+            def __init__(self, inp):
+                self.input = inp
+        win = Win(widget)
+        clear_fn(win)
+    assert widget.text() == ""  # cleared
+
+def test_save_history_writes_file(monkeypatch):
+    # Patch builtins.open to capture writes without touching the filesystem
+    import SimpleCalculatorPyQt1
+    writes = {"data": ""}
+    class DummyFile:
+        def __init__(self, *args, **kwargs):
+            self._buf = io.StringIO()
+        def write(self, data):
+            return self._buf.write(data)
+        def writelines(self, seq):
+            for s in seq:
+                self._buf.write(s)
+        def read(self):
+            return self._buf.getvalue()
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            writes["data"] = self._buf.getvalue()
+    def fake_open(file, mode="r", *args, **kwargs):
+        return DummyFile()
+    monkeypatch.setattr(builtins, "open", fake_open)
+    save_fn = getattr(SimpleCalculatorPyQt1, "save_history", None)
+    assert save_fn is not None, "save_history not found in module"
+    # Try to call save_history flexibly depending on its parameter list
+    sig = inspect.signature(save_fn)
+    params = list(sig.parameters.keys())
     try:
-        import SimpleCalculatorPyQt1 as ui_module  # import inside test per instructions
-    except Exception:
-        ui_module = None
+        if len(params) == 0:
+            # no-arg function: call it and hope it writes something
+            save_fn()
+        elif len(params) == 1:
+            # assume it expects a history iterable or filename; pass a small history list
+            save_fn(["1 + 2 = 3", "4 * 5 = 20"])
+        else:
+            # pass history list and a dummy filename
+            save_fn(["1 + 2 = 3"], "history.txt")
+    except Exception as e:
+        # If an exception is raised, ensure it's surfaced as test failure
+        raise
+    # After calling, ensure something was written
+    assert writes["data"] != ""
 
-    saved = False
-    if ui_module is not None:
-        # Prefer module-level save_history function
-        save_fn = getattr(ui_module, "save_history", None)
-        if save_fn is None:
-            # Maybe a MainWindow class has an instance method
-            mw_cls = getattr(ui_module, "MainWindow", None)
-            if mw_cls is not None:
-                try:
-                    mw = mw_cls()
-                    save_fn = getattr(mw, "save_history", None)
-                    # If the instance keeps its own history attribute, try to set it
-                    if save_fn is not None:
-                        if hasattr(mw, "history"):
-                            try:
-                                mw.history = list(history_lines)
-                            except Exception:
-                                pass
-                except Exception:
-                    save_fn = None
-
-        if save_fn is not None:
-            # Inspect signature to decide how to call
-            try:
-                sig = inspect.signature(save_fn)
-                params = sig.parameters
-                if len(params) == 2:
-                    # assume (history, filepath)
-                    save_fn(list(history_lines), str(saved_path))
-                    saved = True
-                elif len(params) == 1:
-                    # could be (filepath) using internal history on object/module
-                    save_fn(str(saved_path))
-                    saved = True
-                else:
-                    # unknown signature, skip to fallback
-                    saved = False
-            except (ValueError, TypeError):
-                # builtin or otherwise unknown signature; attempt common patterns
-                try:
-                    save_fn(list(history_lines), str(saved_path))
-                    saved = True
-                except Exception:
-                    try:
-                        save_fn(str(saved_path))
-                        saved = True
-                    except Exception:
-                        saved = False
-
-    if not saved:
-        # Fallback: write the history ourselves
-        saved_path.write_text("\n".join(history_lines) + "\n", encoding="utf-8")
-
-    # Verify file content matches expected history lines
-    loaded = saved_path.read_text(encoding="utf-8").splitlines()
-    assert loaded == history_lines
-
-    # Try to call clear_input if present on module or instance to simulate clearing the UI
-    cleared = False
-    if ui_module is not None:
-        clear_fn = getattr(ui_module, "clear_input", None)
-        if clear_fn is None:
-            mw_cls = getattr(ui_module, "MainWindow", None)
-            if mw_cls is not None:
-                try:
-                    mw = mw_cls()
-                    clear_fn = getattr(mw, "clear_input", None)
-                except Exception:
-                    clear_fn = None
-        if clear_fn is not None:
-            try:
-                sig = inspect.signature(clear_fn)
-                if len(sig.parameters) == 0:
-                    clear_fn()
-                else:
-                    # try calling with a typical empty string or None
-                    try:
-                        clear_fn("")
-                    except Exception:
-                        try:
-                            clear_fn(None)
-                        except Exception:
-                            # give up if we cannot call it deterministically
-                            pass
-                cleared = True
-            except (ValueError, TypeError):
-                # best effort
-                try:
-                    clear_fn()
-                    cleared = True
-                except Exception:
-                    cleared = False
-
-    # At minimum, ensure the file was written; clearing UI is optional
-    assert saved_path.exists()
-    # If clear_input existed and we called it, we expect it to have returned or not raised
-    assert cleared in (True, False)
-
-def test_e2e_divide_by_zero_raises():
-    from Calculator import Calculator
-    calc = Calculator()
-
-    exc_cls = _exc_lookup("Exception", Exception)
-    import pytest
-    # Use the looked-up exception class to check division by zero handling
-    with pytest.raises(exc_cls):
-        calc.divide(5, 0)
-
-    # Also verify a normal division returns expected numeric type and value
-    result = calc.divide(10, 2)
-    # Accept int or float but ensure numeric correctness
-    assert isinstance(result, (int, float))
-    assert result == 5 or abs(result - 5.0) < 1e-12
+def test_divide_by_zero_raises():
+    import Calculator
+    calc = Calculator.Calculator()
+    # Use _exc_lookup to determine the exception class to expect; fallback to Exception
+    with pytest.raises(_exc_lookup("Exception", Exception)):
+        calc.divide(1, 0)
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

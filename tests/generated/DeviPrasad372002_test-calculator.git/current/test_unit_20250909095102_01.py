@@ -276,156 +276,67 @@ for _name in list(_THIRD_PARTY_TOPS):
 
 # --- /UNIVERSAL BOOTSTRAP ---
 
-import sys
-import types
-import builtins
 import pytest
+import sys
 
-def _exc_lookup(name, base=Exception):
-    # Search builtins and loaded modules for an exception class with the given name
-    candidates = [builtins] + list(sys.modules.values())
-    for m in candidates:
-        try:
-            if hasattr(m, name):
-                val = getattr(m, name)
-                if isinstance(val, type) and issubclass(val, base):
-                    return val
-        except Exception:
-            continue
+def _exc_lookup(name, base):
+    # Try common import paths to find a custom exception/class by name.
+    candidates = []
+    try:
+        import Calculator as _m
+        candidates.append(_m)
+    except Exception:
+        pass
+    try:
+        from target import Calculator as _m2
+        candidates.append(_m2)
+    except Exception:
+        pass
+    for mod in candidates:
+        if hasattr(mod, name):
+            return getattr(mod, name)
     return base
 
-def test_multiply_large_numbers():
-    # Import inside test as required
-    import importlib
-    calc_mod = importlib.import_module('target.Calculator')
-    Calculator = getattr(calc_mod, 'Calculator')
-    calc = Calculator()
-    a = 10**8
-    b = 10**7
-    assert calc.multiply(a, b) == a * b
+def test_add_mixed_types():
+    # Test Calculator.add handles int and float and returns a numeric result
+    import Calculator
+    calc = Calculator.Calculator()
+    res = calc.add(5, -2.3)
+    # allow floating point tolerance
+    assert isinstance(res, (int, float))
+    assert pytest.approx(res, rel=1e-12) == 2.7
 
-def test_multiply_by_zero_and_small_numbers():
-    import importlib
-    calc_mod = importlib.import_module('target.Calculator')
-    Calculator = getattr(calc_mod, 'Calculator')
-    calc = Calculator()
-    assert calc.multiply(12345, 0) == 0
-    assert calc.multiply(3, -2) == -6
-    assert calc.multiply(1, 1) == 1
-
-def test_subtract_small_and_large_numbers():
-    import importlib
-    calc_mod = importlib.import_module('target.Calculator')
-    Calculator = getattr(calc_mod, 'Calculator')
-    calc = Calculator()
-    assert calc.subtract(2, 3) == -1
-    big1 = 10**12
-    big2 = 10**6
-    assert calc.subtract(big1, big2) == big1 - big2
+def test_divide_negative_result():
+    # Test divide returns correct negative result for negative numerator
+    import Calculator
+    calc = Calculator.Calculator()
+    result = calc.divide(-10, 2)
+    assert result == -5
 
 def test_divide_by_zero_raises_calculator_error():
-    import importlib
-    calc_mod = importlib.import_module('target.Calculator')
-    Calculator = getattr(calc_mod, 'Calculator')
-    calc = Calculator()
+    # Expect the module's CalculatorError (or fallback Exception) when dividing by zero
+    import Calculator
+    calc = Calculator.Calculator()
     with pytest.raises(_exc_lookup('CalculatorError', Exception)):
         calc.divide(1, 0)
 
-def test_mainwindow_import_and_methods_do_not_crash(tmp_path, monkeypatch):
-    # Provide a lightweight PyQt5 shim so importing the GUI module won't require a real Qt
-    pyqt_mod = types.ModuleType('PyQt5')
-    qtwidgets = types.ModuleType('PyQt5.QtWidgets')
-    qtgui = types.ModuleType('PyQt5.QtGui')
+def test_multiply_large_numbers():
+    # Large integer multiplication should produce exact integer product
+    import Calculator
+    calc = Calculator.Calculator()
+    a = 10**6
+    b = 10**5
+    assert calc.multiply(a, b) == a * b
 
-    class QApplication:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class QMainWindow:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class QWidget:
-        pass
-
-    class QLineEdit:
-        def __init__(self):
-            self._text = ''
-        def setText(self, t):
-            self._text = str(t)
-        def text(self):
-            return self._text
-        def clear(self):
-            self._text = ''
-
-    class QTextEdit:
-        def __init__(self):
-            self._plain = ''
-        def toPlainText(self):
-            return self._plain
-        def setPlainText(self, s):
-            self._plain = str(s)
-        def clear(self):
-            self._plain = ''
-
-    qtwidgets.QApplication = QApplication
-    qtwidgets.QMainWindow = QMainWindow
-    qtwidgets.QWidget = QWidget
-    qtwidgets.QLineEdit = QLineEdit
-    qtwidgets.QTextEdit = QTextEdit
-
-    sys.modules['PyQt5'] = pyqt_mod
-    sys.modules['PyQt5.QtWidgets'] = qtwidgets
-    sys.modules['PyQt5.QtGui'] = qtgui
-
-    # Now import the GUI module and grab MainWindow
-    import importlib
-    gui_mod = importlib.import_module('target.SimpleCalculatorPyQt1')
-    MainWindow = getattr(gui_mod, 'MainWindow', None)
-    assert MainWindow is not None and isinstance(MainWindow, type)
-
-    # Attempt to instantiate; if constructor requires args, try reasonable fallbacks.
-    try:
-        mw = MainWindow()
-    except TypeError:
-        # try passing a fake QApplication if constructor expects one
-        mw = MainWindow(QApplication())
-
-    # If clear_input exists, calling it should not raise and should clear any QLineEdit-like attributes
-    if hasattr(mw, 'clear_input'):
-        # populate possible input attributes so clear_input has something to clear
-        for name in ('lineEdit', 'input', 'inputField', 'leInput'):
-            if not hasattr(mw, name):
-                try:
-                    setattr(mw, name, QLineEdit())
-                except Exception:
-                    pass
-        # call and ensure it doesn't raise
-        mw.clear_input()
-
-        # verify that any QLineEdit-like attributes were cleared if present
-        for attr_val in vars(mw).values():
-            if hasattr(attr_val, 'text') and callable(getattr(attr_val, 'text')):
-                assert attr_val.text() == '' or isinstance(attr_val.text(), str)
-
-    # If save_history exists, call it; allow either no-arg or path argument
-    if hasattr(mw, 'save_history'):
-        # create a temporary file path and try both call signatures
-        history_path = tmp_path / "history_test.txt"
-        try:
-            mw.save_history()
-        except TypeError:
-            # try saving to provided path if signature requires an argument
-            try:
-                mw.save_history(str(history_path))
-            except Exception:
-                # last resort: call with pathlib.Path
-                mw.save_history(history_path)
-
-        # If a file was created at the path, ensure it is readable
-        if history_path.exists():
-            content = history_path.read_text(encoding='utf8')
-            assert isinstance(content, str) or content == ''
+def test_subtract_small_numbers_precision():
+    # Subtracting small floats retains expected precision within tolerance
+    import Calculator
+    calc = Calculator.Calculator()
+    a = 0.000123
+    b = 0.000023
+    res = calc.subtract(a, b)
+    assert isinstance(res, (int, float))
+    assert pytest.approx(res, rel=1e-12) == 0.0001
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

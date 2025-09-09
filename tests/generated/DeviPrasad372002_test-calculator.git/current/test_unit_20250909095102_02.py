@@ -276,42 +276,63 @@ for _name in list(_THIRD_PARTY_TOPS):
 
 # --- /UNIVERSAL BOOTSTRAP ---
 
-def test_multiply_positive():
-    from Calculator import Calculator
-    calc = Calculator()
-    assert calc.multiply(3, 5) == 15
+import importlib
+import pytest
 
-def test_multiply_negative():
-    from Calculator import Calculator
-    calc = Calculator()
-    # two negatives should produce a positive result
-    assert calc.multiply(-4, -6) == 24
+def _import_module(preferred):
+    try:
+        return importlib.import_module(preferred)
+    except Exception:
+        try:
+            return importlib.import_module('target.' + preferred)
+        except Exception:
+            raise
 
-def test_multiply_mixed():
-    from Calculator import Calculator
-    calc = Calculator()
-    # one positive, one negative -> negative result
-    assert calc.multiply(7, -2) == -14
+def _exc_lookup(name, fallback, module=None):
+    if module is not None and hasattr(module, name):
+        return getattr(module, name)
+    return fallback
 
-def test_multiply_zero():
-    from Calculator import Calculator
+def test_add_positive():
+    calc_mod = _import_module('Calculator')
+    Calculator = getattr(calc_mod, 'Calculator')
     calc = Calculator()
-    assert calc.multiply(0, 12345) == 0
-    assert calc.multiply(98765, 0) == 0
+    assert calc.add(2, 3) == 5
 
-def test_multiply_large_numbers():
-    from Calculator import Calculator
+def test_add_negative():
+    calc_mod = _import_module('Calculator')
+    Calculator = getattr(calc_mod, 'Calculator')
+    calc = Calculator()
+    assert calc.add(-2, -3) == -5
+
+def test_add_mixed():
+    calc_mod = _import_module('Calculator')
+    Calculator = getattr(calc_mod, 'Calculator')
+    calc = Calculator()
+    assert calc.add(-2, 3) == 1
+
+def test_add_zero():
+    calc_mod = _import_module('Calculator')
+    Calculator = getattr(calc_mod, 'Calculator')
+    calc = Calculator()
+    assert calc.add(0, 5) == 5
+    assert calc.add(5, 0) == 5
+
+def test_add_large_numbers():
+    calc_mod = _import_module('Calculator')
+    Calculator = getattr(calc_mod, 'Calculator')
     calc = Calculator()
     a = 10**12
-    b = 10**9
-    assert calc.multiply(a, b) == a * b
+    b = 10**12
+    assert calc.add(a, b) == a + b
 
-def test_divide_positive():
-    from Calculator import Calculator
+def test_divide_by_zero_raises():
+    calc_mod = _import_module('Calculator')
+    Calculator = getattr(calc_mod, 'Calculator')
     calc = Calculator()
-    result = calc.divide(20, 4)
-    # allow integer or float return types from divide implementation
-    assert float(result) == 5.0
+    err_cls = _exc_lookup('CalculatorError', Exception, module=calc_mod)
+    with pytest.raises(err_cls):
+        calc.divide(1, 0)
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

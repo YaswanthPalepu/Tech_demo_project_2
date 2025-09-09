@@ -276,48 +276,211 @@ for _name in list(_THIRD_PARTY_TOPS):
 
 # --- /UNIVERSAL BOOTSTRAP ---
 
+import io
+import builtins
 import pytest
 
 def _exc_lookup(name, default=Exception):
     try:
-        import Calculator as _C
-        return getattr(_C, name)
+        import Calculator as C
+        candidate = getattr(C, name, None)
+        if candidate is not None:
+            return candidate
     except Exception:
-        return default
+        pass
+    try:
+        import SimpleCalculatorPyQt1 as S
+        candidate = getattr(S, name, None)
+        if candidate is not None:
+            return candidate
+    except Exception:
+        pass
+    return default
 
-def test_integration_add_then_multiply():
-    import Calculator
-    # Prefer instance API if available
-    CalcClass = getattr(Calculator, "Calculator", None)
-    assert CalcClass is not None, "Calculator class must exist in Calculator module"
-    c = CalcClass()
-    # add then multiply to exercise method interaction/state
-    res_add = c.add(2, 3)
-    assert res_add == 5
-    res_mul = c.multiply(res_add, 4)
-    assert res_mul == 20
+def _get_ops():
+    # Return dict with add, subtract, multiply, divide callables
+    try:
+        import Calculator as C
+    except Exception:
+        raise RuntimeError("Calculator module not importable")
+    ops = {}
+    for name in ("add", "subtract", "multiply", "divide"):
+        fn = getattr(C, name, None)
+        if fn is None:
+            # try class-based
+            cls = getattr(C, "Calculator", None)
+            if cls is not None:
+                inst = cls()
+                fn = getattr(inst, name, None)
+        if fn is None:
+            raise RuntimeError(f"Operation {name} not found in Calculator")
+        ops[name] = fn
+    return ops
 
-def test_integration_subtract_and_divide_large_numbers():
-    import Calculator
-    CalcClass = getattr(Calculator, "Calculator", None)
-    assert CalcClass is not None, "Calculator class must exist in Calculator module"
-    c = CalcClass()
-    a = 10**12
-    b = 10**6
-    res_sub = c.subtract(a, b)
-    assert res_sub == a - b
-    # division should yield float or exact division depending on implementation
-    res_div = c.divide(res_sub, b)
-    expected = (a - b) / b
-    assert pytest.approx(res_div) == expected
+def _get_mainwindow_and_funcs():
+    try:
+        import SimpleCalculatorPyQt1 as S
+    except Exception:
+        S = None
+    MainWindow = getattr(S, "MainWindow", None) if S is not None else None
+    save_fn = getattr(S, "save_history", None) if S is not None else None
+    clear_fn = getattr(S, "clear_history", None) if S is not None else None
+    return S, MainWindow, save_fn, clear_fn
 
-def test_integration_divide_by_zero_raises():
-    import Calculator, pytest
-    CalcClass = getattr(Calculator, "Calculator", None)
-    assert CalcClass is not None, "Calculator class must exist in Calculator module"
-    c = CalcClass()
-    with pytest.raises(_exc_lookup("Exception", Exception)):
-        c.divide(1, 0)
+def test_multiply_large_numbers_and_save_history(tmp_path, monkeypatch):
+    # Import targets inside test
+    ops = _get_ops()
+    multiply = ops["multiply"]
+
+    a = 123456
+    b = 98765
+    result = multiply(a, b)
+    assert result == a * b
+
+    S, MainWindow, save_fn, _ = _get_mainwindow_and_funcs()
+
+    # Prepare a MainWindow-like instance and populate history
+    if MainWindow is not None:
+        mw = MainWindow()
+    else:
+        mw = type("DummyMW", (), {})()
+    # Ensure there is a history attribute
+    setattr(mw, "history", [f"{a} * {b} = {result}"])
+
+    # Capture file writes by monkeypatching builtins.open
+    records = {}
+    def fake_open(path, mode='r', *args, **kwargs):
+        # Emulate writeable file handle
+        if 'w' in mode or 'a' in mode:
+            buf = io.StringIO()
+            records['path'] = str(path)
+            records['buf'] = buf
+            return buf
+        # For read attempts, raise to surface incorrect usage
+        raise FileNotFoundError(path)
+    monkeypatch.setattr(builtins, 'open', fake_open, raising=False)
+
+    # Determine save callable: prefer bound method on instance, then module-level function
+    save_callable = getattr(mw, "save_history", None) or save_fn
+    assert save_callable is not None, "No save_history found to test integration"
+
+    # Try calling with file path if supported, else without args
+    p = tmp_path / "history.txt"
+    try:
+        save_callable(str(p))
+    except TypeError:
+        # try instance-bound no-arg
+        try:
+            save_callable()
+        except TypeError:
+            # try module-level function accepting instance
+            try:
+                save_callable(mw)
+            except Exception as e:
+                raise
+
+    # Verify that the saved content contains the multiplication result
+    assert 'buf' in records, "No file write captured"
+    content = records['buf'].getvalue()
+    assert str(result) in content
+
+def test_subtract_and_clear_history(monkeypatch):
+    ops = _get_ops()
+    subtract = ops["subtract"]
+
+    a = 10**9
+    b = 123456789
+    expected = a - b
+    got = subtract(a, b)
+    assert got == expected
+
+    S, MainWindow, _, clear_fn = _get_mainwindow_and_funcs()
+
+    if MainWindow is not None:
+        mw = MainWindow()
+    else:
+        mw = type("DummyMW", (), {})()
+    # Initialize history with known content
+    setattr(mw, "history", ["op1", "op2", str(expected)])
+
+    # Determine clear callable: prefer bound method, else module-level function
+    clear_callable = getattr(mw, "clear_history", None) or clear_fn
+    if clear_callable is None:
+        pytest.skip("clear_history not available")
+    # Try calling various signatures
+    try:
+        clear_callable()
+    except TypeError:
+        clear_callable(mw)
+
+    # After clearing, history should be emptied or set to empty list
+    hist = getattr(mw, "history", None)
+    assert hist == [] or (hist is not None and len(hist) == 0)
+
+def test_divide_negative_and_error_class_check():
+    ops = _get_ops()
+    divide = ops["divide"]
+
+    res = divide(10, -2)
+    assert res == 10 / -2
+
+    # Use _exc_lookup per requirement inside isinstance usage
+    err_cls = _exc_lookup('CalculatorError', Exception)
+    # instantiate safely
+    try:
+        inst = err_cls()
+    except Exception:
+        inst = Exception()
+    assert isinstance(inst, Exception)
+
+def test_series_operations_saved(tmp_path, monkeypatch):
+    ops = _get_ops()
+    add = ops["add"]
+    sub = ops["subtract"]
+    mul = ops["multiply"]
+    div = ops["divide"]
+
+    results = []
+    results.append(("add", 2, 3, add(2,3)))
+    results.append(("sub", 10, 4, sub(10,4)))
+    results.append(("mul", 7, 6, mul(7,6)))
+    results.append(("div", 9, 3, div(9,3)))
+
+    S, MainWindow, save_fn, _ = _get_mainwindow_and_funcs()
+
+    if MainWindow is not None:
+        mw = MainWindow()
+    else:
+        mw = type("DummyMW", (), {})()
+    setattr(mw, "history", [f"{name} {x} {y} = {r}" for name,x,y,r in results])
+
+    # Capture writes
+    records = {}
+    def fake_open(path, mode='r', *args, **kwargs):
+        if 'w' in mode or 'a' in mode:
+            buf = io.StringIO()
+            records['buf'] = buf
+            records['path'] = str(path)
+            return buf
+        raise FileNotFoundError(path)
+    monkeypatch.setattr(builtins, 'open', fake_open, raising=False)
+
+    save_callable = getattr(mw, "save_history", None) or save_fn
+    assert save_callable is not None
+
+    p = tmp_path / "series_history.txt"
+    try:
+        save_callable(str(p))
+    except TypeError:
+        try:
+            save_callable()
+        except TypeError:
+            save_callable(mw)
+
+    assert 'buf' in records
+    content = records['buf'].getvalue()
+    for _, x, y, r in results:
+        assert str(r) in content or str(x) in content and str(y) in content
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

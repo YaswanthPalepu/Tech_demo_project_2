@@ -277,131 +277,48 @@ for _name in list(_THIRD_PARTY_TOPS):
 # --- /UNIVERSAL BOOTSTRAP ---
 
 import importlib
-import sys
-import types
 import pytest
+import sys
 
-def _ensure_pyqt_shim(monkeypatch):
-    # create minimal PyQt5 shim so importing UI module doesn't try to use real Qt
-    fake_pyqt = types.ModuleType("PyQt5")
-    fake_qtw = types.ModuleType("PyQt5.QtWidgets")
-    # minimal widget/base classes used by typical simple calculator UIs
-    class QApplication:
-        def __init__(self, *a, **k): pass
-    class QMainWindow:
-        def __init__(self, *a, **k): pass
-    class QWidget:
-        def __init__(self, *a, **k): pass
-    class QPushButton:
-        def __init__(self, *a, **k): pass
-    class QLineEdit:
-        def __init__(self, *a, **k): 
-            self._text = ""
-        def text(self): return self._text
-        def setText(self, t): self._text = t
-    class QTextEdit:
-        def __init__(self, *a, **k):
-            self._text = ""
-        def toPlainText(self): return self._text
-        def setPlainText(self, t): self._text = t
+def _exc_lookup(name, fallback, module):
+    # Look up a named exception class in the given module; fall back to provided fallback.
+    if module is None:
+        return fallback
+    return getattr(module, name, fallback)
 
-    fake_qtw.QApplication = QApplication
-    fake_qtw.QMainWindow = QMainWindow
-    fake_qtw.QWidget = QWidget
-    fake_qtw.QPushButton = QPushButton
-    fake_qtw.QLineEdit = QLineEdit
-    fake_qtw.QTextEdit = QTextEdit
+def test_chained_operations_end_to_end():
+    # Import target inside test for isolation
+    calc_mod = importlib.import_module("target.Calculator")
+    Calculator = getattr(calc_mod, "Calculator")
+    # instantiate and perform a realistic chained workflow
+    calc = Calculator()
+    r1 = calc.add(10, 5)           # 15
+    r2 = calc.multiply(r1, 3)     # 45
+    r3 = calc.subtract(r2, 20)    # 25
+    r4 = calc.divide(r3, 5)       # 5
+    assert isinstance(r4, (int, float))
+    assert r4 == 5
 
-    # also provide QtGui module stub if imported
-    fake_qtg = types.ModuleType("PyQt5.QtGui")
-    fake_qtg.QIcon = lambda *a, **k: None
-
-    monkeypatch.setitem(sys.modules, "PyQt5", fake_pyqt)
-    monkeypatch.setitem(sys.modules, "PyQt5.QtWidgets", fake_qtw)
-    monkeypatch.setitem(sys.modules, "PyQt5.QtGui", fake_qtg)
-    return fake_qtw, fake_qtg
-
-def test_calculator_basic_arithmetic_operations():
-    # import Calculator module inside test
-    mod = importlib.import_module("Calculator")
-    calc = mod.Calculator()
-    # add
-    assert calc.add(2, 3) == 5
-    # subtract
-    assert calc.subtract(10, 4) == 6
-    # multiply
-    assert calc.multiply(3, 7) == 21
-    # divide
-    assert calc.divide(20, 5) == 4
-    # divide with floats
-    assert pytest.approx(calc.divide(7, 2), rel=1e-12) == 3.5
-
-def test_calculator_divide_by_zero_raises():
-    mod = importlib.import_module("Calculator")
-    calc = mod.Calculator()
-    with pytest.raises(_exc_lookup('CalculatorError', Exception)):
+def test_divide_by_zero_raises_calculator_error():
+    calc_mod = importlib.import_module("target.Calculator")
+    Calculator = getattr(calc_mod, "Calculator")
+    calc = Calculator()
+    exc_cls = _exc_lookup("Exception", Exception, calc_mod)
+    with pytest.raises(exc_cls) as excinfo:
         calc.divide(1, 0)
+    # also assert the raised object is an instance of the looked-up class
+    assert isinstance(excinfo.value, exc_cls)
 
-def test_calculator_multiply_large_numbers_and_zero():
-    mod = importlib.import_module("Calculator")
-    calc = mod.Calculator()
-    # large numbers
-    a = 10**8
-    b = 10**7
-    assert calc.multiply(a, b) == a * b
-    # multiply by zero
-    assert calc.multiply(0, 123456) == 0
-    assert calc.multiply(-5, 0) == 0
-
-def test_save_history_writes_file_and_contains_expected_lines(tmp_path, monkeypatch):
-    # ensure PyQt shim before importing UI module
-    _ensure_pyqt_shim(monkeypatch)
-    ui_mod = importlib.import_module("SimpleCalculatorPyQt1")
-    # Instantiate MainWindow (should work with shim)
-    main = ui_mod.MainWindow()
-    # Provide both a history list and a text widget-like object to cover common implementations
-    entries = ["1 + 2 = 3", "4 * 5 = 20"]
-    main.history = list(entries)
-    class DummyText:
-        def __init__(self, text):
-            self._text = text
-        def toPlainText(self):
-            return self._text
-        def setPlainText(self, t):
-            self._text = t
-    main.history_text = DummyText("\n".join(entries))
-    # call save_history to write to file
-    out = tmp_path / "history.txt"
-    # Some implementations might accept a path-like or string
-    ui_mod.save_history(main, str(out))
-    # verify file contains the expected lines
-    data = out.read_text()
-    for line in entries:
-        assert line in data
-
-def test_clear_history_clears_internal_state(monkeypatch):
-    _ensure_pyqt_shim(monkeypatch)
-    ui_mod = importlib.import_module("SimpleCalculatorPyQt1")
-    main = ui_mod.MainWindow()
-    # prepare history list and text-like object
-    main.history = ["X", "Y"]
-    class DummyText:
-        def __init__(self, text):
-            self._text = text
-        def toPlainText(self):
-            return self._text
-        def setPlainText(self, t):
-            self._text = t
-    dt = DummyText("X\nY")
-    # assign to common attribute names to maximize chance method clears them
-    main.history_text = dt
-    main.history_edit = dt
-    # call clear_history
-    ui_mod.clear_history(main)
-    # history list should be empty if implementation uses it
-    assert getattr(main, "history", []) in ([], None)
-    # text widget(s) should be cleared (empty string)
-    assert dt.toPlainText() == "" or getattr(main, "history", []) == []
+def test_multiply_large_numbers_stability():
+    calc_mod = importlib.import_module("target.Calculator")
+    Calculator = getattr(calc_mod, "Calculator")
+    calc = Calculator()
+    a = 10**12
+    b = 10**6
+    result = calc.multiply(a, b)
+    assert result == a * b
+    # ensure type remains numeric
+    assert isinstance(result, (int, float))
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

@@ -32,6 +32,30 @@
         "/home/runner/work/new-tech-demo/new-tech-demo/target/SimpleCalculatorPyQt1.py",
         "/home/runner/work/new-tech-demo/new-tech-demo/target/Tests/test_calculator.py"
       ]
+    },
+    {
+      "ts": "2025-09-09T09:59:14.953651Z",
+      "files_generated": [
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_unit_20250909095102_01.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_unit_20250909095102_02.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_unit_20250909095102_03.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_unit_20250909095102_04.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_unit_20250909095102_05.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_unit_20250909095102_06.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_integ_20250909095102_01.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_integ_20250909095102_02.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_integ_20250909095102_03.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_integ_20250909095102_04.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_integ_20250909095102_05.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_integ_20250909095102_06.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_e2e_20250909095102_01.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_e2e_20250909095102_02.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_e2e_20250909095102_03.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_e2e_20250909095102_04.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_e2e_20250909095102_05.py",
+        "tests/generated/DeviPrasad372002_test-calculator.git/current/test_e2e_20250909095102_06.py"
+      ],
+      "focus_files": []
     }
   ]
 }

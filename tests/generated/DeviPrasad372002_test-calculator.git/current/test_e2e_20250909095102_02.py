@@ -278,63 +278,50 @@ for _name in list(_THIRD_PARTY_TOPS):
 
 import pytest
 
-def test_e2e_multiply_chain():
-    # Import target module(s) inside the test for isolation
-    from Calculator import Calculator
+def test_e2e_sequence_operations():
+    # Import target module inside test to follow instructions
+    import Calculator
+    # helper to lookup custom exception names if needed
+    def _exc_lookup(name, default):
+        return getattr(Calculator, name, default)
 
-    calc = Calculator()
+    # Instantiate calculator
+    calc = Calculator.Calculator()
 
-    # Start with a basic positive multiply
-    r1 = calc.multiply(2, 3)          # 6
-    assert r1 == 6
+    # Perform a realistic chain of operations a user might do via a UI:
+    # 1) add two numbers
+    r1 = calc.add(5, 7)
+    assert r1 == 12
 
-    # Multiply the running result by a negative number
-    r2 = calc.multiply(r1, -2)       # -12
-    assert r2 == -12
+    # 2) multiply the result by another number
+    r2 = calc.multiply(r1, 3)
+    assert r2 == 36
 
-    # Multiply by a mixed sign (positive) to flip sign again
-    r3 = calc.multiply(r2, -1)       # 12
-    assert r3 == 12
+    # 3) subtract a value
+    r3 = calc.subtract(r2, 10)
+    assert r3 == 26
 
-    # Multiply by zero yields zero
-    r4 = calc.multiply(r3, 0)        # 0
-    assert r4 == 0
+    # 4) divide to get final result
+    r4 = calc.divide(r3, 2)
+    # allow int/float equivalence
+    assert r4 == 13 or r4 == 13.0
 
-def test_e2e_multiply_large_and_small_numbers():
-    from Calculator import Calculator
-    import math
+def test_e2e_divide_by_zero_handling_and_recovery():
+    import Calculator
+    def _exc_lookup(name, default):
+        return getattr(Calculator, name, default)
 
-    calc = Calculator()
+    calc = Calculator.Calculator()
 
-    # Large integer multiplication
-    big_a = 10**6
-    big_b = 10**6
-    big_expected = big_a * big_b
-    big_result = calc.multiply(big_a, big_b)
-    assert big_result == big_expected
-
-    # Small floating point multiplication (subnormal-style)
-    small_a = 1e-6
-    small_b = 1e-3
-    small_expected = small_a * small_b  # 1e-9
-    small_result = calc.multiply(small_a, small_b)
-    # Use math.isclose for float stability
-    assert math.isclose(small_result, small_expected, rel_tol=1e-12, abs_tol=0.0)
-
-def test_e2e_divide_positive_and_divide_by_zero_error():
-    from Calculator import Calculator
-    import math
-
-    calc = Calculator()
-
-    # Simple positive division
-    assert calc.divide(10, 2) == 5
-    assert math.isclose(calc.divide(7, 2), 3.5, rel_tol=1e-12)
-
-    # Division by zero should raise the calculator-specific error
+    # Ensure dividing by zero raises the calculator's error (or a generic Exception fallback)
     with pytest.raises(_exc_lookup('CalculatorError', Exception)) as excinfo:
-        calc.divide(1, 0)
+        calc.divide(10, 0)
+    # Confirm the raised exception is an instance of the expected error type
     assert isinstance(excinfo.value, _exc_lookup('CalculatorError', Exception))
+
+    # After the error, the calculator should still be usable for further operations
+    result_after_error = calc.add(-3, 8)
+    assert result_after_error == 5
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

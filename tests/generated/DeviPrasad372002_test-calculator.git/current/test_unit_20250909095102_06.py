@@ -276,245 +276,59 @@ for _name in list(_THIRD_PARTY_TOPS):
 
 # --- /UNIVERSAL BOOTSTRAP ---
 
-import sys
-import types
-import builtins
-import importlib
-import io
+def _exc_lookup(name, default=Exception):
+    import importlib, builtins, sys
+    # Try common module names where the exception might be defined
+    candidates = ['Calculator', 'SimpleCalculatorPyQt1', 'target.Calculator', 'target.SimpleCalculatorPyQt1']
+    for modname in candidates:
+        try:
+            mod = importlib.import_module(modname)
+        except Exception:
+            continue
+        if hasattr(mod, name):
+            return getattr(mod, name)
+    # fallback to builtins
+    return getattr(builtins, name, default)
 
-def _make_pyqt_shim():
-    PyQt5 = types.ModuleType("PyQt5")
-    QtWidgets = types.ModuleType("PyQt5.QtWidgets")
-    QtGui = types.ModuleType("PyQt5.QtGui")
-    QtCore = types.ModuleType("PyQt5.QtCore")
 
-    class Signal:
-        def __init__(self):
-            self._cb = None
-        def connect(self, cb):
-            self._cb = cb
-        def emit(self, *a, **k):
-            if self._cb:
-                return self._cb(*a, **k)
+def test_multiply_large_numbers():
+    import importlib
+    calc_mod = importlib.import_module('Calculator')
+    Calculator = getattr(calc_mod, 'Calculator')
+    calc = Calculator()
+    a = 10**9
+    b = 10**6
+    expected = a * b
+    assert calc.multiply(a, b) == expected
 
-    class QMainWindow:
-        def __init__(self, *a, **k):
-            pass
 
-    class QWidget:
-        def __init__(self, *a, **k):
-            pass
+def test_multiply_small_numbers():
+    import importlib, pytest
+    calc_mod = importlib.import_module('Calculator')
+    Calculator = getattr(calc_mod, 'Calculator')
+    calc = Calculator()
+    a = 1e-6
+    b = 1e-3
+    result = calc.multiply(a, b)
+    assert result == pytest.approx(1e-9, rel=1e-9)
 
-    class QLineEdit:
-        def __init__(self, *a, **k):
-            self._text = ""
-        def setText(self, t):
-            self._text = str(t)
-        def text(self):
-            return self._text
-        def clear(self):
-            self._text = ""
 
-    class QTextEdit:
-        def __init__(self, *a, **k):
-            self._plain = ""
-        def setPlainText(self, t):
-            self._plain = str(t)
-        def toPlainText(self):
-            return self._plain
-        def clear(self):
-            self._plain = ""
+def test_multiply_zero():
+    import importlib
+    calc_mod = importlib.import_module('Calculator')
+    Calculator = getattr(calc_mod, 'Calculator')
+    calc = Calculator()
+    assert calc.multiply(0, 12345) == 0
+    assert calc.multiply(12345, 0) == 0
 
-    class QPushButton:
-        def __init__(self, *a, **k):
-            self.clicked = Signal()
 
-    class QMessageBox:
-        @staticmethod
-        def critical(*a, **k):
-            return None
-        @staticmethod
-        def information(*a, **k):
-            return None
-
-    class QFileDialog:
-        @staticmethod
-        def getSaveFileName(*a, **k):
-            # default shim returns empty path; tests will monkeypatch as needed
-            return ("", "")
-
-    QtWidgets.QMainWindow = QMainWindow
-    QtWidgets.QWidget = QWidget
-    QtWidgets.QLineEdit = QLineEdit
-    QtWidgets.QTextEdit = QTextEdit
-    QtWidgets.QPushButton = QPushButton
-    QtWidgets.QMessageBox = QMessageBox
-    QtWidgets.QFileDialog = QFileDialog
-
-    PyQt5.QtWidgets = QtWidgets
-    PyQt5.QtGui = QtGui
-    PyQt5.QtCore = QtCore
-
-    return PyQt5, QtWidgets
-
-def _install_shim(monkeypatch):
-    pyqt5, qtwidgets = _make_pyqt_shim()
-    monkeypatch.setitem(sys.modules, "PyQt5", pyqt5)
-    monkeypatch.setitem(sys.modules, "PyQt5.QtWidgets", qtwidgets)
-    # also set submodules to same objects for safety
-    monkeypatch.setitem(sys.modules, "PyQt5.QtGui", types.ModuleType("PyQt5.QtGui"))
-    monkeypatch.setitem(sys.modules, "PyQt5.QtCore", types.ModuleType("PyQt5.QtCore"))
-
-def _exc_lookup(name, default):
-    # helper as required by instructions for potential future use
-    return globals().get(name, default)
-
-def test_save_history_writes_calc_history(tmp_path, monkeypatch):
-    # Install PyQt shims before importing target module
-    _install_shim(monkeypatch)
-
-    # Import modules inside test per instructions
-    import SimpleCalculatorPyQt1 as sc
-    import Calculator as calcmod
-
-    # Prepare a Calculator instance and populate a simple history list
-    calc = calcmod.Calculator()
-    # Some Calculator implementations may not maintain history; ensure attribute exists
-    history_lines = ["1 + 2 = 3", "3 * 4 = 12", "10 / 2 = 5"]
-    setattr(calc, "history", history_lines)
-
-    # Dummy self object expected by save_history: module likely uses self.calc and QFileDialog
-    class Dummy:
-        pass
-    dummy = Dummy()
-    dummy.calc = calc
-
-    # Choose a path for saving
-    outpath = tmp_path / "history_out.txt"
-
-    # Monkeypatch QFileDialog.getSaveFileName in the module to return our path
-    monkeypatch.setattr(sc, "QFileDialog", sc.QFileDialog, raising=False)
-    def fake_getsave(*a, **k):
-        return (str(outpath), "")
-    monkeypatch.setattr(sc.QFileDialog, "getSaveFileName", staticmethod(fake_getsave), raising=False)
-
-    # Capture writes by monkeypatching builtins.open
-    written = {"path": None, "content": ""}
-    class DummyFile:
-        def __init__(self, path):
-            self._path = path
-        def write(self, data):
-            written["content"] += str(data)
-        def __enter__(self):
-            written["path"] = self._path
-            return self
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-    def fake_open(path, mode='w', *a, **k):
-        return DummyFile(path)
-
-    monkeypatch.setattr(builtins, "open", fake_open)
-
-    # Call save_history function from module using our dummy
-    # Some implementations may define save_history as a method on MainWindow; import it directly
-    save_fn = getattr(sc, "save_history", None)
-    assert save_fn is not None, "save_history not found in SimpleCalculatorPyQt1"
-    save_fn(dummy)
-
-    # Validate that file path used and content includes history lines
-    assert written["path"] == str(outpath)
-    for line in history_lines:
-        assert line in written["content"]
-
-def test_save_history_no_path_does_not_write(monkeypatch):
-    # Ensure PyQt shim present
-    _install_shim(monkeypatch)
-
-    import SimpleCalculatorPyQt1 as sc
-    import Calculator as calcmod
-
-    calc = calcmod.Calculator()
-    setattr(calc, "history", ["a = b"])
-
-    class Dummy:
-        pass
-    dummy = Dummy()
-    dummy.calc = calc
-
-    # Make QFileDialog.getSaveFileName return empty (user canceled)
-    monkeypatch.setattr(sc, "QFileDialog", sc.QFileDialog, raising=False)
-    def fake_getsave_empty(*a, **k):
-        return ("", "")
-    monkeypatch.setattr(sc.QFileDialog, "getSaveFileName", staticmethod(fake_getsave_empty), raising=False)
-
-    # Track whether open is called
-    opened = {"called": False}
-    class DummyFile:
-        def __enter__(self): return self
-        def __exit__(self, a,b,c): return False
-        def write(self, d): pass
-
-    def fake_open(path, mode='w', *a, **k):
-        opened["called"] = True
-        return DummyFile()
-
-    monkeypatch.setattr(builtins, "open", fake_open)
-
-    save_fn = getattr(sc, "save_history", None)
-    assert save_fn is not None, "save_history not found in SimpleCalculatorPyQt1"
-    save_fn(dummy)
-
-    # If no filename chosen, open should not be called
-    assert opened["called"] is False
-
-def test_calculator_operations_and_module_save_integration(tmp_path, monkeypatch):
-    # Integration: perform operations with Calculator then use module save_history to persist them
-    _install_shim(monkeypatch)
-
-    import SimpleCalculatorPyQt1 as sc
-    import Calculator as calcmod
-
-    c = calcmod.Calculator()
-    # perform various operations to build history; use available methods if present
-    try:
-        c.add(2, 3)
-    except Exception:
-        # If add not present or raises, fall back to manual history manipulation
-        pass
-    try:
-        c.multiply(4, 5)
-    except Exception:
-        pass
-    # Ensure history attribute exists
-    if not hasattr(c, "history") or not getattr(c, "history"):
-        setattr(c, "history", ["2 + 3 = 5", "4 * 5 = 20"])
-
-    class Dummy:
-        pass
-    dummy = Dummy()
-    dummy.calc = c
-
-    outpath = tmp_path / "chain_history.txt"
-    monkeypatch.setattr(sc, "QFileDialog", sc.QFileDialog, raising=False)
-    monkeypatch.setattr(sc.QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(outpath), "")), raising=False)
-
-    captured = {"text": ""}
-    class DF:
-        def __init__(self, p): self._p = p
-        def __enter__(self): return self
-        def __exit__(self, a,b,c): return False
-        def write(self, s): captured["text"] += str(s)
-
-    monkeypatch.setattr(builtins, "open", lambda path, mode='w', *a, **k: DF(path))
-
-    save_fn = getattr(sc, "save_history", None)
-    assert save_fn is not None, "save_history not found in SimpleCalculatorPyQt1"
-    save_fn(dummy)
-
-    # Confirm that content contains at least one of the expected history items
-    found = any(h in captured["text"] for h in getattr(c, "history", []))
-    assert found, "Saved history did not contain expected entries"
+def test_divide_by_zero_raises():
+    import importlib, pytest
+    calc_mod = importlib.import_module('Calculator')
+    Calculator = getattr(calc_mod, 'Calculator')
+    calc = Calculator()
+    with pytest.raises(_exc_lookup('CalculatorError', Exception)):
+        calc.divide(1, 0)
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

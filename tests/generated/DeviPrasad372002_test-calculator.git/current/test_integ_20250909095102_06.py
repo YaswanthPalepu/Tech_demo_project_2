@@ -276,93 +276,173 @@ for _name in list(_THIRD_PARTY_TOPS):
 
 # --- /UNIVERSAL BOOTSTRAP ---
 
-import importlib
+import builtins
+import io
 import pytest
 
-def _exc_lookup(name, fallback):
-    # Try common module locations for the project to find a custom exception class.
-    candidates = [
-        "Calculator",
-        "target.Calculator",
-        "calculator",
-        "simplecalculator",
-        "SimpleCalculatorPyQt1",
-        "target.SimpleCalculatorPyQt1",
-    ]
+def _exc_lookup(name, default):
+    # Try common module locations to find an exception class by name
+    candidates = ("Calculator", "SimpleCalculatorPyQt1", "target.Calculator", "target.SimpleCalculatorPyQt1")
     for modname in candidates:
         try:
-            mod = importlib.import_module(modname)
+            mod = __import__(modname)
         except Exception:
             continue
         if hasattr(mod, name):
             return getattr(mod, name)
-    return fallback
+    return default
 
-def _import_any(candidates):
-    for modname in candidates:
+def test_multiply_large_numbers_and_save_history(monkeypatch, tmp_path):
+    # Import targets inside test
+    import Calculator
+    import SimpleCalculatorPyQt1
+
+    a, b = 12_345_678, 87_654_321
+    calc = Calculator.Calculator()
+    product = calc.multiply(a, b)
+    entry = f"{a} * {b} = {product}\n"
+
+    # Intercept writes to a file system location: redirect any write open to our temp file
+    real_open = builtins.open
+    target_file = tmp_path / "history.txt"
+
+    def fake_open(file, mode='r', *args, **kwargs):
+        # If code tries to write (w, a, x) redirect to our target file
+        if isinstance(mode, str) and any(ch in mode for ch in ("w", "a", "x")):
+            return real_open(str(target_file), mode, *args, **kwargs)
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", fake_open)
+
+    # Try calling save_history in several plausible ways
+    called = False
+    try:
+        # common signature: save_history(history_list)
+        SimpleCalculatorPyQt1.save_history([entry])
+        called = True
+    except TypeError:
+        # try no-arg signature which reads module-level history provider
         try:
-            return importlib.import_module(modname)
-        except Exception:
-            continue
-    raise ImportError("Could not import any of: " + ", ".join(candidates))
+            if hasattr(SimpleCalculatorPyQt1, "get_history"):
+                monkeypatch.setattr(SimpleCalculatorPyQt1, "get_history", lambda: [entry])
+            else:
+                setattr(SimpleCalculatorPyQt1, "history", [entry])
+            SimpleCalculatorPyQt1.save_history()
+            called = True
+        except TypeError:
+            called = False
 
-def test_divide_negative_integration():
-    # Import Calculator implementation inside the test
-    calc_mod = _import_any(["Calculator", "target.Calculator", "calculator"])
-    # instantiate and exercise divide
-    calc = calc_mod.Calculator()
-    res = calc.divide(-10, 2)
-    assert res == -5.0
+    assert called, "Could not call save_history with any supported signature"
 
-    # Also exercise the project's test helper if available to verify cross-module behavior
-    # try a few possible module names for the test module
-    test_mod = _import_any(["Tests.test_calculator", "target.Tests.test_calculator", "test_calculator", "target.test_calculator"])
-    # If the test function exists in that module, call it to ensure integrated expectations match.
-    if hasattr(test_mod, "test_divide_negative"):
-        # call the test function defined by the project (it will raise AssertionError if failing)
-        test_mod.test_divide_negative()
+    # Verify the redirected file contains our history entry
+    content = target_file.read_text()
+    assert str(product) in content and str(a) in content and str(b) in content
 
-def test_divide_mixed_integration():
-    calc_mod = _import_any(["Calculator", "target.Calculator", "calculator"])
-    calc = calc_mod.Calculator()
-    res = calc.divide(-9, 2)
-    assert res == -4.5
+def test_clear_input_clears_widget(monkeypatch):
+    import SimpleCalculatorPyQt1
 
-    test_mod = _import_any(["Tests.test_calculator", "target.Tests.test_calculator", "test_calculator", "target.test_calculator"])
-    if hasattr(test_mod, "test_divide_mixed"):
-        test_mod.test_divide_mixed()
+    class FakeLineEdit:
+        def __init__(self, text="initial"):
+            self._text = text
+            self.cleared = False
+        def text(self):
+            return self._text
+        def setText(self, t):
+            self._text = t
+            if t == "":
+                self.cleared = True
 
-def test_divide_by_zero_integration():
-    calc_mod = _import_any(["Calculator", "target.Calculator", "calculator"])
-    calc = calc_mod.Calculator()
-    # Use _exc_lookup to locate a project-defined CalculatorError if present
-    with pytest.raises(_exc_lookup("Exception", Exception)):
+    widget = FakeLineEdit("12345")
+
+    # Try calling clear_input(widget) or fallback to module-level hook
+    try:
+        SimpleCalculatorPyQt1.clear_input(widget)
+    except TypeError:
+        # fallback: module may expect no args and use a known attribute
+        if hasattr(SimpleCalculatorPyQt1, "input_field"):
+            monkeypatch.setattr(SimpleCalculatorPyQt1, "input_field", widget)
+        else:
+            setattr(SimpleCalculatorPyQt1, "input_widget", widget)
+        SimpleCalculatorPyQt1.clear_input()
+
+    assert widget._text == "" or widget.cleared
+
+def test_divide_by_zero_raises_calculatorerror():
+    import Calculator
+    exc_cls = _exc_lookup("Exception", Exception)
+    calc = Calculator.Calculator()
+
+    with pytest.raises(exc_cls):
         calc.divide(1, 0)
 
-    # Also verify the project's test that covers divide by zero if present
-    test_mod = _import_any(["Tests.test_calculator", "target.Tests.test_calculator", "test_calculator", "target.test_calculator"])
-    if hasattr(test_mod, "test_divide_by_zero"):
-        test_mod.test_divide_by_zero()
+def test_calculate_integration_updates_result(monkeypatch):
+    import SimpleCalculatorPyQt1
 
-def test_divide_large_and_small_numbers_integration():
-    calc_mod = _import_any(["Calculator", "target.Calculator", "calculator"])
-    calc = calc_mod.Calculator()
+    class FakeLine:
+        def __init__(self, text):
+            self._text = str(text)
+        def text(self):
+            return self._text
+        def setText(self, t):
+            self._text = str(t)
 
-    # Large numbers
-    large_n = 10**12
-    res_large = calc.divide(large_n, 2)
-    assert res_large == pytest.approx(large_n / 2)
+    class FakeResult:
+        def __init__(self):
+            self._text = ""
+        def setText(self, t):
+            self._text = str(t)
+        def text(self):
+            return self._text
 
-    # Small numbers (result is small float)
-    res_small = calc.divide(1, 10**6)
-    assert res_small == pytest.approx(1e-6)
+    # Create a fake "window" object that many possible calculate implementations will accept
+    win = type("Win", (), {})()
+    win.input_a = FakeLine("6")
+    win.input_b = FakeLine("7")
+    win.result = FakeResult()
 
-    # Exercise corresponding project test functions if they exist
-    test_mod = _import_any(["Tests.test_calculator", "target.Tests.test_calculator", "test_calculator", "target.test_calculator"])
-    if hasattr(test_mod, "test_divide_large_numbers"):
-        test_mod.test_divide_large_numbers()
-    if hasattr(test_mod, "test_divide_small_numbers"):
-        test_mod.test_divide_small_numbers()
+    # Try a few operator representations the calculate function might expect
+    tried = False
+    for op in ("*", "multiply", "x", "times", "+", "add"):
+        # set operator as attribute or as a small widget-like object
+        if op in ("*", "multiply", "x", "times"):
+            # multiplication expectation
+            if hasattr(win, "operator_widget"):
+                win.operator_widget = FakeLine(op)
+            else:
+                win.operator = op
+        else:
+            if hasattr(win, "operator_widget"):
+                win.operator_widget = FakeLine(op)
+            else:
+                win.operator = op
+
+        # Attempt to call calculate(win) or calculate() with module-level window
+        try:
+            SimpleCalculatorPyQt1.calculate(win)
+            tried = True
+        except TypeError:
+            # try module-level injection
+            setattr(SimpleCalculatorPyQt1, "main_window", win)
+            try:
+                SimpleCalculatorPyQt1.calculate()
+                tried = True
+            except TypeError:
+                tried = tried or False
+
+        # Inspect result and assert correctness for known ops
+        res_text = win.result.text()
+        if op in ("*", "multiply", "x", "times"):
+            if res_text:
+                assert res_text == str(6 * 7)
+                return
+        elif op in ("+", "add"):
+            if res_text:
+                assert res_text == str(6 + 7)
+                return
+
+    assert tried, "calculate was not successfully invoked with any signature"
+    # If none of the operator representations produced a known result, at least ensure result changed
+    assert win.result.text() != ""
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

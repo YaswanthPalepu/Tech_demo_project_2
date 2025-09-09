@@ -276,58 +276,45 @@ for _name in list(_THIRD_PARTY_TOPS):
 
 # --- /UNIVERSAL BOOTSTRAP ---
 
-import importlib
-
-def _exc_lookup(name, base):
-    import importlib
-    candidates = ['Calculator', 'SimpleCalculatorPyQt1', 'builtins']
-    for modname in candidates:
-        try:
-            mod = importlib.import_module(modname)
-        except Exception:
-            continue
-        if hasattr(mod, name):
-            return getattr(mod, name)
-    return base
-
-def test_subtract_positive():
-    from Calculator import Calculator
-    calc = Calculator()
-    assert calc.subtract(10, 4) == 6
-
-def test_subtract_negative():
-    from Calculator import Calculator
-    calc = Calculator()
-    # (-3) - (-7) == 4
-    assert calc.subtract(-3, -7) == 4
-
-def test_subtract_mixed_and_zero():
-    from Calculator import Calculator
-    calc = Calculator()
-    assert calc.subtract(5, -2) == 7
-    assert calc.subtract(0, 5) == -5
-    assert calc.subtract(5, 0) == 5
-
-def test_subtract_large_numbers():
-    from Calculator import Calculator
-    calc = Calculator()
-    a = 10**12
-    b = 10**6
-    assert calc.subtract(a, b) == a - b
+import pytest
 
 def test_add_small_numbers():
-    from Calculator import Calculator
-    calc = Calculator()
+    import Calculator as calc_mod
+    calc = calc_mod.Calculator()
     assert calc.add(1, 2) == 3
-    # also test small magnitude integers
     assert calc.add(0, 0) == 0
 
-def test_invalid_input_raises_calculator_error():
-    import pytest
-    from Calculator import Calculator
-    calc = Calculator()
-    with pytest.raises(_exc_lookup('CalculatorError', Exception)):
-        calc.subtract("a", "b")
+def test_subtract_positive():
+    import Calculator as calc_mod
+    calc = calc_mod.Calculator()
+    assert calc.subtract(10, 4) == 6
+    assert calc.subtract(100, 1) == 99
+
+def test_subtract_negative():
+    import Calculator as calc_mod
+    calc = calc_mod.Calculator()
+    assert calc.subtract(-8, -3) == -5
+    # flip signs
+    assert calc.subtract(-1, 2) == -3
+
+def test_subtract_mixed():
+    import Calculator as calc_mod
+    calc = calc_mod.Calculator()
+    assert calc.subtract(5, -7) == 12
+    assert calc.subtract(-5, 7) == -12
+
+def test_subtract_zero():
+    import Calculator as calc_mod
+    calc = calc_mod.Calculator()
+    assert calc.subtract(5, 0) == 5
+    assert calc.subtract(0, 5) == -5
+
+def test_subtract_large_numbers():
+    import Calculator as calc_mod
+    calc = calc_mod.Calculator()
+    a = 10**18
+    b = 10**9
+    assert calc.subtract(a, b) == a - b
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

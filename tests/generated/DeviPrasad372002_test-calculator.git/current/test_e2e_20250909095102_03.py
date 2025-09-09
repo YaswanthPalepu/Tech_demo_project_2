@@ -276,73 +276,109 @@ for _name in list(_THIRD_PARTY_TOPS):
 
 # --- /UNIVERSAL BOOTSTRAP ---
 
+import importlib
 import pytest
 
-def test_e2e_sequence_arithmetic():
-    # Import target inside test as required
-    import Calculator as calc_mod
+def test_e2e_calculator_subtract_and_add_flow():
+    # Import target inside the test as required
+    mod = importlib.import_module('Calculator')
+    Calculator = getattr(mod, 'Calculator')
 
-    # Helper to get Calculator class robustly
-    Calculator = getattr(calc_mod, "Calculator", None)
-    assert Calculator is not None, "Calculator class not found in Calculator module"
+    def _exc_lookup(name, default):
+        # search common places for an exception class, fall back to default
+        import builtins, importlib
+        if hasattr(builtins, name):
+            return getattr(builtins, name)
+        try:
+            m = importlib.import_module('Calculator')
+            if hasattr(m, name):
+                return getattr(m, name)
+        except Exception:
+            pass
+        try:
+            m2 = importlib.import_module('SimpleCalculatorPyQt1')
+            if hasattr(m2, name):
+                return getattr(m2, name)
+        except Exception:
+            pass
+        return default
 
     calc = Calculator()
-    # Perform a realistic user workflow: add -> multiply -> subtract -> divide
-    r1 = calc.add(3, 5)
-    assert r1 == 8
 
-    r2 = calc.multiply(r1, 2)
-    assert r2 == 16
+    # Basic add/subtract checks (integers)
+    assert calc.add(1, 2) == 3
+    assert calc.subtract(5, 2) == 3
 
-    r3 = calc.subtract(r2, 6)
-    assert r3 == 10
+    # Subtract negative numbers
+    assert calc.subtract(-3, -2) == -1
 
-    r4 = calc.divide(r3, 2)
-    # final result should be 5
-    # accept exact match for integers
-    assert r4 == 5
+    # Subtract mixed signs
+    assert calc.subtract(3, -2) == 5
 
-def test_divide_by_zero_raises_calculator_error():
-    import Calculator as calc_mod
+    # Subtract zero
+    assert calc.subtract(4, 0) == 4
 
-    Calculator = getattr(calc_mod, "Calculator", None)
-    assert Calculator is not None, "Calculator class not found in Calculator module"
+    # Large number subtraction
+    big = 10**18
+    assert calc.subtract(big, 1) == big - 1
+
+    # Small float subtraction (use approx for floating point)
+    assert calc.subtract(0.001, 0.0005) == pytest.approx(0.0005, rel=1e-12, abs=1e-15)
+
+    # Small add numbers
+    assert calc.add(1e-6, 2e-6) == pytest.approx(3e-6, rel=1e-12, abs=1e-15)
+
+    # Ensure no unexpected exceptions for a sequence of operations
+    a = calc.add(10, 5)
+    b = calc.subtract(a, 3)
+    c = calc.multiply(b, 2)
+    d = calc.subtract(c, 7)
+    assert a == 15
+    assert b == 12
+    assert c == 24
+    assert d == 17
+
+def test_e2e_error_and_sequence_with_divide_zero():
+    # Import target inside the test as required
+    mod = importlib.import_module('Calculator')
+    Calculator = getattr(mod, 'Calculator')
+
+    def _exc_lookup(name, default):
+        import builtins, importlib
+        if hasattr(builtins, name):
+            return getattr(builtins, name)
+        try:
+            m = importlib.import_module('Calculator')
+            if hasattr(m, name):
+                return getattr(m, name)
+        except Exception:
+            pass
+        try:
+            m2 = importlib.import_module('SimpleCalculatorPyQt1')
+            if hasattr(m2, name):
+                return getattr(m2, name)
+        except Exception:
+            pass
+        return default
+
     calc = Calculator()
 
-    # Helper per instructions to lookup exception class if present
-    def _exc_lookup(name, fallback):
-        return getattr(calc_mod, name, fallback)
-
-    exc_cls = _exc_lookup('CalculatorError', Exception)
+    # Dividing by zero should raise an exception (CalculatorError if present, otherwise a built-in)
     with pytest.raises(_exc_lookup('CalculatorError', Exception)) as excinfo:
         calc.divide(1, 0)
+    # Verify the caught exception is of the expected kind or falls back to a generic Exception match
+    assert isinstance(excinfo.value, _exc_lookup('CalculatorError', Exception))
 
-    # Ensure the raised exception is an instance of the expected class (or fallback)
-    assert isinstance(excinfo.value, exc_cls)
-
-def test_mixed_operations_consistency_with_large_numbers():
-    import Calculator as calc_mod
-
-    Calculator = getattr(calc_mod, "Calculator", None)
-    assert Calculator is not None, "Calculator class not found in Calculator module"
-    calc1 = Calculator()
-    calc2 = Calculator()
-
-    # Use large numbers to exercise internal handling
-    a = 10**12
-    b = 10**6
-    # Both calculators perform same sequence in different grouping to verify associativity in implementation
-    # Sequence 1: ((a + b) * 3) - b
-    s1 = calc1.add(a, b)
-    m1 = calc1.multiply(s1, 3)
-    res1 = calc1.subtract(m1, b)
-
-    # Sequence 2: (a * 3) + (b * 2)
-    m2a = calc2.multiply(a, 3)
-    m2b = calc2.multiply(b, 2)
-    res2 = calc2.add(m2a, m2b)
-
-    assert res1 == res2, f"Inconsistent results: {res1} != {res2}"
+    # Continue a realistic user workflow after handling an error
+    x = calc.add(20, -5)          # 15
+    y = calc.multiply(x, 3)       # 45
+    z = calc.subtract(y, 10)      # 35
+    # A small division that should be precise
+    dv = calc.divide(1e-6, 2e-6)  # 0.5
+    assert x == 15
+    assert y == 45
+    assert z == 35
+    assert dv == pytest.approx(0.5, rel=1e-12, abs=1e-15)
 
 
 # --- canonical PyQt5 shim (Widgets + Gui minimal) ---

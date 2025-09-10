@@ -20,10 +20,7 @@ on:
         required: false
         default: "comprehensive"
         type: choice
-        options:
-          - basic
-          - standard
-          - comprehensive
+        options: [basic, standard, comprehensive]
 
 # Optional: prevent overlapping manual runs
 concurrency:
@@ -227,11 +224,11 @@ jobs:
 
           results_file = Path('reports/tests/test-results.json')
           if not results_file.exists():
-              data = {"summary": {"total": 0, "passed": 0, "failed": 0, "error": 0}}
-              results_file.parent.mkdir(parents=True, exist_ok=True)
-              results_file.write_text(json.dumps(data))
+            data = {"summary": {"total": 0, "passed": 0, "failed": 0, "error": 0}}
+            results_file.parent.mkdir(parents=True, exist_ok=True)
+            results_file.write_text(json.dumps(data))
           else:
-              data = json.loads(results_file.read_text())
+            data = json.loads(results_file.read_text())
 
           summary = data.get("summary", {})
           total = summary.get("total", 0)
@@ -250,10 +247,10 @@ jobs:
           print(f"  Pass Rate: {pass_percentage:.2f}%")
 
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"tests-total={total}\n")
-              f.write(f"tests-passed={passed}\n")
-              f.write(f"tests-failed={failed + errors}\n")
-              f.write(f"pass-percentage={pass_percentage:.2f}\n")
+            f.write(f"tests-total={total}\n")
+            f.write(f"tests-passed={passed}\n")
+            f.write(f"tests-failed={failed + errors}\n")
+            f.write(f"pass-percentage={pass_percentage:.2f}\n")
           EOF
 
       - name: Generate detailed coverage metrics
@@ -266,10 +263,10 @@ jobs:
 
           coverage_file = Path('reports/coverage/coverage.json')
           if not coverage_file.exists():
-              print("Coverage file not found")
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write("coverage-percentage=0\n")
-              sys.exit(0)
+            print("Coverage file not found")
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write("coverage-percentage=0\n")
+            sys.exit(0)
 
           cov_data = json.loads(coverage_file.read_text())
           totals = cov_data.get("totals", {})
@@ -287,32 +284,29 @@ jobs:
           files = cov_data.get("files", {})
           low_coverage_files = []
           for filepath, file_data in files.items():
-              file_coverage = file_data.get("summary", {}).get("percent_covered", 0)
-              if file_coverage < 70:
-                  low_coverage_files.append({
-                      "file": filepath,
-                      "coverage": file_coverage
-                  })
+            file_coverage = file_data.get("summary", {}).get("percent_covered", 0)
+            if file_coverage < 70:
+              low_coverage_files.append({"file": filepath, "coverage": file_coverage})
 
           coverage_analysis = {
-              "overall_coverage": coverage_pct,
-              "lines_covered": lines_covered,
-              "lines_missing": lines_missing,
-              "total_lines": total_lines,
-              "low_coverage_files": low_coverage_files
+            "overall_coverage": coverage_pct,
+            "lines_covered": lines_covered,
+            "lines_missing": lines_missing,
+            "total_lines": total_lines,
+            "low_coverage_files": low_coverage_files
           }
 
           Path('reports/coverage').mkdir(parents=True, exist_ok=True)
           Path('reports/coverage/coverage-analysis.json').write_text(json.dumps(coverage_analysis, indent=2))
 
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"coverage-percentage={coverage_pct:.2f}\n")
+            f.write(f"coverage-percentage={coverage_pct:.2f}\n")
 
           threshold = float(os.environ.get("COVERAGE_THRESHOLD", "80"))
           if coverage_pct < threshold:
-              print(f"Coverage {coverage_pct:.2f}% is below threshold {threshold}%")
+            print(f"Coverage {coverage_pct:.2f}% is below threshold {threshold}%")
           else:
-              print(f"Coverage {coverage_pct:.2f}% meets threshold {threshold}%")
+            print(f"Coverage {coverage_pct:.2f}% meets threshold {threshold}%")
           EOF
 
       - name: Comprehensive bug detection analysis
@@ -354,58 +348,57 @@ jobs:
           from pathlib import Path
 
           bug_summary = {
-              "security_issues": 0,
-              "quality_issues": 0,
-              "complexity_issues": 0,
-              "total_bugs": 0,
-              "critical_bugs": 0,
-              "bug_categories": {},
-              "quality_score": 100
+            "security_issues": 0,
+            "quality_issues": 0,
+            "complexity_issues": 0,
+            "total_bugs": 0,
+            "critical_bugs": 0,
+            "bug_categories": {},
+            "quality_score": 100
           }
 
           reports_dir = Path('reports/bugs')
           
           bandit_file = reports_dir / 'security-bandit.json'
           if bandit_file.exists():
-              try:
-                  bandit_data = json.loads(bandit_file.read_text())
-                  security_count = len(bandit_data.get('results', []))
-                  bug_summary["security_issues"] += security_count
-                  high_severity = len([r for r in bandit_data.get('results', []) 
-                                     if r.get('issue_severity') == 'HIGH'])
-                  bug_summary["critical_bugs"] += high_severity
-              except: pass
+            try:
+              bandit_data = json.loads(bandit_file.read_text())
+              security_count = len(bandit_data.get('results', []))
+              bug_summary["security_issues"] += security_count
+              high_severity = len([r for r in bandit_data.get('results', []) if r.get('issue_severity') == 'HIGH'])
+              bug_summary["critical_bugs"] += high_severity
+            except: pass
 
           safety_file = reports_dir / 'security-safety.json'
           if safety_file.exists():
-              try:
-                  safety_data = json.loads(safety_file.read_text())
-                  if isinstance(safety_data, list):
-                      bug_summary["security_issues"] += len(safety_data)
-              except: pass
+            try:
+              safety_data = json.loads(safety_file.read_text())
+              if isinstance(safety_data, list):
+                bug_summary["security_issues"] += len(safety_data)
+            except: pass
 
           flake8_file = reports_dir / 'quality-flake8.txt'
           if flake8_file.exists():
-              try:
-                  lines = flake8_file.read_text().splitlines()
-                  quality_issues = len([l for l in lines if ':' in l and any(c in l for c in ['E','W','F'])])
-                  bug_summary["quality_issues"] += quality_issues
-              except: pass
+            try:
+              lines = flake8_file.read_text().splitlines()
+              quality_issues = len([l for l in lines if ':' in l and any(c in l for c in ['E','W','F'])])
+              bug_summary["quality_issues"] += quality_issues
+            except: pass
 
           complexity_file = reports_dir / 'complexity-cyclomatic.json'
           if complexity_file.exists():
-              try:
-                  complexity_data = json.loads(complexity_file.read_text())
-                  high_complexity = 0
-                  for item in complexity_data:
-                      if isinstance(item, dict):
-                          for _, value in item.items():
-                              if isinstance(value, list):
-                                  for func in value:
-                                      if isinstance(func, dict) and func.get('complexity', 0) > 10:
-                                          high_complexity += 1
-                  bug_summary["complexity_issues"] = high_complexity
-              except: pass
+            try:
+              complexity_data = json.loads(complexity_file.read_text())
+              high_complexity = 0
+              for item in complexity_data:
+                if isinstance(item, dict):
+                  for _, value in item.items():
+                    if isinstance(value, list):
+                      for func in value:
+                        if isinstance(func, dict) and func.get('complexity', 0) > 10:
+                          high_complexity += 1
+              bug_summary["complexity_issues"] = high_complexity
+            except: pass
 
           total_issues = bug_summary["security_issues"] + bug_summary["quality_issues"] + bug_summary["complexity_issues"]
           bug_summary["total_bugs"] = total_issues
@@ -423,9 +416,9 @@ jobs:
 
           Path('reports/bugs/bug-summary.json').write_text(json.dumps(bug_summary, indent=2))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"bugs-found={bug_summary['total_bugs']}\n")
-              f.write(f"security-issues={bug_summary['security_issues']}\n")
-              f.write(f"quality-score={bug_summary['quality_score']}\n")
+            f.write(f"bugs-found={bug_summary['total_bugs']}\n")
+            f.write(f"security-issues={bug_summary['security_issues']}\n")
+            f.write(f"quality-score={bug_summary['quality_score']}\n")
           EOF
 
       - name: Upload comprehensive reports
@@ -433,8 +426,7 @@ jobs:
         if: always()
         with:
           name: test-analysis-reports
-          path: |
-            reports/
+          path: reports/
           retention-days: 30
 
   deployment-readiness:
@@ -474,9 +466,7 @@ jobs:
           if [ -n "$BUGS_FOUND" ] && [ "$BUGS_FOUND" -gt "10" ]; then WARNINGS+=("High number of potential bugs ($BUGS_FOUND)"); fi
           if [ -n "$QUALITY_SCORE" ] && [ "$QUALITY_SCORE" -lt "70" ]; then WARNINGS+=("Code quality score low ($QUALITY_SCORE/100)"); fi
           
-          if [ ${#ISSUES[@]} -eq 0 ]; then
-            READY="true"
-          fi
+          if [ ${#ISSUES[@]} -eq 0 ]; then READY="true"; fi
           
           echo "ready=$READY" >> $GITHUB_OUTPUT
           echo "issues_count=${#ISSUES[@]}" >> $GITHUB_OUTPUT
@@ -529,6 +519,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: validate-tests
     if: ${{ github.event.inputs.sonar_analysis != 'false' }}
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      COVERAGE_XML: ${{ github.workspace }}/reports/coverage/coverage.xml
+      JUNIT_XML: ${{ github.workspace }}/reports/tests/junit.xml
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -544,48 +541,47 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: test-analysis-reports
-            # if previous job had no artifacts, don't fail Sonar stage
           path: reports/
         continue-on-error: true
 
-      - name: Setup SonarQube Scanner
+      # Preferred: official SonarCloud action
+      - name: SonarCloud Scan
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarcloud-github-action@v3
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+        with:
+          projectBaseDir: target_repo/
+          args: >
+            -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}
+            -Dsonar.organization=${{ github.repository_owner }}
+            -Dsonar.sources=src
+            -Dsonar.tests=tests
+            -Dsonar.python.coverage.reportPaths=${{ env.COVERAGE_XML }}
+            -Dsonar.python.xunit.reportPath=${{ env.JUNIT_XML }}
+
+      # Fallback CLI scanner (optional) if the action fails but token exists
+      - name: SonarScanner CLI (fallback)
+        if: ${{ env.SONAR_TOKEN != '' && failure() }}
         run: |
           wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
           unzip -q sonar-scanner-cli-4.8.0.2856-linux.zip
-          export PATH=$PATH:$(pwd)/sonar-scanner-4.8.0.2856-linux/bin
-          
-          cd target_repo
-          
-          cat > sonar-project.properties << EOF
+          export PATH="$PATH:$(pwd)/sonar-scanner-4.8.0.2856-linux/bin"
+
+          pushd target_repo >/dev/null
+          cat > sonar-project.properties <<EOF
           sonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}
           sonar.organization=${{ github.repository_owner }}
           sonar.sources=src
           sonar.tests=tests
-          sonar.python.coverage.reportPaths=../reports/coverage/coverage.xml
-          sonar.python.xunit.reportPath=../reports/tests/junit.xml
-          sonar.exclusions=**/*_test.py,**/test_*.py,**/tests/**
-          sonar.test.inclusions=**/test_*.py,**/*_test.py
-          sonar.python.bandit.reportPaths=../reports/bugs/security-bandit.json
-          sonar.python.flake8.reportPaths=../reports/bugs/quality-flake8.txt
-          sonar.python.pylint.reportPaths=../reports/bugs/comprehensive-pylint.json
+          sonar.python.coverage.reportPaths=${{ env.COVERAGE_XML }}
+          sonar.python.xunit.reportPath=${{ env.JUNIT_XML }}
           EOF
-          
-          if [ -n "${{ secrets.SONAR_TOKEN }}" ]; then
-            sonar-scanner \
-              -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }} \
-              -Dsonar.organization=${{ github.repository_owner }} \
-              -Dsonar.host.url=${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }} \
-              -Dsonar.token=${{ secrets.SONAR_TOKEN }} || echo "SonarQube analysis completed with warnings"
-          else
-            echo "SonarQube analysis skipped - SONAR_TOKEN not configured"
-          fi
 
-      - name: SonarCloud Scan (Alternative)
-        uses: SonarSource/sonarcloud-github-action@master
-        if: ${{ secrets.SONAR_TOKEN }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.my_github_token }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        with:
-          projectBaseDir: target_repo/
-        continue-on-error: true
+          sonar-scanner -Dsonar.token="${SONAR_TOKEN}" ${SONAR_HOST_URL:+-Dsonar.host.url="${SONAR_HOST_URL}"} || echo "Sonar scanner finished with warnings"
+          popd >/dev/null
+
+      - name: Skip Sonar (no token)
+        if: ${{ env.SONAR_TOKEN == '' }}
+        run: echo "Sonar analysis skipped: SONAR_TOKEN not configured."

@@ -16,8 +16,8 @@ on:
         description: "TESTGEN_PROMPT_STYLE (ultra_bare recommended)"
         required: false
         default: "ultra_bare"
-  push:
-    branches: [ test ]
+  # push:
+  #   branches: [ test ]
 
 concurrency:
   group: test-gen-${{ github.workflow }}

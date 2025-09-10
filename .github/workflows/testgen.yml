@@ -6,7 +6,7 @@ on:
       repo_url:
         description: "Repo to analyze"
         required: true
-        default: "https://github.com/DeviPrasad372002/test-calculator.git"
+        default: "https://github.com/DeviPrasad372002/django-test-app.git"
       force_gen:
         description: "Force generation even if no code changes detected"
         required: false
@@ -39,7 +39,7 @@ jobs:
 
       - name: Clone target repository (kept under ./target)
         run: |
-          REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/test-calculator.git' }}"
+          REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
           echo "REPO_URL=$REPO" >> $GITHUB_ENV
           git clone --depth 1 "$REPO" target
 
@@ -178,7 +178,7 @@ jobs:
           cd target
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${{ secrets.GH_PAT3 }}@github.com/DeviPrasad372002/test-calculator.git
+          git remote set-url origin https://x-access-token:${{ secrets.GH_PAT3 }}@github.com/DeviPrasad372002/django-test-app.git
           git add tests/generated || true
           if git diff --staged --quiet; then
             echo "No changes to commit"

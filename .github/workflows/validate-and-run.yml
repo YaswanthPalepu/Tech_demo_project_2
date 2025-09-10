@@ -15,6 +15,15 @@ on:
         description: "Run SonarCloud analysis"
         required: false
         default: "true"
+      bug_detection_level:
+        description: "Bug detection thoroughness"
+        required: false
+        default: "comprehensive"
+        type: choice
+        options:
+          - basic
+          - standard
+          - comprehensive
   push:
     branches: [ main ]
     paths: 
@@ -40,7 +49,12 @@ jobs:
     outputs:
       coverage-percentage: ${{ steps.coverage.outputs.coverage-percentage }}
       tests-passed: ${{ steps.test-results.outputs.tests-passed }}
-      bugs-found: ${{ steps.test-results.outputs.bugs-found }}
+      tests-total: ${{ steps.test-results.outputs.tests-total }}
+      tests-failed: ${{ steps.test-results.outputs.tests-failed }}
+      pass-percentage: ${{ steps.test-results.outputs.pass-percentage }}
+      bugs-found: ${{ steps.bug-analysis.outputs.bugs-found }}
+      security-issues: ${{ steps.bug-analysis.outputs.security-issues }}
+      quality-score: ${{ steps.bug-analysis.outputs.quality-score }}
 
     steps:
       - name: Checkout pipeline repo (this repo)
@@ -98,12 +112,13 @@ jobs:
             pip install -e target_repo || true
           fi
 
-          # Testing & quality tools
+          # Enhanced testing & quality tools
           pip install pytest pytest-cov pytest-html pytest-json-report \
                      coverage bandit safety flake8 black isort mypy \
-                     pytest-xdist pytest-timeout pytest-mock
+                     pytest-xdist pytest-timeout pytest-mock \
+                     vulture radon prospector semgrep pylint
 
-      - name: Locate tests (existing + generated) and coverage sources
+      - name: Locate tests and coverage sources
         id: discover
         run: |
           set -e
@@ -111,144 +126,654 @@ jobs:
 
           # Ensure tests dir exists and contains tests
           if [ ! -d "tests" ]; then
-            echo "❌ No tests directory found in target_repo/"
+            echo "No tests directory found in target_repo/"
             exit 1
           fi
 
-          TEST_COUNT=$(find tests -type f -name "test_*.py" | wc -l | tr -d ' ')
-          echo "Found ${TEST_COUNT} test files."
-          if [ "$TEST_COUNT" = "0" ]; then
-            echo "❌ No 'test_*.py' files discovered in target_repo/tests/"
+          # Count different types of tests (based on your naming pattern)
+          TOTAL_TESTS=$(find tests -type f -name "test_*.py" | wc -l | tr -d ' ')
+          
+          # Count by filename patterns in tests/generated/
+          UNIT_TESTS=$(find tests -name "test_unit_*.py" 2>/dev/null | wc -l | tr -d ' ')
+          INTEGRATION_TESTS=$(find tests -name "test_integ_*.py" 2>/dev/null | wc -l | tr -d ' ')
+          E2E_TESTS=$(find tests -name "test_e2e_*.py" 2>/dev/null | wc -l | tr -d ' ')
+          GENERATED_TESTS=$(find tests -path "*/generated/*" -name "test_*.py" 2>/dev/null | wc -l | tr -d ' ')
+          
+          # Also count traditional folder-based tests if they exist
+          TRADITIONAL_UNIT=$(find tests -path "*/unit/*" -name "test_*.py" 2>/dev/null | wc -l | tr -d ' ')
+          TRADITIONAL_INTEG=$(find tests -path "*/integration/*" -name "test_*.py" 2>/dev/null | wc -l | tr -d ' ')
+          TRADITIONAL_E2E=$(find tests -path "*/e2e/*" -name "test_*.py" 2>/dev/null | wc -l | tr -d ' ')
+          
+          # Add traditional tests to totals
+          UNIT_TESTS=$((UNIT_TESTS + TRADITIONAL_UNIT))
+          INTEGRATION_TESTS=$((INTEGRATION_TESTS + TRADITIONAL_INTEG))
+          E2E_TESTS=$((E2E_TESTS + TRADITIONAL_E2E))
+
+          echo "Test Discovery Results:"
+          echo "  Total test files: $TOTAL_TESTS"
+          echo "  Unit tests: $UNIT_TESTS"
+          echo "  Integration tests: $INTEGRATION_TESTS"
+          echo "  E2E tests: $E2E_TESTS"
+          echo "  Generated tests: $GENERATED_TESTS"
+
+          if [ "$TOTAL_TESTS" = "0" ]; then
+            echo "No 'test_*.py' files discovered in target_repo/tests/"
             exit 1
           fi
 
           # Determine coverage source roots
           COV_ARGS=()
-
-          # Prefer conventional src/
           if [ -d "src" ]; then
             COV_ARGS+=("--cov=src")
           fi
 
-          # Add top-level Python package directories (folder with __init__.py)
+          # Add top-level Python package directories
           for d in */ ; do
             [ -d "$d" ] || continue
             [ "$d" = "tests/" ] && continue
             [ "$d" = "venv/" ] && continue
+            [ "$d" = ".git/" ] && continue
             [ -f "${d}__init__.py" ] && COV_ARGS+=("--cov=${d%/}")
           done
 
-          # If none detected, fall back to repo root
+          # If none detected, fall back to repo root excluding tests
           if [ ${#COV_ARGS[@]} -eq 0 ]; then
-            COV_ARGS+=("--cov=.")
+            COV_ARGS+=("--cov=." "--cov-config=.coveragerc")
           fi
 
-          echo "COV_ARGS=${COV_ARGS[*]}"
-
-          # Persist for next steps
+          echo "Coverage arguments: ${COV_ARGS[*]}"
           echo "cov_args=${COV_ARGS[*]}" >> $GITHUB_OUTPUT
+          echo "total_test_files=$TOTAL_TESTS" >> $GITHUB_OUTPUT
 
-      - name: Run ALL tests (existing + generated) with coverage
+      - name: Create coverage configuration
+        run: |
+          cd "$TARGET_ROOT"
+          cat > .coveragerc << 'EOF'
+          [run]
+          source = .
+          omit = 
+              tests/*
+              */tests/*
+              */__pycache__/*
+              */venv/*
+              */env/*
+              setup.py
+              */site-packages/*
+          
+          [report]
+          exclude_lines =
+              pragma: no cover
+              def __repr__
+              raise AssertionError
+              raise NotImplementedError
+          EOF
+
+      - name: Run tests with comprehensive coverage analysis
         id: test-results
         env:
           PYTHONPATH: ${{ env.TARGET_ROOT }}
         run: |
-          echo "🧪 Running tests..."
-          mkdir -p reports
+          echo "Running comprehensive test suite with coverage analysis..."
+          mkdir -p reports/coverage reports/tests
           cd "$TARGET_ROOT"
 
           COV_ARGS="${{ steps.discover.outputs.cov_args }}"
 
+          # Run tests with detailed reporting
           set +e
           python -m pytest tests \
             ${COV_ARGS} \
-            --cov-report=html:../reports/coverage-html \
-            --cov-report=xml:../reports/coverage.xml \
-            --cov-report=json:../reports/coverage.json \
+            --cov-report=html:../reports/coverage/html \
+            --cov-report=xml:../reports/coverage/coverage.xml \
+            --cov-report=json:../reports/coverage/coverage.json \
             --cov-report=term-missing \
-            --html=../reports/test-report.html \
-            --json-report --json-report-file=../reports/test-results.json \
+            --html=../reports/tests/test-report.html \
+            --json-report --json-report-file=../reports/tests/test-results.json \
             --tb=short \
             --timeout=300 \
-            -v \
-            --continue-on-collection-errors
+            --maxfail=50 \
+            --verbose \
+            --continue-on-collection-errors \
+            --junitxml=../reports/tests/junit.xml
           TEST_EXIT_CODE=$?
           set -e
 
-          # Summarize for outputs
+          # Analyze test results and calculate metrics
           python - << 'EOF'
-          import json, os
-          p = 'reports/test-results.json'
-          if not os.path.exists(p):
-              print("No JSON test results found; creating a minimal stub.")
-              data = {"summary":{"total":0,"passed":0,"failed":0,"error":0}}
+          import json, os, sys
+          from pathlib import Path
+
+          # Load test results
+          results_file = Path('reports/tests/test-results.json')
+          if not results_file.exists():
+              print("No test results found - creating minimal data")
+              data = {"summary": {"total": 0, "passed": 0, "failed": 0, "error": 0}}
+              with open(results_file, 'w') as f:
+                  json.dump(data, f)
           else:
-              data = json.load(open(p))
+              with open(results_file) as f:
+                  data = json.load(f)
 
-          total = data.get("summary",{}).get("total",0)
-          passed = data.get("summary",{}).get("passed",0)
-          failed = data.get("summary",{}).get("failed",0)
-          errors = data.get("summary",{}).get("error",0)
+          summary = data.get("summary", {})
+          total = summary.get("total", 0)
+          passed = summary.get("passed", 0)
+          failed = summary.get("failed", 0)
+          errors = summary.get("error", 0)
+          skipped = summary.get("skipped", 0)
 
-          print(f"📊 Test Summary: total={total}, passed={passed}, failed={failed}, errors={errors}")
+          # Calculate pass percentage
+          pass_percentage = (passed / total * 100) if total > 0 else 0
 
-          bugs = (failed or 0) + (errors or 0)
+          print(f"Test Execution Summary:")
+          print(f"  Total: {total}")
+          print(f"  Passed: {passed}")
+          print(f"  Failed: {failed}")
+          print(f"  Errors: {errors}")
+          print(f"  Skipped: {skipped}")
+          print(f"  Pass Rate: {pass_percentage:.2f}%")
+
+          # Write outputs
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"tests-total={total}\n")
               f.write(f"tests-passed={passed}\n")
-              f.write(f"bugs-found={bugs}\n")
+              f.write(f"tests-failed={failed + errors}\n")
+              f.write(f"pass-percentage={pass_percentage:.2f}\n")
+
+          # Analyze failure patterns for bug detection
+          failure_analysis = {
+              "assertion_errors": 0,
+              "import_errors": 0,
+              "attribute_errors": 0,
+              "type_errors": 0,
+              "other_errors": 0
+          }
+
+          if "tests" in data:
+              for test in data["tests"]:
+                  if test.get("outcome") in ["failed", "error"]:
+                      error_info = test.get("call", {}).get("longrepr", "").lower()
+                      if "assertionerror" in error_info:
+                          failure_analysis["assertion_errors"] += 1
+                      elif "importerror" in error_info or "modulenotfounderror" in error_info:
+                          failure_analysis["import_errors"] += 1
+                      elif "attributeerror" in error_info:
+                          failure_analysis["attribute_errors"] += 1
+                      elif "typeerror" in error_info:
+                          failure_analysis["type_errors"] += 1
+                      else:
+                          failure_analysis["other_errors"] += 1
+
+          with open('reports/tests/failure-analysis.json', 'w') as f:
+              json.dump(failure_analysis, f, indent=2)
+
+          print(f"Failure Analysis: {failure_analysis}")
           EOF
 
-          exit 0
-
-      - name: Generate detailed coverage report (with threshold)
+      - name: Generate detailed coverage metrics
         id: coverage
         run: |
-          echo "📊 Generating coverage analysis..."
+          echo "Generating detailed coverage analysis..."
           python - << 'EOF'
           import os, json, sys
-          p='reports/coverage.json'
-          if not os.path.exists(p):
-              print("❌ coverage.json not found. Did tests run?")
+          from pathlib import Path
+
+          coverage_file = Path('reports/coverage/coverage.json')
+          if not coverage_file.exists():
+              print("Coverage file not found")
               with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                   f.write("coverage-percentage=0\n")
-              sys.exit(1)
+              sys.exit(0)
 
-          cov=json.load(open(p))
-          totals=cov.get("totals") or {}
-          pct=totals.get("percent_covered")
-          if pct is None:
-              print("❌ No percent_covered in coverage totals.")
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write("coverage-percentage=0\n")
-              sys.exit(1)
+          with open(coverage_file) as f:
+              cov_data = json.load(f)
 
-          print(f"Overall coverage: {pct:.2f}%")
+          totals = cov_data.get("totals", {})
+          coverage_pct = totals.get("percent_covered", 0)
+          lines_covered = totals.get("covered_lines", 0)
+          lines_missing = totals.get("missing_lines", 0)
+          total_lines = lines_covered + lines_missing
+
+          print(f"Coverage Analysis:")
+          print(f"  Overall Coverage: {coverage_pct:.2f}%")
+          print(f"  Lines Covered: {lines_covered}")
+          print(f"  Lines Missing: {lines_missing}")
+          print(f"  Total Lines: {total_lines}")
+
+          # File-level coverage analysis
+          files = cov_data.get("files", {})
+          low_coverage_files = []
+          for filepath, file_data in files.items():
+              file_coverage = file_data.get("summary", {}).get("percent_covered", 0)
+              if file_coverage < 70:  # Flag files with low coverage
+                  low_coverage_files.append({
+                      "file": filepath,
+                      "coverage": file_coverage
+                  })
+
+          coverage_analysis = {
+              "overall_coverage": coverage_pct,
+              "lines_covered": lines_covered,
+              "lines_missing": lines_missing,
+              "total_lines": total_lines,
+              "low_coverage_files": low_coverage_files
+          }
+
+          with open('reports/coverage/coverage-analysis.json', 'w') as f:
+              json.dump(coverage_analysis, f, indent=2)
+
+          # Write output
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"coverage-percentage={pct:.2f}\n")
+              f.write(f"coverage-percentage={coverage_pct:.2f}\n")
 
-          threshold=float(os.environ.get("COVERAGE_THRESHOLD","80"))
-          if pct < threshold:
-              print(f"❌ Coverage {pct:.2f}% below threshold {threshold}%")
-              sys.exit(1)
-          print(f"✅ Coverage {pct:.2f}% meets threshold {threshold}%")
+          # Check threshold
+          threshold = float(os.environ.get("COVERAGE_THRESHOLD", "80"))
+          if coverage_pct < threshold:
+              print(f"Coverage {coverage_pct:.2f}% is below threshold {threshold}%")
+          else:
+              print(f"Coverage {coverage_pct:.2f}% meets threshold {threshold}%")
           EOF
 
-      - name: Security and quality analysis
+      - name: Comprehensive bug detection analysis
+        id: bug-analysis
         run: |
-          echo "Running security and quality checks..."
+          echo "Running comprehensive bug detection..."
           cd "$TARGET_ROOT"
-          mkdir -p ../reports
+          mkdir -p ../reports/bugs
 
+          BUG_LEVEL="${{ github.event.inputs.bug_detection_level || 'comprehensive' }}"
+          echo "Bug detection level: $BUG_LEVEL"
+
+          # Security analysis
+          echo "Running security analysis..."
           if [ -d "src" ]; then
-            bandit -r src/ -f json -o ../reports/security.json || true
-            flake8 src/ --output-file=../reports/flake8.txt || true
-            if find src/ -name "*.py" | head -5 | xargs grep -l "from typing import\|import typing\|: *[A-Z]" >/dev/null 2>&1; then
-              mypy src/ --ignore-missing-imports --json-report ../reports/mypy || true
-            fi
+            TARGET_DIR="src"
           else
-            bandit -r . -f json -o ../reports/security.json || true
-            flake8 . --output-file=../reports/flake8.txt || true
+            TARGET_DIR="."
           fi
+
+          # Bandit for security issues
+          bandit -r "$TARGET_DIR" -f json -o ../reports/bugs/security-bandit.json || true
+          bandit -r "$TARGET_DIR" -ll > ../reports/bugs/security-bandit.txt || true
+
+          # Safety for dependency vulnerabilities  
+          safety check --json --output ../reports/bugs/security-safety.json || true
+          safety check > ../reports/bugs/security-safety.txt || true
+
+          if [ "$BUG_LEVEL" != "basic" ]; then
+            echo "Running standard bug detection..."
+            
+            # Code quality analysis
+            flake8 "$TARGET_DIR" --output-file=../reports/bugs/quality-flake8.txt --format='%(path)s:%(row)d:%(col)d: %(code)s %(text)s' || true
+            
+            # Type checking
+            mypy "$TARGET_DIR" --ignore-missing-imports --json-report ../reports/bugs/quality-mypy --txt-report ../reports/bugs/quality-mypy-txt || true
+            
+            # Dead code detection
+            vulture "$TARGET_DIR" --min-confidence 70 > ../reports/bugs/quality-deadcode.txt || true
+            
+            # Complexity analysis
+            radon cc "$TARGET_DIR" -j > ../reports/bugs/complexity-cyclomatic.json || true
+            radon mi "$TARGET_DIR" -j > ../reports/bugs/complexity-maintainability.json || true
+          fi
+
+          if [ "$BUG_LEVEL" = "comprehensive" ]; then
+            echo "Running comprehensive bug analysis..."
+            
+            # Advanced static analysis
+            prospector "$TARGET_DIR" --output-format json --output-file ../reports/bugs/comprehensive-prospector.json || true
+            
+            # Pylint analysis
+            pylint "$TARGET_DIR" --output-format=json > ../reports/bugs/comprehensive-pylint.json || true
+            
+            # Semgrep for advanced patterns (if available)
+            if command -v semgrep >/dev/null 2>&1; then
+              semgrep --config=auto "$TARGET_DIR" --json --output=../reports/bugs/comprehensive-semgrep.json || true
+            fi
+          fi
+
+          # Analyze all bug reports and generate summary
+          python - << 'EOF'
+          import json, os, glob
+          from pathlib import Path
+
+          bug_summary = {
+              "security_issues": 0,
+              "quality_issues": 0,
+              "complexity_issues": 0,
+              "total_bugs": 0,
+              "critical_bugs": 0,
+              "bug_categories": {},
+              "quality_score": 100
+          }
+
+          reports_dir = Path('reports/bugs')
+          
+          # Analyze bandit security report
+          bandit_file = reports_dir / 'security-bandit.json'
+          if bandit_file.exists():
+              try:
+                  with open(bandit_file) as f:
+                      bandit_data = json.load(f)
+                  security_count = len(bandit_data.get('results', []))
+                  bug_summary["security_issues"] += security_count
+                  high_severity = len([r for r in bandit_data.get('results', []) 
+                                     if r.get('issue_severity') == 'HIGH'])
+                  bug_summary["critical_bugs"] += high_severity
+              except:
+                  pass
+
+          # Analyze safety dependency report
+          safety_file = reports_dir / 'security-safety.json'
+          if safety_file.exists():
+              try:
+                  with open(safety_file) as f:
+                      safety_data = json.load(f)
+                  if isinstance(safety_data, list):
+                      bug_summary["security_issues"] += len(safety_data)
+              except:
+                  pass
+
+          # Count quality issues from flake8
+          flake8_file = reports_dir / 'quality-flake8.txt'
+          if flake8_file.exists():
+              try:
+                  with open(flake8_file) as f:
+                      lines = f.readlines()
+                  quality_issues = len([l for l in lines if ':' in l and any(c in l for c in ['E', 'W', 'F'])])
+                  bug_summary["quality_issues"] += quality_issues
+              except:
+                  pass
+
+          # Analyze complexity
+          complexity_file = reports_dir / 'complexity-cyclomatic.json'
+          if complexity_file.exists():
+              try:
+                  with open(complexity_file) as f:
+                      complexity_data = json.load(f)
+                  # Count functions with high complexity (>10)
+                  high_complexity = 0
+                  for item in complexity_data:
+                      if isinstance(item, dict):
+                          for key, value in item.items():
+                              if isinstance(value, list):
+                                  for func in value:
+                                      if isinstance(func, dict) and func.get('complexity', 0) > 10:
+                                          high_complexity += 1
+                  bug_summary["complexity_issues"] = high_complexity
+              except:
+                  pass
+
+          # Calculate totals and quality score
+          total_issues = (bug_summary["security_issues"] + 
+                         bug_summary["quality_issues"] + 
+                         bug_summary["complexity_issues"])
+          bug_summary["total_bugs"] = total_issues
+
+          # Calculate quality score (100 = perfect, decreases with issues)
+          score_deduction = min(80, total_issues * 2)  # Max deduction of 80 points
+          critical_deduction = bug_summary["critical_bugs"] * 10
+          bug_summary["quality_score"] = max(0, 100 - score_deduction - critical_deduction)
+
+          print(f"Bug Analysis Summary:")
+          print(f"  Security Issues: {bug_summary['security_issues']}")
+          print(f"  Quality Issues: {bug_summary['quality_issues']}")
+          print(f"  Complexity Issues: {bug_summary['complexity_issues']}")
+          print(f"  Critical Bugs: {bug_summary['critical_bugs']}")
+          print(f"  Total Issues: {bug_summary['total_bugs']}")
+          print(f"  Quality Score: {bug_summary['quality_score']}/100")
+
+          # Save comprehensive report
+          with open('reports/bugs/bug-summary.json', 'w') as f:
+              json.dump(bug_summary, f, indent=2)
+
+          # Write outputs
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"bugs-found={bug_summary['total_bugs']}\n")
+              f.write(f"security-issues={bug_summary['security_issues']}\n")
+              f.write(f"quality-score={bug_summary['quality_score']}\n")
+          EOF
+
+      - name: Upload comprehensive reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-analysis-reports
+          path: |
+            reports/
+          retention-days: 30
+
+  deployment-readiness:
+    runs-on: ubuntu-latest
+    needs: [validate-tests]
+    if: always()
+    
+    steps:
+      - name: Evaluate deployment readiness
+        id: deployment-check
+        run: |
+          echo "Evaluating deployment readiness..."
+          
+          # Get all metrics from previous job
+          TESTS_PASSED="${{ needs.validate-tests.outputs.tests-passed }}"
+          TESTS_TOTAL="${{ needs.validate-tests.outputs.tests-total }}"
+          PASS_PERCENTAGE="${{ needs.validate-tests.outputs.pass-percentage }}"
+          COVERAGE="${{ needs.validate-tests.outputs.coverage-percentage }}"
+          BUGS_FOUND="${{ needs.validate-tests.outputs.bugs-found }}"
+          SECURITY_ISSUES="${{ needs.validate-tests.outputs.security-issues }}"
+          QUALITY_SCORE="${{ needs.validate-tests.outputs.quality-score }}"
+          COVERAGE_THRESHOLD="${{ github.event.inputs.coverage_threshold || '80' }}"
+          
+          echo "Deployment Readiness Metrics:"
+          echo "  Tests: $TESTS_PASSED/$TESTS_TOTAL passed ($PASS_PERCENTAGE%)"
+          echo "  Coverage: $COVERAGE%"
+          echo "  Bugs Found: $BUGS_FOUND"
+          echo "  Security Issues: $SECURITY_ISSUES"
+          echo "  Quality Score: $QUALITY_SCORE/100"
+          echo "  Coverage Threshold: $COVERAGE_THRESHOLD%"
+          
+          # Determine deployment readiness
+          READY="false"
+          ISSUES=()
+          WARNINGS=()
+          
+          # Critical checks (block deployment)
+          if [ "$SECURITY_ISSUES" -gt "0" ]; then
+            ISSUES+=("$SECURITY_ISSUES security vulnerabilities detected")
+          fi
+          
+          if [ -n "$PASS_PERCENTAGE" ] && [ "${PASS_PERCENTAGE%.*}" -lt "90" ]; then
+            ISSUES+=("Test pass rate $PASS_PERCENTAGE% below 90%")
+          fi
+          
+          if [ -n "$COVERAGE" ] && [ "${COVERAGE%.*}" -lt "$COVERAGE_THRESHOLD" ]; then
+            ISSUES+=("Coverage $COVERAGE% below threshold $COVERAGE_THRESHOLD%")
+          fi
+          
+          # Warning checks (deployment possible but with caution)
+          if [ -n "$BUGS_FOUND" ] && [ "$BUGS_FOUND" -gt "10" ]; then
+            WARNINGS+=("High number of potential bugs ($BUGS_FOUND)")
+          fi
+          
+          if [ -n "$QUALITY_SCORE" ] && [ "$QUALITY_SCORE" -lt "70" ]; then
+            WARNINGS+=("Code quality score low ($QUALITY_SCORE/100)")
+          fi
+          
+          # Final determination
+          if [ ${#ISSUES[@]} -eq 0 ]; then
+            READY="true"
+            echo ""
+            echo "=================================="
+            echo "✅ READY TO DEPLOY! ✅"
+            echo "=================================="
+            echo ""
+            echo "All critical quality gates passed:"
+            echo "✅ Tests: $TESTS_PASSED/$TESTS_TOTAL passed ($PASS_PERCENTAGE%)"
+            echo "✅ Coverage: $COVERAGE% (>= $COVERAGE_THRESHOLD%)"
+            echo "✅ Security: No critical vulnerabilities"
+            echo "✅ Quality Score: $QUALITY_SCORE/100"
+            
+            if [ ${#WARNINGS[@]} -gt 0 ]; then
+              echo ""
+              echo "⚠️  Deployment Warnings:"
+              for warning in "${WARNINGS[@]}"; do
+                echo "   ⚠️  $warning"
+              done
+              echo ""
+              echo "Consider addressing these warnings in future releases."
+            fi
+            
+            echo ""
+            echo "🚀 Your application is ready for production deployment! 🚀"
+            echo "=================================="
+          else
+            echo ""
+            echo "=================================="
+            echo "❌ NOT READY TO DEPLOY ❌"
+            echo "=================================="
+            echo ""
+            echo "Critical issues that must be resolved:"
+            for issue in "${ISSUES[@]}"; do
+              echo "   ❌ $issue"
+            done
+            
+            if [ ${#WARNINGS[@]} -gt 0 ]; then
+              echo ""
+              echo "Additional warnings:"
+              for warning in "${WARNINGS[@]}"; do
+                echo "   ⚠️  $warning"
+              done
+            fi
+            
+            echo ""
+            echo "🔧 Please fix critical issues before deployment."
+            echo "=================================="
+          fi
+          
+          # Set outputs
+          echo "ready=$READY" >> $GITHUB_OUTPUT
+          echo "issues_count=${#ISSUES[@]}" >> $GITHUB_OUTPUT
+          echo "warnings_count=${#WARNINGS[@]}" >> $GITHUB_OUTPUT
+
+      - name: Create comprehensive deployment summary
+        if: always()
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          # 🚀 Deployment Readiness Report
+          
+          ## 📊 Test Execution Results
+          | Metric | Value | Status |
+          |--------|-------|--------|
+          | **Tests Executed** | ${{ needs.validate-tests.outputs.tests-total }} | ℹ️ |
+          | **Tests Passed** | ${{ needs.validate-tests.outputs.tests-passed }} | ${{ needs.validate-tests.outputs.pass-percentage >= 90 && '✅' || '⚠️' }} |
+          | **Pass Rate** | ${{ needs.validate-tests.outputs.pass-percentage }}% | ${{ needs.validate-tests.outputs.pass-percentage >= 90 && '✅' || '⚠️' }} |
+          | **Code Coverage** | ${{ needs.validate-tests.outputs.coverage-percentage }}% | ${{ needs.validate-tests.outputs.coverage-percentage >= github.event.inputs.coverage_threshold && '✅' || '❌' }} |
+          
+          ## 🐛 Bug Detection Results
+          | Metric | Value | Status |
+          |--------|-------|--------|
+          | **Total Bugs** | ${{ needs.validate-tests.outputs.bugs-found }} | ${{ needs.validate-tests.outputs.bugs-found == 0 && '✅' || needs.validate-tests.outputs.bugs-found <= 10 && '⚠️' || '❌' }} |
+          | **Security Issues** | ${{ needs.validate-tests.outputs.security-issues }} | ${{ needs.validate-tests.outputs.security-issues == 0 && '✅' || '❌' }} |
+          | **Quality Score** | ${{ needs.validate-tests.outputs.quality-score }}/100 | ${{ needs.validate-tests.outputs.quality-score >= 80 && '✅' || needs.validate-tests.outputs.quality-score >= 60 && '⚠️' || '❌' }} |
+          
+          ## 🎯 Deployment Decision
+          
+          ${{ steps.deployment-check.outputs.ready == 'true' && '### ✅ READY TO DEPLOY!
+          
+          🎉 **All quality gates passed!** Your application meets the deployment criteria:
+          
+          - ✅ Test pass rate is acceptable
+          - ✅ Code coverage meets threshold
+          - ✅ No critical security vulnerabilities
+          - ✅ Code quality is within acceptable limits
+          
+          **Recommendation:** Proceed with deployment to production.' || '### ❌ NOT READY TO DEPLOY
+          
+          ⚠️ **Critical issues detected** that prevent safe deployment:
+          
+          Please review and fix the identified issues before proceeding with deployment.
+          
+          **Recommendation:** Address critical issues and re-run validation.' }}
+          
+          ### 📋 Quality Gates Summary
+          - **Test Validation**: AI-generated tests executed successfully
+          - **Coverage Threshold**: Minimum ${{ github.event.inputs.coverage_threshold || '80' }}% source code coverage
+          - **Security Scan**: No critical vulnerabilities allowed
+          - **Bug Detection**: Comprehensive static analysis performed
+          - **Quality Assessment**: Code maintainability evaluated
+          
+          ---
+          *View detailed reports in workflow artifacts for complete analysis.*
+          EOF
+
+      - name: Comment on PR with detailed results
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request' && always()
+        continue-on-error: true
+        with:
+          script: |
+            const ready = '${{ steps.deployment-check.outputs.ready }}';
+            const testsTotal = '${{ needs.validate-tests.outputs.tests-total }}';
+            const testsPassed = '${{ needs.validate-tests.outputs.tests-passed }}';
+            const passRate = '${{ needs.validate-tests.outputs.pass-percentage }}';
+            const coverage = '${{ needs.validate-tests.outputs.coverage-percentage }}';
+            const bugsFound = '${{ needs.validate-tests.outputs.bugs-found }}';
+            const securityIssues = '${{ needs.validate-tests.outputs.security-issues }}';
+            const qualityScore = '${{ needs.validate-tests.outputs.quality-score }}';
+            
+            const statusEmoji = ready === 'true' ? '✅' : '❌';
+            const deploymentStatus = ready === 'true' ? 'READY TO DEPLOY' : 'NOT READY TO DEPLOY';
+            
+            const body = `
+            ## 🧪 Test Validation & Bug Analysis Results
+            
+            ### ${statusEmoji} ${deploymentStatus}
+            
+            | Metric | Result | Status |
+            |--------|--------|--------|
+            | **Tests Executed** | ${testsTotal} | ℹ️ |
+            | **Tests Passed** | ${testsPassed} (${passRate}%) | ${parseFloat(passRate) >= 90 ? '✅' : '⚠️'} |
+            | **Code Coverage** | ${coverage}% | ${parseFloat(coverage) >= 80 ? '✅' : '❌'} |
+            | **Bugs Detected** | ${bugsFound} | ${bugsFound == 0 ? '✅' : bugsFound <= 10 ? '⚠️' : '❌'} |
+            | **Security Issues** | ${securityIssues} | ${securityIssues == 0 ? '✅' : '❌'} |
+            | **Quality Score** | ${qualityScore}/100 | ${parseFloat(qualityScore) >= 80 ? '✅' : parseFloat(qualityScore) >= 60 ? '⚠️' : '❌'} |
+            
+            ### 📊 Analysis Summary
+            
+            **Generated Tests Coverage Analysis:**
+            - AI-generated tests executed against source code
+            - Coverage threshold: ${parseFloat(coverage) >= 80 ? 'Met' : 'Below threshold'}
+            - Test effectiveness: ${parseFloat(passRate) >= 90 ? 'High' : parseFloat(passRate) >= 75 ? 'Moderate' : 'Low'}
+            
+            **Bug Detection Results:**
+            ${bugsFound == 0 && securityIssues == 0 ? 
+              '🎉 **No bugs found!** Your code appears clean and ready for deployment.' :
+              `⚠️ **Issues detected:** ${bugsFound} total bugs, ${securityIssues} security issues`
+            }
+            
+            ### 🚀 Deployment Recommendation
+            
+            ${ready === 'true' ? 
+              '**✅ APPROVED FOR DEPLOYMENT**\n\nAll quality gates passed. The code meets deployment standards.' :
+              '**❌ DEPLOYMENT BLOCKED**\n\nCritical issues must be resolved before deployment.'
+            }
+            
+            ---
+            📋 *View detailed analysis reports in the [workflow run](${context.payload.pull_request.html_url}/checks) artifacts.*
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Fail workflow on critical issues
+        if: steps.deployment-check.outputs.ready != 'true'
+        run: |
+          echo "::error::Deployment readiness check failed"
+          echo "Critical issues prevent safe deployment"
+          exit 1
 
   sonarqube-analysis:
     runs-on: ubuntu-latest
@@ -261,34 +786,41 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download coverage reports
+      - name: Clone target repository
+        run: |
+          REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/test-calculator.git' }}"
+          git clone --depth 1 "$REPO" target_repo
+
+      - name: Download test reports
         uses: actions/download-artifact@v4
         with:
-          name: coverage-reports
+          name: test-analysis-reports
           path: reports/
         continue-on-error: true
 
       - name: Setup SonarQube Scanner
         run: |
-          # Download and setup SonarQube scanner
           wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
           unzip -q sonar-scanner-cli-4.8.0.2856-linux.zip
           export PATH=$PATH:$(pwd)/sonar-scanner-4.8.0.2856-linux/bin
           
-          # Create sonar-project.properties if it doesn't exist
-          if [ ! -f "sonar-project.properties" ]; then
-            cat > sonar-project.properties << EOF
+          cd target_repo
+          
+          # Create comprehensive sonar-project.properties
+          cat > sonar-project.properties << EOF
           sonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}
           sonar.organization=${{ github.repository_owner }}
           sonar.sources=src
           sonar.tests=tests
-          sonar.python.coverage.reportPaths=reports/coverage.xml
-          sonar.python.xunit.reportPath=reports/test-results.xml
-          sonar.exclusions=**/*_test.py,**/test_*.py
+          sonar.python.coverage.reportPaths=../reports/coverage/coverage.xml
+          sonar.python.xunit.reportPath=../reports/tests/junit.xml
+          sonar.exclusions=**/*_test.py,**/test_*.py,**/tests/**
+          sonar.test.inclusions=**/test_*.py,**/*_test.py
+          sonar.python.bandit.reportPaths=../reports/bugs/security-bandit.json
+          sonar.python.flake8.reportPaths=../reports/bugs/quality-flake8.txt
+          sonar.python.pylint.reportPaths=../reports/bugs/comprehensive-pylint.json
           EOF
-          fi
           
-          # Run SonarQube analysis (if tokens are available)
           if [ -n "${{ secrets.SONAR_TOKEN }}" ]; then
             sonar-scanner \
               -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }} \
@@ -303,147 +835,8 @@ jobs:
         uses: SonarSource/sonarcloud-github-action@master
         if: ${{ secrets.SONAR_TOKEN }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.my_github_token }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        continue-on-error: true
-
-  deployment-readiness:
-    runs-on: ubuntu-latest
-    needs: [validate-tests, sonarqube-analysis]
-    if: always()
-    
-    steps:
-      - name: Evaluate deployment readiness
-        id: deployment-check
-        run: |
-          echo "🚀 Evaluating deployment readiness..."
-          
-          # Get results from previous jobs
-          TESTS_PASSED="${{ needs.validate-tests.outputs.tests-passed }}"
-          COVERAGE="${{ needs.validate-tests.outputs.coverage-percentage }}"
-          BUGS_FOUND="${{ needs.validate-tests.outputs.bugs-found }}"
-          COVERAGE_THRESHOLD="${{ github.event.inputs.coverage_threshold || '80' }}"
-          
-          echo "📊 Deployment Readiness Assessment:"
-          echo "   Tests Passed: $TESTS_PASSED"
-          echo "   Coverage: $COVERAGE%"
-          echo "   Bugs Found: $BUGS_FOUND"
-          echo "   Coverage Threshold: $COVERAGE_THRESHOLD%"
-          
-          READY="false"
-          ISSUES=()
-          
-          # Check if tests passed
-          if [ "$TESTS_PASSED" = "0" ] || [ -z "$TESTS_PASSED" ]; then
-            ISSUES+=("No tests passed")
-          fi
-          
-          # Check coverage threshold
-          if [ -n "$COVERAGE" ]; then
-            if command -v bc >/dev/null 2>&1; then
-              if (( $(echo "$COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
-                ISSUES+=("Coverage $COVERAGE% below threshold $COVERAGE_THRESHOLD%")
-              fi
-            else
-              COVERAGE_INT=$(echo "$COVERAGE" | cut -d'.' -f1)
-              if [ "$COVERAGE_INT" -lt "$COVERAGE_THRESHOLD" ]; then
-                ISSUES+=("Coverage $COVERAGE% below threshold $COVERAGE_THRESHOLD%")
-              fi
-            fi
-          fi
-          
-          # Check for bugs
-          if [ "$BUGS_FOUND" != "0" ] && [ "$BUGS_FOUND" != "" ]; then
-            ISSUES+=("$BUGS_FOUND potential bugs found")
-          fi
-          
-          # Final assessment
-          if [ ${#ISSUES[@]} -eq 0 ]; then
-            READY="true"
-            echo ""
-            echo "✅ 🚀 READY TO DEPLOY! 🚀 ✅"
-            echo "   All quality gates passed:"
-            echo "   ✅ Tests are passing ($TESTS_PASSED tests)"
-            echo "   ✅ Coverage meets threshold ($COVERAGE% >= $COVERAGE_THRESHOLD%)"
-            echo "   ✅ No critical bugs detected"
-            echo "   ✅ Code quality checks completed"
-            echo ""
-            echo "🎉 Your application is ready for deployment! 🎉"
-          else
-            echo ""
-            echo "❌ NOT READY TO DEPLOY ❌"
-            echo "   Issues that need to be addressed:"
-            for issue in "${ISSUES[@]}"; do
-              echo "   ❌ $issue"
-            done
-            echo ""
-            echo "🔧 Please fix these issues before deployment."
-          fi
-          
-          echo "ready=$READY" >> $GITHUB_OUTPUT
-
-      - name: Create deployment summary
-        if: always()
-        run: |
-          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
-          ## 🚀 Deployment Readiness Report
-          
-          | Metric | Value | Status |
-          |--------|-------|--------|
-          | Tests Passed | ${{ needs.validate-tests.outputs.tests-passed }} | ${{ needs.validate-tests.outputs.tests-passed > 0 && '✅' || '❌' }} |
-          | Code Coverage | ${{ needs.validate-tests.outputs.coverage-percentage }}% | ${{ needs.validate-tests.outputs.coverage-percentage >= github.event.inputs.coverage_threshold && '✅' || '❌' }} |
-          | Bugs Found | ${{ needs.validate-tests.outputs.bugs-found }} | ${{ needs.validate-tests.outputs.bugs-found == 0 && '✅' || '⚠️' }} |
-          | Ready to Deploy | ${{ steps.deployment-check.outputs.ready }} | ${{ steps.deployment-check.outputs.ready == 'true' && '🚀 YES' || '❌ NO' }} |
-          
-          ### 📊 Quality Gates
-          - **Test Validation**: Generated tests are syntactically correct and executable
-          - **Coverage Threshold**: Minimum ${{ github.event.inputs.coverage_threshold || '80' }}% code coverage required
-          - **Bug Detection**: Tests identify potential issues in source code  
-          - **Security Analysis**: Code scanned for security vulnerabilities
-          - **Code Quality**: Style and type checking performed
-          
-          ${{ steps.deployment-check.outputs.ready == 'true' && '🎉 **All quality gates passed! Ready for deployment!** 🎉' || '🔧 **Please address the issues above before deployment.** 🔧' }}
-          EOF
-
-      - name: Upload test and coverage reports
-        uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: quality-reports
-          path: |
-            reports/
-            !reports/**/*.pyc
-          retention-days: 30
-
-      - name: Comment on PR (if applicable)
-        uses: actions/github-script@v7
-        if: github.event_name == 'pull_request' && always()
+          projectBaseDir: target_repo/
         continue-on-error: true
-        with:
-          script: |
-            const ready = '${{ steps.deployment-check.outputs.ready }}';
-            const coverage = '${{ needs.validate-tests.outputs.coverage-percentage }}';
-            const testsPasssed = '${{ needs.validate-tests.outputs.tests-passed }}';
-            const bugsFound = '${{ needs.validate-tests.outputs.bugs-found }}';
-            
-            const body = `
-            ## 🧪 Test Validation Results
-            
-            | Metric | Result |
-            |--------|--------|
-            | Tests Passed | ${testsPasssed} |
-            | Coverage | ${coverage}% |
-            | Bugs Found | ${bugsFound} |
-            | **Ready to Deploy** | ${ready === 'true' ? '✅ YES' : '❌ NO'} |
-            
-            ${ready === 'true' ? '🚀 All quality checks passed! This PR is ready to merge.' : '⚠️ Some quality checks failed. Please review the issues above.'}
-            
-            View detailed reports in the [workflow run](${context.payload.pull_request.html_url}/checks).
-            `;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });

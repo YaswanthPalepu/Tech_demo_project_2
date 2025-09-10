@@ -1,7 +1,7 @@
-# src/generator.py
 import os, sys, json, pathlib, datetime, time, re, ast, math, subprocess, importlib.util, types as _types, random, shutil
 from typing import Dict, Any, List, Tuple, Set, Optional
 from openai import AzureOpenAI, RateLimitError  # openai>=1.0.0
+import hashlib
 
 # --------------------------------------------------------------------
 # Prompt style: set TESTGEN_PROMPT_STYLE=ultra_bare to avoid heavy templates
@@ -53,7 +53,164 @@ def _norm_rel(p: str) -> str:
 def _basename_set(paths: Set[str]) -> Set[str]:
     return {pathlib.Path(p).name for p in paths}
 
-# ---------------- Sanitizers & validators ----------------
+# ---------------- Enhanced Change Detection ----------------
+def _compute_content_hash(content: str) -> str:
+    """Compute SHA256 hash of file content."""
+    return hashlib.sha256(content.encode('utf-8')).hexdigest()
+
+def _extract_code_signatures(file_path: pathlib.Path) -> Dict[str, str]:
+    """Extract function/class signatures and their content hashes."""
+    signatures = {}
+    try:
+        content = file_path.read_text(encoding='utf-8')
+        tree = ast.parse(content)
+        
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
+                # Get the source code for this node
+                start_line = node.lineno - 1
+                end_line = node.end_lineno if hasattr(node, 'end_lineno') else start_line + 1
+                lines = content.splitlines()
+                node_content = '\n'.join(lines[start_line:end_line])
+                
+                # Create signature key
+                sig_key = f"{type(node).__name__.lower()}:{node.name}"
+                signatures[sig_key] = _compute_content_hash(node_content)
+                
+    except Exception as e:
+        print(f"Warning: Could not parse {file_path}: {e}")
+    
+    return signatures
+
+def _load_previous_state(manifest_path: pathlib.Path) -> Dict[str, Any]:
+    """Load previous analysis state from manifest."""
+    if not manifest_path.exists():
+        return {}
+    
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        return manifest.get("code_state", {})
+    except Exception:
+        return {}
+
+def _save_current_state(manifest_path: pathlib.Path, current_state: Dict[str, Any]):
+    """Save current code state to manifest."""
+    manifest = {}
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            manifest = {}
+    
+    manifest["code_state"] = current_state
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+def _detect_detailed_changes(target_root: pathlib.Path, manifest_path: pathlib.Path) -> Tuple[Set[str], Set[str], Set[str]]:
+    """
+    Detect detailed changes in the codebase.
+    Returns: (added_or_modified, deleted, unchanged)
+    """
+    previous_state = _load_previous_state(manifest_path)
+    current_state = {}
+    
+    # Scan current codebase
+    for py_file in target_root.rglob("*.py"):
+        if any(part.startswith('.') for part in py_file.parts):
+            continue
+        if "test" in str(py_file).lower():
+            continue
+            
+        rel_path = str(py_file.relative_to(target_root))
+        signatures = _extract_code_signatures(py_file)
+        current_state[rel_path] = {
+            "file_hash": _compute_content_hash(py_file.read_text(encoding='utf-8')),
+            "signatures": signatures
+        }
+    
+    # Compare states
+    added_or_modified = set()
+    deleted = set()
+    unchanged = set()
+    
+    # Check for new or modified files
+    for file_path, current_info in current_state.items():
+        if file_path not in previous_state:
+            added_or_modified.add(file_path)
+        else:
+            prev_info = previous_state[file_path]
+            if current_info["file_hash"] != prev_info.get("file_hash", ""):
+                # File was modified, check what specifically changed
+                prev_sigs = prev_info.get("signatures", {})
+                curr_sigs = current_info["signatures"]
+                
+                # If any signature changed, mark as modified
+                if prev_sigs != curr_sigs:
+                    added_or_modified.add(file_path)
+                else:
+                    unchanged.add(file_path)
+            else:
+                unchanged.add(file_path)
+    
+    # Check for deleted files
+    for file_path in previous_state:
+        if file_path not in current_state:
+            deleted.add(file_path)
+    
+    # Save current state for next run
+    _save_current_state(manifest_path, current_state)
+    
+    return added_or_modified, deleted, unchanged
+
+# ---------------- Test File Management ----------------
+def _find_related_test_files(outdir: pathlib.Path, source_file: str) -> List[pathlib.Path]:
+    """Find test files that might be related to a source file."""
+    related_tests = []
+    
+    # Extract module/class/function names from source file
+    source_path = pathlib.Path(source_file)
+    source_stem = source_path.stem
+    
+    # Look for test files that might contain tests for this source
+    for test_file in outdir.rglob("test_*.py"):
+        try:
+            content = test_file.read_text(encoding='utf-8')
+            # Check if the source file name or its components are referenced
+            if (source_stem in content or 
+                source_file.replace('/', '.').replace('.py', '') in content):
+                related_tests.append(test_file)
+        except Exception:
+            continue
+    
+    return related_tests
+
+def _cleanup_deleted_tests(outdir: pathlib.Path, deleted_files: Set[str]):
+    """Remove test files for deleted source files."""
+    for deleted_file in deleted_files:
+        related_tests = _find_related_test_files(outdir, deleted_file)
+        for test_file in related_tests:
+            try:
+                print(f"🗑️ Removing test file for deleted source: {test_file}")
+                test_file.unlink()
+            except Exception as e:
+                print(f"Warning: Could not remove {test_file}: {e}")
+
+def _should_regenerate_tests(outdir: pathlib.Path, focus_files: Set[str]) -> bool:
+    """Determine if tests should be regenerated based on changes."""
+    if not focus_files:
+        return False
+    
+    # Check if we have any existing tests
+    existing_tests = list(outdir.rglob("test_*.py"))
+    
+    # If no tests exist, generate them
+    if not existing_tests:
+        return True
+    
+    # If we have focus files (changed files), regenerate
+    return len(focus_files) > 0
+
+# ---------------- Sanitizers & validators (unchanged) ----------------
 def _extract_python_only(text: str) -> str:
     if "```" in text:
         blocks = re.findall(r"```(?:python)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
@@ -134,7 +291,7 @@ def _header_guard_for_banned_imports(code: str) -> str:
         ) + code
     return code
 
-# ---------------- Analysis compaction ----------------
+# ---------------- Analysis compaction (unchanged) ----------------
 def _dedupe_keep(items: List[Dict[str, str]], key: str, limit: int = None) -> List[Dict[str, str]]:
     seen, out = set(), []
     for it in items or []:
@@ -162,7 +319,7 @@ def _compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
         "modules": sorted(set(analysis.get("modules", []))),
     }
 
-# ---------------- Dependency inference & installation ----------------
+# ---------------- Dependency inference & installation (unchanged) ----------------
 COMMON_PKG_ALIASES = {
     "bs4": "beautifulsoup4",
     "yaml": "PyYAML",
@@ -269,7 +426,7 @@ def _pip_install(packages: List[str]) -> None:
     except subprocess.CalledProcessError as e:
         print(f"⚠️ pip install failed with exit code {e.returncode} (continuing; tests may skip).")
 
-# ---------------- Sharding helpers ----------------
+# ---------------- Sharding helpers (unchanged) ----------------
 def _partition(lst: List[Dict[str, str]], n_parts: int) -> List[List[Dict[str, str]]]:
     if not lst:
         return [[] for _ in range(n_parts)]
@@ -344,7 +501,7 @@ def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Se
         return analysis, True
     return filt, False
 
-# ---------------- Universal bootstrap (prepended to tests) ----------------
+# ---------------- Universal bootstrap (unchanged) ----------------
 def _universal_bootstrap(compact: Dict[str, Any]) -> str:
     tops: List[str] = []
     for m in compact.get("modules") or []:
@@ -733,10 +890,10 @@ def _smoke_from_modules(compact: Dict[str, Any]) -> str:
     return "\n".join(body)
 
 # ---------------- Post-generation massaging ----------------
-_RAISES_QUAL = re.compile(r"pytest\\.raises\\(\\s*([A-Za-z_][\\w]*(?:\\.[A-Za-z_][\\w]*)+)\\s*(,|\\))")
-_RAISES_BARE = re.compile(r"pytest\\.raises\\(\\s*([A-Za-z_][\\w]*)\\s*(,|\\))")
-_ISINSTANCE_QUAL = re.compile(r"isinstance\\(\\s*([A-Za-z_][\\w]*)\\s*,\\s*([A-Za-z_][\\w]*(?:\\.[A-Za-z_][\\w]*)+)\\s*\\)")
-_ISINSTANCE_BARE = re.compile(r"isinstance\\(\\s*([A-Za-z_][\\w]*)\\s*,\\s*([A-Za-z_][\\w]*)\\s*\\)")
+_RAISES_QUAL = re.compile(r"pytest\.raises\(\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\s*(,|\))")
+_RAISES_BARE = re.compile(r"pytest\.raises\(\s*([A-Za-z_][\w]*)\s*(,|\))")
+_ISINSTANCE_QUAL = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\s*\)")
+_ISINSTANCE_BARE = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)")
 
 # canonical Qt shim (always appended; generic)
 _CANONICAL_QT_SHIM = r'''
@@ -872,7 +1029,7 @@ def _load_list(path: Optional[str]) -> Optional[List[str]]:
         return None
     return None
 
-def _update_manifest(outdir: pathlib.Path, created_files: List[str]):
+def _update_manifest(outdir: pathlib.Path, created_files: List[str], change_summary: Dict[str, Any] = None):
     manifest_path = outdir / "_manifest.json"
     manifest = {}
     if manifest_path.exists():
@@ -880,6 +1037,7 @@ def _update_manifest(outdir: pathlib.Path, created_files: List[str]):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except Exception:
             manifest = {}
+    
     hashes_path = os.getenv("CODE_HASHES_PATH")
     if hashes_path and pathlib.Path(hashes_path).exists():
         try:
@@ -887,32 +1045,50 @@ def _update_manifest(outdir: pathlib.Path, created_files: List[str]):
             manifest["source_hashes"] = cur_hashes
         except Exception:
             pass
+    
     runs = manifest.get("runs", [])
-    runs.append({
+    run_info = {
         "ts": datetime.datetime.utcnow().isoformat() + "Z",
         "files_generated": created_files,
         "focus_files": _load_list(os.getenv("FOCUS_FILES_JSON_PATH")) or [],
-    })
+    }
+    
+    if change_summary:
+        run_info["change_summary"] = change_summary
+    
+    runs.append(run_info)
     manifest["runs"] = runs
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-# ---------------- Outdir cleanup ----------------
-def _cleanup_outdir(outdir: pathlib.Path):
-    """Remove old generated tests so stale failures don't linger."""
-    if outdir.exists():
-        for p in outdir.rglob("test_*.py"):
+# ---------------- Smart outdir management ----------------
+def _smart_cleanup_outdir(outdir: pathlib.Path, deleted_files: Set[str], modified_files: Set[str]):
+    """Intelligently clean up test directory based on code changes."""
+    if not outdir.exists():
+        return
+    
+    print(f"🧹 Smart cleanup: {len(deleted_files)} deleted, {len(modified_files)} modified files")
+    
+    # Remove tests for deleted source files
+    _cleanup_deleted_tests(outdir, deleted_files)
+    
+    # For modified files, remove related old tests to allow regeneration
+    for modified_file in modified_files:
+        related_tests = _find_related_test_files(outdir, modified_file)
+        for test_file in related_tests:
             try:
-                p.unlink()
-            except Exception:
-                pass
-        # remove empty timestamp subfolders under outdir
-        for d in sorted(outdir.glob("*")):
-            if d.is_dir():
-                try:
-                    next(d.rglob("*"))
-                except StopIteration:
-                    shutil.rmtree(d, ignore_errors=True)
+                print(f"🔄 Removing old test for modified source: {test_file}")
+                test_file.unlink()
+            except Exception as e:
+                print(f"Warning: Could not remove {test_file}: {e}")
+    
+    # Clean up empty directories
+    for d in sorted(outdir.glob("*")):
+        if d.is_dir():
+            try:
+                next(d.rglob("*"))
+            except StopIteration:
+                shutil.rmtree(d, ignore_errors=True)
 
 # ---------------- Generation ----------------
 def _build_guard_and_messages(compact: Dict[str, Any], compact_json: str, kind: str, focus_label: str, shard: int, total: int):
@@ -921,29 +1097,80 @@ def _build_guard_and_messages(compact: Dict[str, Any], compact_json: str, kind: 
     return guard, messages
 
 def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files: Optional[List[str]] = None):
+    """
+    Enhanced generation with smart change detection and test management.
+    """
     out = pathlib.Path(outdir)
-    _cleanup_outdir(out)  # ensure previous failing tests are removed
+    manifest_path = out / "_manifest.json"
+    
+    # Determine target root for change detection
+    target_root = pathlib.Path(os.environ.get("TARGET_ROOT", "target"))
+    
+    # Perform detailed change detection
+    added_or_modified, deleted, unchanged = _detect_detailed_changes(target_root, manifest_path)
+    
+    # Log change summary
+    change_summary = {
+        "added_or_modified": len(added_or_modified),
+        "deleted": len(deleted),
+        "unchanged": len(unchanged),
+        "files_analyzed": len(added_or_modified) + len(deleted) + len(unchanged)
+    }
+    
+    print(f"📊 Change Analysis:")
+    print(f"  ➕ Added/Modified: {len(added_or_modified)}")
+    print(f"  ➖ Deleted: {len(deleted)}")  
+    print(f"  ⚪ Unchanged: {len(unchanged)}")
+    
+    # Early exit if no meaningful changes
+    if not added_or_modified and not deleted and unchanged:
+        if list(out.rglob("test_*.py")):
+            print("✅ No code changes detected and tests exist. Skipping generation.")
+            return
+        else:
+            print("📝 No existing tests found. Generating initial test suite.")
+    elif not added_or_modified and not deleted:
+        print("✅ No code changes detected. Skipping test generation.")
+        return
+    
+    # Smart cleanup based on changes
+    _smart_cleanup_outdir(out, deleted, added_or_modified)
 
     ts = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
+    # Filter analysis to focus on changed files only
     raw_focus = set(focus_files or _load_list(os.getenv("FOCUS_FILES_JSON_PATH")) or [])
-    filtered_analysis, _ = _filter_analysis_by_files(analysis, raw_focus if raw_focus else None)
+    if not raw_focus:
+        raw_focus = added_or_modified  # Use detected changes as focus
+        
+    filtered_analysis, fallback = _filter_analysis_by_files(analysis, raw_focus if raw_focus else None)
 
     compact = _compact_analysis(filtered_analysis)
 
-    # Install inferred third-party deps first (GUI libs are intentionally NOT installed)
-    _pip_install(_infer_required_packages(compact))
+    # Only install packages if we have meaningful changes
+    if added_or_modified or fallback:
+        # Install inferred third-party deps first (GUI libs are intentionally NOT installed)
+        _pip_install(_infer_required_packages(compact))
 
     compact_json = json.dumps(compact, separators=(",", ":"))
     kinds = ["unit", "integ", "e2e"]
 
     created_files: List[str] = []
 
+    # Only generate if we have targets to test
+    total_targets = len(compact.get("functions", [])) + len(compact.get("classes", [])) + len(compact.get("routes", []))
+    if total_targets == 0:
+        print("⚠️ No test targets found in changed files. Skipping generation.")
+        _update_manifest(out, created_files, change_summary)
+        return
+
     for kind in kinds:
         files_per_kind = _auto_files_per_kind(compact, kind)
         if files_per_kind <= 0:
             print(f"⚠️ No targets for {kind} → skipping {kind}")
             continue
+
+        print(f"🔧 Generating {files_per_kind} {kind} test files...")
 
         for i in range(files_per_kind):
             focus_label, _ = _focus_for_shard(compact, kind, i, files_per_kind)
@@ -964,7 +1191,12 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
         except Exception:
             pass
 
-    _update_manifest(out, created_files)
+    _update_manifest(out, created_files, change_summary)
+
+    if created_files:
+        print(f"✅ Generated {len(created_files)} test files for {len(added_or_modified)} changed source files")
+    else:
+        print("ℹ️ No tests generated (no valid targets found)")
 
 # ---------------- LLM call with validation ----------------
 def _runtime_guard_for(compact: Dict[str, Any]) -> str:

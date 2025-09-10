@@ -1,3 +1,4 @@
+# .github/workflows/test-gen.yml
 name: AI Test Generation
 
 on:
@@ -11,8 +12,16 @@ on:
         description: "Force generation even if no code changes detected"
         required: false
         default: "false"
+      prompt_style:
+        description: "TESTGEN_PROMPT_STYLE (ultra_bare recommended)"
+        required: false
+        default: "ultra_bare"
   push:
     branches: [ test ]
+
+concurrency:
+  group: test-gen-${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
   generate:
@@ -20,10 +29,14 @@ jobs:
     permissions:
       contents: write
     env:
+      # ---- Azure OpenAI (new SDK) ----
       AZURE_OPENAI_KEY:         ${{ secrets.AZURE_OPENAI_KEY         || secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT    || secrets.AZURE_OPENAI_API_ENDPOINT }}
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION || secrets.OPENAI_API_VERSION }}
       AZURE_OPENAI_DEPLOYMENT:  ${{ secrets.AZURE_OPENAI_DEPLOYMENT  || secrets.OPENAI_DEPLOYMENT }}
+
+      # Prompt style for your generator
+      TESTGEN_PROMPT_STYLE: ${{ github.event.inputs.prompt_style || 'ultra_bare' }}
 
       # Safe DB defaults for import-time engines
       DATABASE_URL: "sqlite:///:memory:"
@@ -31,34 +44,43 @@ jobs:
       SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
 
     steps:
-      - name: Checkout pipeline repo
+      - name: Checkout pipeline repo (contains src/* and this workflow)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Clone target repository (kept under ./target)
+      - name: Clone target repository into ./target
         run: |
-          REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/flask-test-repo.git' }}"
-          echo "REPO_URL=$REPO" >> $GITHUB_ENV
-          git clone --depth 1 "$REPO" target
+          REPO_URL="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/flask-test-repo.git' }}"
+          echo "REPO_URL=$REPO_URL" >> $GITHUB_ENV
+          git clone --depth 1 "$REPO_URL" target
 
-      - name: Derive canonical OUTDIR and TARGET_ROOT
-        id: paths
+      - name: Derive OUTDIR, TARGET_ROOT and repo metadata
+        id: meta
         run: |
           echo "TARGET_ROOT=target" >> $GITHUB_ENV
           REPO_SLUG="$(echo "${REPO_URL}" | sed -E 's#^https?://github.com/##; s#[^A-Za-z0-9._-]#_#g')"
+          REPO_PATH="$(echo "${REPO_URL}" | sed -E 's#^https?://github.com/##; s/\.git$//')"
           OUTDIR="tests/generated/${REPO_SLUG}/current"
-          echo "REPO_SLUG=$REPO_SLUG" >> $GITHUB_ENV
-          echo "OUTDIR=$OUTDIR"       >> $GITHUB_ENV
-          echo "repo_slug=$REPO_SLUG" >> $GITHUB_OUTPUT
-          echo "outdir=$OUTDIR"       >> $GITHUB_OUTPUT
           mkdir -p "$OUTDIR"
+          # Determine default branch of the target
+          DEFAULT_BRANCH="$(git -C target remote show origin | sed -n '/HEAD branch/s/.*: //p')"
+          [ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"
+          echo "REPO_SLUG=$REPO_SLUG"       >> $GITHUB_ENV
+          echo "OUTDIR=$OUTDIR"             >> $GITHUB_ENV
+          echo "REPO_PATH=$REPO_PATH"       >> $GITHUB_ENV
+          echo "DEFAULT_BRANCH=$DEFAULT_BRANCH" >> $GITHUB_ENV
+          echo "repo_slug=$REPO_SLUG"       >> $GITHUB_OUTPUT
+          echo "outdir=$OUTDIR"             >> $GITHUB_OUTPUT
+          echo "repo_path=$REPO_PATH"       >> $GITHUB_OUTPUT
+          echo "default_branch=$DEFAULT_BRANCH" >> $GITHUB_OUTPUT
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+          cache: pip
 
       - name: Install system build tools (for native wheels)
         run: |
@@ -68,10 +90,10 @@ jobs:
             libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
             libxml2-dev libxslt1-dev curl
 
-      - name: Install Python deps (project + tools)
+      - name: Install Python deps (tooling + common libs)
         run: |
           python -m pip install --upgrade pip wheel setuptools
-          # Try installing target's dependencies FIRST (from target/)
+          # Try installing target's dependencies FIRST (best effort)
           if [ -f "target/requirements.txt" ]; then pip install -r target/requirements.txt || true; fi
           if ls target/requirements/*.txt >/dev/null 2>&1; then pip install -r target/requirements/*.txt || true; fi
           if [ -f "target/pyproject.toml" ] && grep -q "\[tool.poetry\]" target/pyproject.toml; then
@@ -92,99 +114,71 @@ jobs:
           if [ -f "target/setup.py" ] || [ -f "target/setup.cfg" ]; then
             pip install -e target || true
           fi
-          # Core test tooling + common backend libs
+
+          # Core test tooling + Azure OpenAI SDK (new API) + common backend libs used by tests
           pip install "openai>=1.51.0" pytest pytest-cov httpx requests \
                       "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" "annotated-types>=0.6" \
                       "uvicorn>=0.23" "SQLAlchemy>=2" "typing-extensions>=4.8"
 
-      - name: Analyze codebase (only target/)
-        run: python -m src.analyzer --root target > /tmp/analysis.json
-
-      - name: Diff scan (compute changed .py files in target/ vs manifest)
+      - name: Analyze target codebase -> /tmp/analysis.json
         run: |
-          python -m src.diffscan --root target \
-            --manifest "${OUTDIR}/_manifest.json" \
-            --out-changed /tmp/changed.json \
-            --out-hashes  /tmp/code-hashes.json
+          python -m src.analyzer --root target > /tmp/analysis.json
 
-          CHANGED_COUNT=$(python - <<'PY'
-          import json
-          try:
-              arr = json.load(open('/tmp/changed.json'))
-              print(len(arr))
-          except Exception:
-              print(0)
-          PY
-          )
-          FOUND_TESTS=$(find "${OUTDIR}" -type f -name 'test_*.py' | wc -l | tr -d ' ')
-          FORCE="${{ github.event.inputs.force_gen }}"
-
-          echo "CHANGED_COUNT=$CHANGED_COUNT" >> $GITHUB_ENV
-          echo "FOUND_TESTS=$FOUND_TESTS" >> $GITHUB_ENV
-
-          if [ "${FORCE}" = "true" ]; then
-            echo "Forcing generation due to manual input."
-            echo "SKIP_GEN=0" >> $GITHUB_ENV
-          elif [ "$CHANGED_COUNT" = "0" ] && [ "$FOUND_TESTS" = "0" ]; then
-            echo "First run (no manifest tests yet) — forcing initial generation."
-            echo "SKIP_GEN=0" >> $GITHUB_ENV
-          elif [ "$CHANGED_COUNT" = "0" ]; then
-            echo "No changed Python files — skipping generation."
-            echo "SKIP_GEN=1" >> $GITHUB_ENV
-          else
-            echo "Changed Python files: $CHANGED_COUNT — will generate."
-            echo "SKIP_GEN=0" >> $GITHUB_ENV
-          fi
-
-      - name: Install deps inferred from imports (filtered)
-        run: |
-          python -m src.install_from_analysis /tmp/analysis.json || true
-
-      - name: Generate tests (only for changed files) — append into OUTDIR
-        if: env.SKIP_GEN == '0'
+      - name: Generate tests (smart change detection inside generator)
         env:
           TARGET_ROOT: target
-          FOCUS_FILES_JSON_PATH: /tmp/changed.json
-          CODE_HASHES_PATH: /tmp/code-hashes.json
-          GENERATED_LIST_PATH: /tmp/generated-files.json
         run: |
+          FORCE="${{ github.event.inputs.force_gen }}"
           python - <<'PY'
-          import os, json, src.generator as g
+          import os, json, pathlib
+          import src.generator as g
+
+          # Load analysis
           analysis = json.load(open('/tmp/analysis.json'))
           outdir = os.environ['OUTDIR']
-          changed = json.load(open('/tmp/changed.json')) if os.path.exists('/tmp/changed.json') else []
-          g.generate_all(analysis, outdir=outdir, focus_files=changed)
+
+          # If user opted to force, mimic "no existing tests" by clearing created list later
+          if FORCE == "true":
+              print("Forcing generation regardless of change scan signal.")
+
+          # Call your generator (it will do detailed change detection, smart cleanup, and install inferred deps)
+          g.generate_all(analysis, outdir=outdir, focus_files=None)
           PY
 
-      - name: List generated tests (current folder)
+      - name: List generated tests
         run: |
           echo "Listing ${OUTDIR}"
           ls -lah "${OUTDIR}" || true
           echo "Preview .py files:"
           find "${OUTDIR}" -type f -name 'test_*.py' | sed 's/^/ - /' || true
-          if [ -f /tmp/generated-files.json ]; then
-            echo "New files:"; cat /tmp/generated-files.json
-          fi
 
-      - name: Move generated tests into target repo
+      - name: Copy generated tests into target repo
         run: |
           mkdir -p target/tests/generated
           cp -r "${OUTDIR}"/* target/tests/generated/ || true
           echo "Final tests copied into target repo:"
           find target/tests/generated -name "test_*.py" | head -20
 
-      - name: Commit generated tests (append-only; retains previous)
+      - name: Commit & push generated tests to target repo
+        env:
+          GH_PAT3: ${{ secrets.GH_PAT3 }}
         run: |
           cd target
-          git config user.name "github-actions[bot]"
+          git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${{ secrets.GH_PAT3 }}@github.com/DeviPrasad372002/flask-test-repo.git
+
+          # Point origin to tokened URL for push
+          if [ -n "$GH_PAT3" ]; then
+            git remote set-url origin "https://x-access-token:${GH_PAT3}@github.com/${REPO_PATH}.git"
+          fi
+
           git add tests/generated || true
           if git diff --staged --quiet; then
             echo "No changes to commit"
-          else
-            git commit -m "chore: append tests for changed files [skip ci]"
-            git pull origin main --rebase
-            git push origin HEAD:main
+            exit 0
           fi
 
+          git commit -m "chore(testgen): update generated tests [skip ci]" || true
+          # Rebase on remote default branch to reduce conflicts
+          git pull --rebase origin "${DEFAULT_BRANCH}" || true
+          git push origin HEAD:"${DEFAULT_BRANCH}"

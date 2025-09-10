@@ -27,6 +27,7 @@ defaults:
   run:
     shell: bash
 
+# Prevent overlapping runs of this workflow name
 concurrency:
   group: test-validation-${{ github.workflow }}
   cancel-in-progress: false
@@ -251,6 +252,22 @@ jobs:
               raise AssertionError
               raise NotImplementedError
           EOF
+
+      # --- Shim old libraries for Python 3.10+ (fixes collections.Container import in old Werkzeug) ---
+      - name: Create runtime shims (sitecustomize.py)
+        run: |
+          cd "$TARGET_ROOT"
+          cat > sitecustomize.py <<'PY'
+          # Auto-imported by Python if present on sys.path.
+          try:
+              import collections as _collections, collections.abc as _abc
+              for _n in ("Container","Iterable","Mapping","MutableMapping","Sequence","MutableSequence","Set","MutableSet","Callable"):
+                  if not hasattr(_collections, _n) and hasattr(_abc, _n):
+                      setattr(_collections, _n, getattr(_abc, _n))
+          except Exception:
+              pass
+          PY
+          echo "Created $TARGET_ROOT/sitecustomize.py to patch legacy collections ABCs"
 
       - name: Run tests with comprehensive coverage analysis
         id: test-results
@@ -539,8 +556,8 @@ jobs:
       - name: Create deployment summary
         if: always()
         run: |
-          TESTS_TOTAL="${{ needs['validate-tests'].outputs['tests-total'] }}"
-          TESTS_PASSED="${{ needs['validate-tests'].outputs['tests-passed'] }}"
+          TESTS_TOTAL='${{ needs['validate-tests'].outputs['tests-total'] }}'
+          TESTS_PASSED='${{ needs['validate-tests'].outputs['tests-passed'] }}'
           PASS_PERCENTAGE='${{ needs['validate-tests'].outputs['pass-percentage'] }}'
           COVERAGE='${{ needs['validate-tests'].outputs['coverage-percentage'] }}'
           BUGS_FOUND='${{ needs['validate-tests'].outputs['bugs-found'] }}'

@@ -6,13 +6,13 @@ on:
       repo_url:
         description: "Repo to analyze"
         required: true
-        default: "https://github.com/DeviPrasad372002/django-test-app.git"
+        default: "https://github.com/DeviPrasad372002/flask-test-repo.git"
       force_gen:
         description: "Force generation even if no code changes detected"
         required: false
         default: "false"
-  # push:
-  #   branches: [ test ]
+  push:
+    branches: [ test ]
 
 jobs:
   generate:
@@ -39,7 +39,7 @@ jobs:
 
       - name: Clone target repository (kept under ./target)
         run: |
-          REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
+          REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/flask-test-repo.git' }}"
           echo "REPO_URL=$REPO" >> $GITHUB_ENV
           git clone --depth 1 "$REPO" target
 

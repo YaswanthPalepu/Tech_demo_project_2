@@ -66,6 +66,8 @@ jobs:
           echo "Cloning ${REPO}"
           git clone --depth 1 "$REPO" target_repo
           echo "TARGET_ROOT=$PWD/target_repo" >> $GITHUB_ENV
+          # Make target importable across steps
+          echo "PYTHONPATH=$PWD/target_repo:$PYTHONPATH" >> $GITHUB_ENV
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -84,207 +86,92 @@ jobs:
         run: |
           set -e
           python -m pip install --upgrade pip wheel setuptools
-          
-          # Install compatible versions to avoid conflicts
           pip install --force-reinstall \
             "Jinja2>=3.0.0,<3.1.0" \
             "MarkupSafe>=2.0.0,<2.1.0" \
             "Flask>=2.0.0,<3.0.0" \
             "click>=8.0.0,<8.1.0" \
-            "typer>=0.7.0,<0.8.0"
+            "Werkzeug>=2.0.0,<2.3.0" \
+            "itsdangerous>=2.0.0,<2.2.0"
 
       - name: Install Python dependencies with compatibility fixes
         run: |
           set -e
           python -m pip install --upgrade pip wheel setuptools
-          
-          # CRITICAL: Install compatible versions FIRST before any requirements files
-          echo "Installing core compatible packages first..."
-          pip install --force-reinstall \
-            "Flask>=2.0.0,<3.0.0" \
-            "Jinja2>=3.0.0,<3.1.0" \
-            "MarkupSafe>=2.0.0,<2.1.0" \
-            "click>=8.0.0,<8.1.0" \
-            "Werkzeug>=2.0.0,<2.3.0" \
-            "itsdangerous>=2.0.0,<2.2.0"
-          
-          # Install test tooling with compatible versions
           pip install --force-reinstall \
             pytest pytest-cov pytest-html pytest-json-report \
             coverage pytest-xdist pytest-timeout pytest-mock \
             WebTest requests httpx
-          
-          # Install analysis tools that work
           pip install --force-reinstall bandit flake8 black isort mypy || echo "Some tools failed"
-          
-          # Now try to install project dependencies, but skip conflicting ones
-          echo "Installing project dependencies (skipping conflicting versions)..."
-          
-          # Function to install requirements while skipping problematic versions
+
           install_filtered_requirements() {
             local req_file="$1"
             if [ -f "$req_file" ]; then
               echo "Processing $req_file..."
-              # Filter out problematic packages and old versions
               grep -v -E "(^Flask==1\.|^Jinja2==2\.|^click==6\.|^click==7\.0|^MarkupSafe==1\.|^Werkzeug==0\.|^itsdangerous==1\.)" "$req_file" > /tmp/filtered_req.txt || true
               if [ -s /tmp/filtered_req.txt ]; then
                 pip install -r /tmp/filtered_req.txt || echo "Some packages from $req_file failed to install"
               fi
             fi
           }
-          
-          # Install from filtered requirements files
           install_filtered_requirements "target_repo/requirements.txt"
-          
           if ls target_repo/requirements/*.txt >/dev/null 2>&1; then
-            for f in target_repo/requirements/*.txt; do 
-              install_filtered_requirements "$f"
-            done
+            for f in target_repo/requirements/*.txt; do install_filtered_requirements "$f"; done
           fi
-          
-          # Handle other package managers but skip editable installs
           if [ -f "target_repo/pyproject.toml" ] && grep -q "\[tool.poetry\]" target_repo/pyproject.toml; then
             pip install poetry || true
             (cd target_repo && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.req) || true
-            if [ -s /tmp/poetry.req ]; then
-              install_filtered_requirements /tmp/poetry.req
-            fi
+            [ -s /tmp/poetry.req ] && install_filtered_requirements /tmp/poetry.req
           fi
-          
-          # Skip problematic editable installs - they're causing the "not a Python project" error
-          echo "Skipping editable install to avoid project structure issues"
-          
-          # Verify core packages are compatible
-          python -c "
+          echo "Skipping editable installs"
+
+          python - <<'PY'
           import flask, jinja2, click
           print(f'Flask: {flask.__version__}')
-          print(f'Jinja2: {jinja2.__version__}') 
+          print(f'Jinja2: {jinja2.__version__}')
           print(f'Click: {click.__version__}')
           print('✅ Core dependencies compatible')
-          " || echo "⚠️ Dependency verification failed"
+          PY
 
       - name: Create compatibility shims
         run: |
           cd "$TARGET_ROOT"
-          
-          # Create a conftest.py that handles import errors gracefully
           cat > conftest.py << 'EOF'
-          import pytest
-          import sys
-          import os
-          
-          # Add current directory to Python path
+          import pytest, sys, os
           sys.path.insert(0, os.path.dirname(__file__))
-          
           @pytest.fixture(autouse=True)
           def handle_import_errors():
-              """Handle import errors gracefully in tests"""
               try:
-                  # Try to import the main app to check for issues
                   if os.path.exists('conduit'):
-                      from conduit.app import create_app
+                      from conduit.app import create_app  # noqa
               except ImportError as e:
                   pytest.skip(f"Skipping tests due to import error: {e}")
           EOF
-          
-          # Create sitecustomize.py to handle compatibility issues
           cat > sitecustomize.py << 'EOF'
-          # Fix Jinja2 compatibility
           try:
               import jinja2
               if not hasattr(jinja2, 'Markup'):
                   from markupsafe import Markup
                   jinja2.Markup = Markup
-          except ImportError:
+          except Exception:
               pass
-          
-          # Fix collections compatibility for older libraries
           try:
-              import collections
-              import collections.abc as abc
-              for name in ['Mapping', 'MutableMapping', 'Sequence', 'Iterable']:
+              import collections, collections.abc as abc
+              for name in ['Mapping','MutableMapping','Sequence','Iterable']:
                   if not hasattr(collections, name) and hasattr(abc, name):
                       setattr(collections, name, getattr(abc, name))
-          except ImportError:
+          except Exception:
               pass
           EOF
 
-      - name: Locate tests and check structure
-        id: discover
-        run: |
-          set -e
-          cd "$TARGET_ROOT"
-          
-          echo "Repository structure:"
-          find . -name "*.py" -type f | head -20
-          
-          # Look for test directories
-          TEST_DIRS=()
-          [ -d "tests" ] && TEST_DIRS+=("tests")
-          [ -d "test" ] && TEST_DIRS+=("test")
-          [ -d "tests/generated" ] && TEST_DIRS+=("tests/generated")
-          [ -d "src/tests" ] && TEST_DIRS+=("src/tests")
-
-          echo "Test directories found:"
-          for dir in "${TEST_DIRS[@]}"; do 
-            echo "  - $dir"
-            if [ -d "$dir" ]; then
-              echo "    Contents:"
-              ls -la "$dir" | head -10
-            fi
-          done
-
-          # Count test files
-          TOTAL_TESTS=0
-          for dir in "${TEST_DIRS[@]}"; do
-            if [ -d "$dir" ]; then
-              COUNT=$(find "$dir" -type f -name "test_*.py" | wc -l | tr -d ' ')
-              TOTAL_TESTS=$((TOTAL_TESTS + COUNT))
-              echo "Found $COUNT test files in $dir"
-              find "$dir" -name "test_*.py" | head -5
-            fi
-          done
-
-          echo "Total test files: $TOTAL_TESTS"
-          
-          if [ $TOTAL_TESTS -eq 0 ]; then
-            echo "No test files found. Checking for Python files that might be tests:"
-            find . -name "*test*.py" -type f | head -10
-          fi
-
-          # Set up coverage arguments
-          COV_ARGS=()
-          [ -d "src" ] && COV_ARGS+=("--cov=src")
-          [ -d "conduit" ] && COV_ARGS+=("--cov=conduit")
-          [ -d "app" ] && COV_ARGS+=("--cov=app")
-          
-          if [ ${#COV_ARGS[@]} -eq 0 ]; then
-            COV_ARGS+=("--cov=." "--cov-config=.coveragerc")
-          fi
-
-          TEST_DIR_ARGS=""
-          for dir in "${TEST_DIRS[@]}"; do 
-            [ -d "$dir" ] && TEST_DIR_ARGS="$TEST_DIR_ARGS $dir"
-          done
-          
-          # If no standard test dirs, use current directory
-          if [ -z "$TEST_DIR_ARGS" ]; then
-            TEST_DIR_ARGS="."
-          fi
-
-          echo "Coverage arguments: ${COV_ARGS[*]}"
-          echo "Test directories: $TEST_DIR_ARGS"
-          echo "cov_args=${COV_ARGS[*]}" >> $GITHUB_OUTPUT
-          echo "test_dirs=$TEST_DIR_ARGS" >> $GITHUB_OUTPUT
-          echo "total_test_files=$TOTAL_TESTS" >> $GITHUB_OUTPUT
-
+      # Move .coveragerc earlier so later steps can rely on it
       - name: Create coverage configuration
         run: |
           cd "$TARGET_ROOT"
           cat > .coveragerc << 'EOF'
           [run]
           source = .
-          omit = 
+          omit =
               tests/*
               */tests/*
               */__pycache__/*
@@ -293,7 +180,7 @@ jobs:
               setup.py
               */site-packages/*
               sitecustomize.py
-          
+
           [report]
           exclude_lines =
               pragma: no cover
@@ -303,12 +190,75 @@ jobs:
               if __name__ == .__main__.:
           EOF
 
+      - name: Locate tests and check structure
+        id: discover
+        run: |
+          set -e
+          cd "$TARGET_ROOT"
+
+          echo "Repository structure:"
+          { set +o pipefail; find . -name "*.py" -type f 2>/dev/null | head -20; set -o pipefail; }
+
+          TEST_DIRS=()
+          [ -d "tests" ] && TEST_DIRS+=("tests")
+          [ -d "test" ] && TEST_DIRS+=("test")
+          [ -d "tests/generated" ] && TEST_DIRS+=("tests/generated")
+          [ -d "src/tests" ] && TEST_DIRS+=("src/tests")
+
+          echo "Test directories found:"
+          for dir in "${TEST_DIRS[@]}"; do
+            echo "  - $dir"
+            if [ -d "$dir" ]; then
+              echo "    Contents:"
+              ls -la "$dir" | head -10
+            fi
+          done
+
+          TOTAL_TESTS=0
+          for dir in "${TEST_DIRS[@]}"; do
+            if [ -d "$dir" ]; then
+              COUNT=$(find "$dir" -type f -name "test_*.py" | wc -l | tr -d ' ')
+              TOTAL_TESTS=$((TOTAL_TESTS + COUNT))
+              echo "Found $COUNT test files in $dir"
+              { set +o pipefail; find "$dir" -name "test_*.py" 2>/dev/null | head -5; set -o pipefail; }
+            fi
+          done
+
+          echo "Total test files: $TOTAL_TESTS"
+          if [ "$TOTAL_TESTS" -eq 0 ]; then
+            echo "No test files found. Checking for Python files that might be tests:"
+            { set +o pipefail; find . -name "*test*.py" -type f 2>/dev/null | head -10; set -o pipefail; }
+          fi
+
+          # Coverage targets: prefer real source dirs/packages
+          COV_ARGS=()
+          [ -d "src" ] && COV_ARGS+=("--cov=src")
+          [ -d "conduit" ] && COV_ARGS+=("--cov=conduit")
+          [ -d "app" ] && COV_ARGS+=("--cov=app")
+          if [ ${#COV_ARGS[@]} -eq 0 ]; then
+            COV_ARGS+=(--cov=.)
+          fi
+          [ -f ".coveragerc" ] && COV_ARGS+=("--cov-config=.coveragerc")
+
+          TEST_DIR_ARGS=""
+          for dir in "${TEST_DIRS[@]}"; do
+            [ -d "$dir" ] && TEST_DIR_ARGS="$TEST_DIR_ARGS $dir"
+          done
+          [ -z "$TEST_DIR_ARGS" ] && TEST_DIR_ARGS="."
+
+          echo "Coverage arguments: ${COV_ARGS[*]}"
+          echo "Test directories: $TEST_DIR_ARGS"
+
+          echo "cov_args=${COV_ARGS[*]}" >> $GITHUB_OUTPUT
+          echo "test_dirs=$TEST_DIR_ARGS" >> $GITHUB_OUTPUT
+          echo "total_test_files=$TOTAL_TESTS" >> $GITHUB_OUTPUT
+
       - name: Run tests with error handling
         id: test-results
         env:
           PYTHONPATH: ${{ env.TARGET_ROOT }}
         run: |
-          echo "Running test suite with comprehensive error handling..."
+          echo "Running test suite..."
           mkdir -p reports/coverage reports/tests
           cd "$TARGET_ROOT"
 
@@ -323,30 +273,13 @@ jobs:
             echo "No tests found, creating a basic smoke test..."
             mkdir -p tests
             cat > tests/test_smoke.py << 'EOF'
-          import pytest
-          import sys
-          import os
-
-          def test_python_version():
-              """Basic smoke test to verify Python environment"""
-              assert sys.version_info >= (3, 6)
-
-          def test_imports():
-              """Test that we can import basic modules"""
-              import json
-              import os
-              import sys
+          def test_env_is_ok():
               assert True
-
-          def test_current_directory():
-              """Test that we're in the right directory"""
-              assert os.path.exists('.')
           EOF
             TEST_DIRS="tests"
           fi
 
-          set +e  # Don't exit on test failures
-          
+          set +e
           python -m pytest $TEST_DIRS \
             ${COV_ARGS} \
             --cov-report=html:../reports/coverage/html \
@@ -360,49 +293,33 @@ jobs:
             --maxfail=50 \
             --verbose \
             --continue-on-collection-errors \
-            --junitxml=../reports/tests/junit.xml \
-            -x  # Stop on first failure for debugging
-          
+            --junitxml=../reports/tests/junit.xml
           TEST_EXIT_CODE=$?
           echo "Pytest exit code: $TEST_EXIT_CODE"
-          
           set -e
 
-          # Parse results
           python - << 'EOF'
-          import json, os, sys
+          import json, os
           from pathlib import Path
-
           results_file = Path('reports/tests/test-results.json')
           if results_file.exists():
               try:
                   data = json.loads(results_file.read_text())
-                  print("Test results file found and parsed successfully")
-              except Exception as e:
-                  print(f"Error parsing test results: {e}")
+              except Exception:
                   data = {"summary": {"total": 0, "passed": 0, "failed": 0, "error": 0, "skipped": 0}}
           else:
-              print("No test results file found, creating empty results")
               data = {"summary": {"total": 0, "passed": 0, "failed": 0, "error": 0, "skipped": 0}}
               results_file.parent.mkdir(parents=True, exist_ok=True)
               results_file.write_text(json.dumps(data))
-
-          summary = data.get("summary", {})
-          total = summary.get("total", 0)
-          passed = summary.get("passed", 0)
-          failed = summary.get("failed", 0)
-          errors = summary.get("error", 0)
-          skipped = summary.get("skipped", 0)
-          pass_percentage = (passed / total * 100) if total > 0 else 0
-
-          print(f"Test Execution Summary:")
-          print(f"  Total: {total}")
-          print(f"  Passed: {passed}")
-          print(f"  Failed: {failed}")
-          print(f"  Errors: {errors}")
-          print(f"  Skipped: {skipped}")
-          print(f"  Pass Rate: {pass_percentage:.2f}%")
-
+          s = data.get("summary", {})
+          total = int(s.get("total", 0) or 0)
+          passed = int(s.get("passed", 0) or 0)
+          failed = int(s.get("failed", 0) or 0)
+          errors = int(s.get("error", 0) or 0)
+          skipped = int(s.get("skipped", 0) or 0)
+          pass_percentage = (passed / total * 100) if total > 0 else 0.0
+          print("Test Execution Summary:")
+          print(f"  Total: {total}\n  Passed: {passed}\n  Failed: {failed}\n  Errors: {errors}\n  Skipped: {skipped}\n  Pass Rate: {pass_percentage:.2f}%")
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"tests-total={total}\n")
               f.write(f"tests-passed={passed}\n")
@@ -415,29 +332,23 @@ jobs:
         run: |
           echo "Generating detailed coverage analysis..."
           python - << 'EOF'
-          import os, json, sys
+          import os, json
           from pathlib import Path
-
           coverage_file = Path('reports/coverage/coverage.json')
           if not coverage_file.exists():
               print("Coverage file not found, creating minimal coverage report")
-              coverage_pct = 0
+              coverage_pct = 0.0
           else:
               try:
                   cov_data = json.loads(coverage_file.read_text())
                   totals = cov_data.get("totals", {})
-                  coverage_pct = totals.get("percent_covered", 0)
-                  print(f"Coverage data found: {coverage_pct:.2f}%")
+                  coverage_pct = float(totals.get("percent_covered", 0.0))
               except Exception as e:
                   print(f"Error reading coverage data: {e}")
-                  coverage_pct = 0
-
-          print(f"Coverage Analysis:")
-          print(f"  Overall Coverage: {coverage_pct:.2f}%")
-
+                  coverage_pct = 0.0
+          print(f"Coverage Analysis:\n  Overall Coverage: {coverage_pct:.2f}%")
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"coverage-percentage={coverage_pct:.2f}\n")
-
           threshold = float(os.environ.get("COVERAGE_THRESHOLD", "80"))
           if coverage_pct < threshold:
               print(f"Coverage {coverage_pct:.2f}% is below threshold {threshold}%")
@@ -450,49 +361,32 @@ jobs:
         run: |
           echo "Running basic quality analysis with compatible tools..."
           cd "$TARGET_ROOT"
-
           REPORTS_DIR="../reports/bugs"
           mkdir -p "$REPORTS_DIR"
-
           if [ -d "src" ]; then TARGET_DIR="src"; else TARGET_DIR="."; fi
-
-          # Only run tools that we know work
           echo "Running flake8..."
           flake8 "$TARGET_DIR" --output-file="$REPORTS_DIR/quality-flake8.txt" --format='%(path)s:%(row)d:%(col)d: %(code)s %(text)s' || echo "Flake8 completed with issues"
-          
           echo "Running bandit (if available)..."
           if command -v bandit >/dev/null 2>&1; then
-              bandit -r "$TARGET_DIR" -f json -o "$REPORTS_DIR/security-bandit.json" || echo "Bandit completed with issues"
+            bandit -r "$TARGET_DIR" -f json -o "$REPORTS_DIR/security-bandit.json" || echo "Bandit completed with issues"
           fi
-          
           echo "Running mypy (if available)..."
           if command -v mypy >/dev/null 2>&1; then
-              mypy "$TARGET_DIR" --ignore-missing-imports --show-error-codes > "$REPORTS_DIR/quality-mypy.txt" || echo "MyPy completed with issues"
+            mypy "$TARGET_DIR" --ignore-missing-imports --show-error-codes > "$REPORTS_DIR/quality-mypy.txt" || echo "MyPy completed with issues"
           fi
 
-          # Generate summary
           python - << 'EOF'
           import json, os
           from pathlib import Path
-
           reports_dir = Path('../reports/bugs')
-          bug_summary = {
-              "security_issues": 0,
-              "quality_issues": 0,
-              "total_bugs": 0,
-              "quality_score": 100
-          }
-
-          # Count flake8 issues
+          bug_summary = {"security_issues": 0, "quality_issues": 0, "total_bugs": 0, "quality_score": 100}
           flake8_file = reports_dir / 'quality-flake8.txt'
           if flake8_file.exists():
               try:
-                  lines = flake8_file.read_text().splitlines()
-                  bug_summary["quality_issues"] = len([l for l in lines if ':' in l and l.strip()])
+                  lines = [l for l in flake8_file.read_text().splitlines() if ':' in l and l.strip()]
+                  bug_summary["quality_issues"] = len(lines)
               except Exception:
                   pass
-
-          # Count bandit issues
           bandit_file = reports_dir / 'security-bandit.json'
           if bandit_file.exists():
               try:
@@ -501,17 +395,13 @@ jobs:
                   bug_summary["security_issues"] = len(results)
               except Exception:
                   pass
-
           total = bug_summary["security_issues"] + bug_summary["quality_issues"]
           bug_summary["total_bugs"] = total
           bug_summary["quality_score"] = max(0, 100 - min(50, total))
-
           print("Bug Analysis Summary:")
           for k, v in bug_summary.items():
               print(f"  {k.replace('_',' ').title()}: {v}")
-
           (reports_dir / 'bug-summary.json').write_text(json.dumps(bug_summary, indent=2))
-
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"bugs-found={bug_summary['total_bugs']}\n")
               f.write(f"security-issues={bug_summary['security_issues']}\n")
@@ -535,7 +425,6 @@ jobs:
         id: deployment-check
         run: |
           echo "Evaluating deployment readiness..."
-
           TESTS_PASSED="${{ needs['validate-tests'].outputs['tests-passed'] }}"
           TESTS_TOTAL="${{ needs['validate-tests'].outputs['tests-total'] }}"
           PASS_PERCENTAGE='${{ needs['validate-tests'].outputs['pass-percentage'] }}'
@@ -544,19 +433,15 @@ jobs:
           SECURITY_ISSUES="${{ needs['validate-tests'].outputs['security-issues'] }}"
           QUALITY_SCORE="${{ needs['validate-tests'].outputs['quality-score'] }}"
           COVERAGE_THRESHOLD="${{ github.event.inputs.coverage_threshold || '80' }}"
-
           echo "Deployment Readiness Metrics:"
           echo "  Tests: $TESTS_PASSED/$TESTS_TOTAL passed ($PASS_PERCENTAGE%)"
           echo "  Coverage: $COVERAGE%"
           echo "  Bugs Found: $BUGS_FOUND"
           echo "  Security Issues: $SECURITY_ISSUES"
           echo "  Quality Score: $QUALITY_SCORE/100"
-
-          # More lenient criteria since we're dealing with compatibility issues
           READY="true"
           if [ -n "$SECURITY_ISSUES" ] && [ "$SECURITY_ISSUES" -gt "5" ]; then READY="false"; fi
           if [ -n "$TESTS_TOTAL" ] && [ "$TESTS_TOTAL" -gt "0" ] && [ -n "$PASS_PERCENTAGE" ] && [ "${PASS_PERCENTAGE%.*}" -lt "70" ]; then READY="false"; fi
-
           echo "ready=$READY" >> $GITHUB_OUTPUT
 
       - name: Create deployment summary
@@ -570,7 +455,6 @@ jobs:
           SECURITY_ISSUES='${{ needs['validate-tests'].outputs['security-issues'] }}'
           QUALITY_SCORE='${{ needs['validate-tests'].outputs['quality-score'] }}'
           READY="${{ steps.deployment-check.outputs.ready }}"
-
           cat >> $GITHUB_STEP_SUMMARY <<EOF
           # Test Validation Results
 

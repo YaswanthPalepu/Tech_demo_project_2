@@ -22,7 +22,11 @@ on:
         type: choice
         options: [basic, standard, comprehensive]
 
-# Optional: prevent overlapping manual runs
+# Ensure bash and avoid overlapping runs
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: test-validation-${{ github.workflow }}
   cancel-in-progress: false
@@ -224,7 +228,7 @@ jobs:
 
           results_file = Path('reports/tests/test-results.json')
           if not results_file.exists():
-            data = {"summary": {"total": 0, "passed": 0, "failed": 0, "error": 0}}
+            data = {"summary": {"total": 0, "passed": 0, "failed": 0, "error": 0, "skipped": 0}}
             results_file.parent.mkdir(parents=True, exist_ok=True)
             results_file.write_text(json.dumps(data))
           else:
@@ -438,16 +442,16 @@ jobs:
         id: deployment-check
         run: |
           echo "Evaluating deployment readiness..."
-          
+
           TESTS_PASSED="${{ needs.validate-tests.outputs.tests-passed }}"
           TESTS_TOTAL="${{ needs.validate-tests.outputs.tests-total }}"
           PASS_PERCENTAGE="${{ needs.validate-tests.outputs.pass-percentage }}"
-          COVERAGE="${{ needs.validate-tests.outputs.coverage-percentage }}"
+          COVERAGE="${{ needs-validate-tests.outputs.coverage-percentage }}"
           BUGS_FOUND="${{ needs.validate-tests.outputs.bugs-found }}"
           SECURITY_ISSUES="${{ needs.validate-tests.outputs.security-issues }}"
           QUALITY_SCORE="${{ needs.validate-tests.outputs.quality-score }}"
           COVERAGE_THRESHOLD="${{ github.event.inputs.coverage_threshold || '80' }}"
-          
+
           echo "Deployment Readiness Metrics:"
           echo "  Tests: $TESTS_PASSED/$TESTS_TOTAL passed ($PASS_PERCENTAGE%)"
           echo "  Coverage: $COVERAGE%"
@@ -456,63 +460,49 @@ jobs:
           echo "  Quality Score: $QUALITY_SCORE/100"
           echo "  Coverage Threshold: $COVERAGE_THRESHOLD%"
 
-          READY="false"
-          ISSUES=()
-          WARNINGS=()
-          
-          if [ "$SECURITY_ISSUES" -gt "0" ]; then ISSUES+=("$SECURITY_ISSUES security vulnerabilities detected"); fi
-          if [ -n "$PASS_PERCENTAGE" ] && [ "${PASS_PERCENTAGE%.*}" -lt "90" ]; then ISSUES+=("Test pass rate $PASS_PERCENTAGE% below 90%"); fi
-          if [ -n "$COVERAGE" ] && [ "${COVERAGE%.*}" -lt "$COVERAGE_THRESHOLD" ]; then ISSUES+=("Coverage $COVERAGE% below threshold $COVERAGE_THRESHOLD%"); fi
-          if [ -n "$BUGS_FOUND" ] && [ "$BUGS_FOUND" -gt "10" ]; then WARNINGS+=("High number of potential bugs ($BUGS_FOUND)"); fi
-          if [ -n "$QUALITY_SCORE" ] && [ "$QUALITY_SCORE" -lt "70" ]; then WARNINGS+=("Code quality score low ($QUALITY_SCORE/100)"); fi
-          
-          if [ ${#ISSUES[@]} -eq 0 ]; then READY="true"; fi
-          
-          echo "ready=$READY" >> $GITHUB_OUTPUT
-          echo "issues_count=${#ISSUES[@]}" >> $GITHUB_OUTPUT
-          echo "warnings_count=${#WARNINGS[@]}" >> $GITHUB_OUTPUT
+          READY="true"
+          # Critical checks (block deployment)
+          if [ -n "$SECURITY_ISSUES" ] && [ "$SECURITY_ISSUES" -gt "0" ]; then READY="false"; fi
+          if [ -n "$PASS_PERCENTAGE" ] && [ "${PASS_PERCENTAGE%.*}" -lt "90" ]; then READY="false"; fi
+          if [ -n "$COVERAGE" ] && [ "${COVERAGE%.*}" -lt "$COVERAGE_THRESHOLD" ]; then READY="false"; fi
 
-      - name: Create comprehensive deployment summary
+          echo "ready=$READY" >> $GITHUB_OUTPUT
+
+      - name: Create deployment summary
         if: always()
         run: |
-          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          TESTS_TOTAL="${{ needs.validate-tests.outputs.tests-total }}"
+          TESTS_PASSED="${{ needs.validate-tests.outputs.tests-passed }}"
+          PASS_PERCENTAGE="${{ needs.validate-tests.outputs.pass-percentage }}"
+          COVERAGE="${{ needs.validate-tests.outputs.coverage-percentage }}"
+          BUGS_FOUND="${{ needs.validate-tests.outputs.bugs-found }}"
+          SECURITY_ISSUES="${{ needs.validate-tests.outputs.security-issues }}"
+          QUALITY_SCORE="${{ needs.validate-tests.outputs.quality-score }}"
+          COVERAGE_THRESHOLD="${{ github.event.inputs.coverage_threshold || '80' }}"
+          READY="${{ steps.deployment-check.outputs.ready }}"
+
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
           # 🚀 Deployment Readiness Report
-          
+
           ## 📊 Test Execution Results
-          | Metric | Value | Status |
-          |--------|-------|--------|
-          | **Tests Executed** | ${{ needs.validate-tests.outputs.tests-total }} | ℹ️ |
-          | **Tests Passed** | ${{ needs.validate-tests.outputs.tests-passed }} | ${{ needs.validate-tests.outputs.pass-percentage >= 90 && '✅' || '⚠️' }} |
-          | **Pass Rate** | ${{ needs.validate-tests.outputs.pass-percentage }}% | ${{ needs.validate-tests.outputs.pass-percentage >= 90 && '✅' || '⚠️' }} |
-          | **Code Coverage** | ${{ needs.validate-tests.outputs.coverage-percentage }}% | ${{ needs.validate-tests.outputs.coverage-percentage >= github.event.inputs.coverage_threshold && '✅' || '❌' }} |
-          
-          ## 🐛 Bug Detection Results
-          | Metric | Value | Status |
-          |--------|-------|--------|
-          | **Total Bugs** | ${{ needs.validate-tests.outputs.bugs-found }} | ${{ needs.validate-tests.outputs.bugs-found == 0 && '✅' || needs.validate-tests.outputs.bugs-found <= 10 && '⚠️' || '❌' }} |
-          | **Security Issues** | ${{ needs.validate-tests.outputs.security-issues }} | ${{ needs.validate-tests.outputs.security-issues == 0 && '✅' || '❌' }} |
-          | **Quality Score** | ${{ needs.validate-tests.outputs.quality-score }}/100 | ${{ needs.validate-tests.outputs.quality-score >= 80 && '✅' || needs.validate-tests.outputs.quality-score >= 60 && '⚠️' || '❌' }} |
-          
-          ## 🎯 Deployment Decision
-          
-          *(See job logs for final decision and any blocking issues.)*
-          
-          ### 📋 Quality Gates Summary
-          - **Test Validation**: AI-generated tests executed successfully
-          - **Coverage Threshold**: Minimum ${{ github.event.inputs.coverage_threshold || '80' }}% source code coverage
-          - **Security Scan**: No critical vulnerabilities allowed
-          - **Bug Detection**: Comprehensive static analysis performed
-          - **Quality Assessment**: Code maintainability evaluated
-          
-          ---
-          *View detailed reports in workflow artifacts for complete analysis.*
+          | Metric | Value |
+          |--------|-------|
+          | Tests Executed | ${TESTS_TOTAL} |
+          | Tests Passed | ${TESTS_PASSED} |
+          | Pass Rate | ${PASS_PERCENTAGE}% |
+          | Code Coverage | ${COVERAGE}% (threshold ${COVERAGE_THRESHOLD}%) |
+          | Bugs Found | ${BUGS_FOUND} |
+          | Security Issues | ${SECURITY_ISSUES} |
+          | Quality Score | ${QUALITY_SCORE}/100 |
+
+          ## 🎯 Decision
+          ${READY:-false}
           EOF
 
       - name: Fail workflow on critical issues
         if: steps.deployment-check.outputs.ready != 'true'
         run: |
           echo "::error::Deployment readiness check failed"
-          echo "Critical issues prevent safe deployment"
           exit 1
 
   sonarqube-analysis:
@@ -544,7 +534,6 @@ jobs:
           path: reports/
         continue-on-error: true
 
-      # Preferred: official SonarCloud action
       - name: SonarCloud Scan
         if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarcloud-github-action@v3
@@ -560,28 +549,8 @@ jobs:
             -Dsonar.tests=tests
             -Dsonar.python.coverage.reportPaths=${{ env.COVERAGE_XML }}
             -Dsonar.python.xunit.reportPath=${{ env.JUNIT_XML }}
-
-      # Fallback CLI scanner (optional) if the action fails but token exists
-      - name: SonarScanner CLI (fallback)
-        if: ${{ env.SONAR_TOKEN != '' && failure() }}
-        run: |
-          wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
-          unzip -q sonar-scanner-cli-4.8.0.2856-linux.zip
-          export PATH="$PATH:$(pwd)/sonar-scanner-4.8.0.2856-linux/bin"
-
-          pushd target_repo >/dev/null
-          cat > sonar-project.properties <<EOF
-          sonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}
-          sonar.organization=${{ github.repository_owner }}
-          sonar.sources=src
-          sonar.tests=tests
-          sonar.python.coverage.reportPaths=${{ env.COVERAGE_XML }}
-          sonar.python.xunit.reportPath=${{ env.JUNIT_XML }}
-          EOF
-
-          sonar-scanner -Dsonar.token="${SONAR_TOKEN}" ${SONAR_HOST_URL:+-Dsonar.host.url="${SONAR_HOST_URL}"} || echo "Sonar scanner finished with warnings"
-          popd >/dev/null
+            -Dsonar.host.url=${{ env.SONAR_HOST_URL || 'https://sonarcloud.io' }}
 
       - name: Skip Sonar (no token)
         if: ${{ env.SONAR_TOKEN == '' }}
-        run: "echo \"Sonar analysis skipped: SONAR_TOKEN not configured.\""
+        run: echo "Sonar analysis skipped: SONAR_TOKEN not configured."

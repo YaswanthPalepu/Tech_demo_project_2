@@ -11,8 +11,8 @@ on:
         description: "Force generation even if no code changes detected"
         required: false
         default: "false"
-  push:
-    branches: [ test ]
+  # push:
+  #   branches: [ test ]
 
 jobs:
   generate:
@@ -184,6 +184,7 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "chore: append tests for changed files [skip ci]"
+            git pull origin main --rebase
             git push origin HEAD:main
           fi
 

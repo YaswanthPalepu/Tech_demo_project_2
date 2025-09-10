@@ -79,15 +79,16 @@ jobs:
             libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
             libxml2-dev libxslt1-dev curl
 
-      - name: Install Python dependencies (target repo + tooling)
+            - name: Install Python dependencies (target repo + tooling)
         run: |
+          set -e
           python -m pip install --upgrade pip wheel setuptools
 
           # --- target repo regular deps ---
           if [ -f "target_repo/requirements.txt" ]; then pip install -r target_repo/requirements.txt || true; fi
           if ls target_repo/requirements/*.txt >/dev/null 2>&1; then pip install -r target_repo/requirements/*.txt || true; fi
 
-          # Poetry (include dev!)
+          # Poetry (regular + dev)
           if [ -f "target_repo/pyproject.toml" ] && grep -q "\[tool.poetry\]" target_repo/pyproject.toml; then
             pip install poetry || true
             (cd target_repo && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.req) || true
@@ -96,34 +97,48 @@ jobs:
             [ -s /tmp/poetry.dev.req ] && pip install -r /tmp/poetry.dev.req || true
           fi
 
-          # PDM (already exports dev in your file, keep it)
+          # PDM (dev included)
           if [ -f "target_repo/pyproject.toml" ] && grep -q "\[tool.pdm\]" target_repo/pyproject.toml; then
             pip install pdm || true
             (cd target_repo && pdm export -o /tmp/pdm.req --without-hashes --dev) || true
             [ -s /tmp/pdm.req ] && pip install -r /tmp/pdm.req || true
           fi
 
-          # Pipenv (no native "dev export", so try both lock & dev files if present)
+          # Pipenv
           if [ -f "target_repo/Pipfile" ] || [ -f "target_repo/Pipfile.lock" ]; then
             pip install pipenv || true
             (cd target_repo && pipenv requirements > /tmp/pipenv.req) || true
             [ -s /tmp/pipenv.req ] && pip install -r /tmp/pipenv.req || true
           fi
 
-          # setup.py / setup.cfg (extras for tests/dev if defined)
+          # setup.py / setup.cfg
           if [ -f "target_repo/setup.py" ] || [ -f "target_repo/setup.cfg" ]; then
             pip install -e "target_repo[dev,test]" || pip install -e target_repo || true
           fi
 
-          # Common dev/test requirements filenames
+          # Common dev/test requirements
           for f in requirements-dev.txt dev-requirements.txt test-requirements.txt requirements/tests.txt requirements/test.txt; do
             [ -f "target_repo/$f" ] && pip install -r "target_repo/$f" || true
           done
 
-          # If conftest imports WebTest, ensure it is installed
-          if grep -R "from webtest import" -n target_repo/tests 2>/dev/null; then
-            pip install WebTest
-          fi
+          # --- 🔧 Always ensure WebTest is present (conftest imports 'webtest') ---
+          pip install "WebTest>=3" || true
+
+          # --- ✅ Sanity check that critical test deps import ---
+          python - <<'PY'
+          import importlib, sys
+          mods = ["webtest", "pytest"]
+          bad = []
+          for m in mods:
+              try:
+                  importlib.import_module(m)
+                  print(f"OK import: {m}")
+              except Exception as e:
+                  print(f"ERROR import: {m}: {e}", file=sys.stderr)
+                  bad.append(m)
+          if bad:
+              raise SystemExit(f"Missing/failed imports: {bad}")
+          PY
 
           # Tooling
           pip install pytest pytest-cov pytest-html pytest-json-report \

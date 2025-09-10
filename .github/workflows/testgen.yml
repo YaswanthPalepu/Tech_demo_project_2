@@ -16,8 +16,8 @@ on:
         description: "TESTGEN_PROMPT_STYLE (ultra_bare recommended)"
         required: false
         default: "ultra_bare"
-  # push:
-  #   branches: [ test ]
+  push:
+    branches: [ test ]
 
 concurrency:
   group: test-gen-${{ github.workflow }}
@@ -170,7 +170,7 @@ jobs:
 
           # Point origin to tokened URL for push
           if [ -n "$GH_PAT3" ]; then
-            git remote set-url origin "https://x-access-token:${GH_PAT3}@github.com/${REPO_PATH}.git"
+          git remote set-url origin "https://x-access-token:${GH_PAT3}@github.com/DeviPrasad372002/flask-test-repo.git"
           fi
 
           git add tests/generated || true

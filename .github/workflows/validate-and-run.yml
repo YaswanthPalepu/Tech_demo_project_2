@@ -79,7 +79,7 @@ jobs:
             libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
             libxml2-dev libxslt1-dev curl
 
-            - name: Install Python dependencies (target repo + tooling)
+      - name: Install Python dependencies (target repo + tooling)
         run: |
           set -e
           python -m pip install --upgrade pip wheel setuptools

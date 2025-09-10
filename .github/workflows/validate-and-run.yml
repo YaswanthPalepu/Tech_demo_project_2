@@ -83,41 +83,54 @@ jobs:
         run: |
           python -m pip install --upgrade pip wheel setuptools
 
-          # Install target repo deps if present
+          # --- target repo regular deps ---
           if [ -f "target_repo/requirements.txt" ]; then pip install -r target_repo/requirements.txt || true; fi
           if ls target_repo/requirements/*.txt >/dev/null 2>&1; then pip install -r target_repo/requirements/*.txt || true; fi
 
-          # Poetry
+          # Poetry (include dev!)
           if [ -f "target_repo/pyproject.toml" ] && grep -q "\[tool.poetry\]" target_repo/pyproject.toml; then
             pip install poetry || true
             (cd target_repo && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.req) || true
-            if [ -s /tmp/poetry.req ]; then pip install -r /tmp/poetry.req || true; fi
+            [ -s /tmp/poetry.req ] && pip install -r /tmp/poetry.req || true
+            (cd target_repo && poetry export -f requirements.txt --with dev --without-hashes -o /tmp/poetry.dev.req) || true
+            [ -s /tmp/poetry.dev.req ] && pip install -r /tmp/poetry.dev.req || true
           fi
 
-          # PDM
+          # PDM (already exports dev in your file, keep it)
           if [ -f "target_repo/pyproject.toml" ] && grep -q "\[tool.pdm\]" target_repo/pyproject.toml; then
             pip install pdm || true
             (cd target_repo && pdm export -o /tmp/pdm.req --without-hashes --dev) || true
-            if [ -s /tmp/pdm.req ]; then pip install -r /tmp/pdm.req || true; fi
+            [ -s /tmp/pdm.req ] && pip install -r /tmp/pdm.req || true
           fi
 
-          # Pipenv
+          # Pipenv (no native "dev export", so try both lock & dev files if present)
           if [ -f "target_repo/Pipfile" ] || [ -f "target_repo/Pipfile.lock" ]; then
             pip install pipenv || true
             (cd target_repo && pipenv requirements > /tmp/pipenv.req) || true
-            if [ -s /tmp/pipenv.req ]; then pip install -r /tmp/pipenv.req || true; fi
+            [ -s /tmp/pipenv.req ] && pip install -r /tmp/pipenv.req || true
           fi
 
-          # setup.py / setup.cfg
+          # setup.py / setup.cfg (extras for tests/dev if defined)
           if [ -f "target_repo/setup.py" ] || [ -f "target_repo/setup.cfg" ]; then
-            pip install -e target_repo || true
+            pip install -e "target_repo[dev,test]" || pip install -e target_repo || true
           fi
 
-          # Test & quality tools
+          # Common dev/test requirements filenames
+          for f in requirements-dev.txt dev-requirements.txt test-requirements.txt requirements/tests.txt requirements/test.txt; do
+            [ -f "target_repo/$f" ] && pip install -r "target_repo/$f" || true
+          done
+
+          # If conftest imports WebTest, ensure it is installed
+          if grep -R "from webtest import" -n target_repo/tests 2>/dev/null; then
+            pip install WebTest
+          fi
+
+          # Tooling
           pip install pytest pytest-cov pytest-html pytest-json-report \
-                     coverage bandit safety flake8 black isort mypy \
-                     pytest-xdist pytest-timeout pytest-mock \
-                     vulture radon prospector semgrep pylint
+                    coverage bandit safety flake8 black isort mypy \
+                    pytest-xdist pytest-timeout pytest-mock \
+                    vulture radon prospector semgrep pylint
+
 
       - name: Locate tests and coverage sources
         id: discover

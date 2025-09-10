@@ -127,23 +127,24 @@ jobs:
       - name: Generate tests (smart change detection inside generator)
         env:
           TARGET_ROOT: target
+          FORCE: ${{ github.event.inputs.force_gen || 'false' }}
         run: |
-          FORCE="${{ github.event.inputs.force_gen }}"
           python - <<'PY'
-          import os, json, pathlib
+          import os, json
+          from pathlib import Path
           import src.generator as g
 
-          # Load analysis
           analysis = json.load(open('/tmp/analysis.json'))
           outdir = os.environ['OUTDIR']
 
-          # If user opted to force, mimic "no existing tests" by clearing created list later
-          if FORCE == "true":
-              print("Forcing generation regardless of change scan signal.")
+          force = os.environ.get('FORCE', 'false').lower() == 'true'
+          if force:
+              print("Force flag ON (note: generator must honor TESTGEN_FORCE to actually bypass skipping).")
+              os.environ['TESTGEN_FORCE'] = 'true'  # optional: pass-through for generator
 
-          # Call your generator (it will do detailed change detection, smart cleanup, and install inferred deps)
           g.generate_all(analysis, outdir=outdir, focus_files=None)
           PY
+
 
       - name: List generated tests
         run: |

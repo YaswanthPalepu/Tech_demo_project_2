@@ -21,9 +21,6 @@ on:
         default: "comprehensive"
         type: choice
         options: [basic, standard, comprehensive]
-  # Remove this block if you want strictly manual runs
-  push:
-    branches: [ test ]
 
 defaults:
   run:
@@ -364,56 +361,44 @@ jobs:
           echo "Running comprehensive bug detection..."
           cd "$TARGET_ROOT"
 
-          # All bug reports go here (sibling to repo, same place as test/coverage reports)
           REPORTS_DIR="../reports/bugs"
           mkdir -p "$REPORTS_DIR"
 
           BUG_LEVEL="${{ github.event.inputs.bug_detection_level || 'comprehensive' }}"
           echo "Bug detection level: $BUG_LEVEL"
 
-          # Choose analysis target
           if [ -d "src" ]; then TARGET_DIR="src"; else TARGET_DIR="."; fi
 
-          # --- Security analysis ---
-          # Bandit
+          # Security
           bandit -r "$TARGET_DIR" -f json -o "$REPORTS_DIR/security-bandit.json" || true
           bandit -r "$TARGET_DIR" -ll > "$REPORTS_DIR/security-bandit.txt" || true
 
-          # Safety (v2/v3 CLI: --output is format; --file is path)
           safety check --output json --file "$REPORTS_DIR/security-safety.json" || true
           safety check --output text > "$REPORTS_DIR/security-safety.txt" || true
 
-          # --- Quality & complexity (standard) ---
+          # Quality & complexity
           if [ "$BUG_LEVEL" != "basic" ]; then
             flake8 "$TARGET_DIR" --output-file="$REPORTS_DIR/quality-flake8.txt" --format='%(path)s:%(row)d:%(col)d: %(code)s %(text)s' || true
-
-            # mypy: avoid --json-report for compatibility; capture to text
             mypy "$TARGET_DIR" --ignore-missing-imports --show-error-codes > "$REPORTS_DIR/quality-mypy.txt" || true
-
             vulture "$TARGET_DIR" --min-confidence 70 > "$REPORTS_DIR/quality-deadcode.txt" || true
             radon cc "$TARGET_DIR" -j > "$REPORTS_DIR/complexity-cyclomatic.json" || true
             radon mi "$TARGET_DIR" -j > "$REPORTS_DIR/complexity-maintainability.json" || true
           fi
 
-          # --- Comprehensive extras ---
           if [ "$BUG_LEVEL" = "comprehensive" ]; then
-            # Prospector prints to stdout; redirect to file
             prospector "$TARGET_DIR" -o json > "$REPORTS_DIR/comprehensive-prospector.json" || true
             pylint "$TARGET_DIR" --output-format=json > "$REPORTS_DIR/comprehensive-pylint.json" || true
-
-            # Semgrep (optional)
             if command -v semgrep >/dev/null 2>&1; then
               semgrep --config=auto "$TARGET_DIR" --json --output="$REPORTS_DIR/comprehensive-semgrep.json" || true
             fi
           fi
 
-          # --- Summarize all findings into outputs ---
           python - << 'EOF'
           import json, os
           from pathlib import Path
 
           reports_dir = Path('../reports/bugs')
-          reports_dir.mkdir(parents=True, exist_ok=True)  # ensure exists
+          reports_dir.mkdir(parents=True, exist_ok=True)
 
           bug_summary = {
               "security_issues": 0,
@@ -435,7 +420,7 @@ jobs:
               except Exception:
                   pass
 
-          # Safety (format may vary by version; handle list/object)
+          # Safety (handle list or dict formats)
           safety_file = reports_dir / 'security-safety.json'
           if safety_file.exists():
               try:
@@ -472,7 +457,6 @@ jobs:
               except Exception:
                   pass
 
-          # Compute totals & quality score
           total = bug_summary["security_issues"] + bug_summary["quality_issues"] + bug_summary["complexity_issues"]
           bug_summary["total_bugs"] = total
           bug_summary["quality_score"] = max(0, 100 - min(80, total * 2) - bug_summary["critical_bugs"] * 10)
@@ -525,7 +509,6 @@ jobs:
           echo "  Coverage Threshold: $COVERAGE_THRESHOLD%"
 
           READY="true"
-          # Critical checks (block deployment)
           if [ -n "$SECURITY_ISSUES" ] && [ "$SECURITY_ISSUES" -gt "0" ]; then READY="false"; fi
           if [ -n "$PASS_PERCENTAGE" ] && [ "${PASS_PERCENTAGE%.*}" -lt "90" ]; then READY="false"; fi
           if [ -n "$COVERAGE" ] && [ "${COVERAGE%.*}" -lt "$COVERAGE_THRESHOLD" ]; then READY="false"; fi
@@ -539,9 +522,9 @@ jobs:
           TESTS_PASSED="${{ needs['validate-tests'].outputs['tests-passed'] }}"
           PASS_PERCENTAGE='${{ needs['validate-tests'].outputs['pass-percentage'] }}'
           COVERAGE='${{ needs['validate-tests'].outputs['coverage-percentage'] }}'
-          BUGS_FOUND="${{ needs['validate-tests'].outputs['bugs-found'] }}"
-          SECURITY_ISSUES="${{ needs['validate-tests'].outputs['security-issues'] }}"
-          QUALITY_SCORE="${{ needs['validate-tests'].outputs['quality-score'] }}"
+          BUGS_FOUND='${{ needs['validate-tests'].outputs['bugs-found'] }}'
+          SECURITY_ISSUES='${{ needs['validate-tests'].outputs['security-issues'] }}'
+          QUALITY_SCORE='${{ needs['validate-tests'].outputs['quality-score'] }}'
           COVERAGE_THRESHOLD="${{ github.event.inputs.coverage_threshold || '80' }}"
           READY="${{ steps.deployment-check.outputs.ready }}"
 
@@ -595,7 +578,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: test-analysis-reports
-          path: reports/
         continue-on-error: true
 
       - name: SonarCloud Scan

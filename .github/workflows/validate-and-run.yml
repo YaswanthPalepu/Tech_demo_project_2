@@ -22,11 +22,11 @@ on:
         type: choice
         options: [basic, standard, comprehensive]
 
-# Ensure bash and avoid overlapping runs
 defaults:
   run:
     shell: bash
 
+# Optional: prevent overlapping manual runs
 concurrency:
   group: test-validation-${{ github.workflow }}
   cancel-in-progress: false
@@ -219,7 +219,6 @@ jobs:
             --verbose \
             --continue-on-collection-errors \
             --junitxml=../reports/tests/junit.xml
-          TEST_EXIT_CODE=$?
           set -e
 
           python - << 'EOF'
@@ -443,13 +442,13 @@ jobs:
         run: |
           echo "Evaluating deployment readiness..."
 
-          TESTS_PASSED="${{ needs.validate-tests.outputs.tests-passed }}"
-          TESTS_TOTAL="${{ needs.validate-tests.outputs.tests-total }}"
-          PASS_PERCENTAGE="${{ needs.validate-tests.outputs.pass-percentage }}"
-          COVERAGE="${{ needs-validate-tests.outputs.coverage-percentage }}"
-          BUGS_FOUND="${{ needs.validate-tests.outputs.bugs-found }}"
-          SECURITY_ISSUES="${{ needs.validate-tests.outputs.security-issues }}"
-          QUALITY_SCORE="${{ needs.validate-tests.outputs.quality-score }}"
+          TESTS_PASSED="${{ needs['validate-tests'].outputs['tests-passed'] }}"
+          TESTS_TOTAL="${{ needs['validate-tests'].outputs['tests-total'] }}"
+          PASS_PERCENTAGE='${{ needs['validate-tests'].outputs['pass-percentage'] }}'
+          COVERAGE='${{ needs['validate-tests'].outputs['coverage-percentage'] }}'
+          BUGS_FOUND="${{ needs['validate-tests'].outputs['bugs-found'] }}"
+          SECURITY_ISSUES="${{ needs['validate-tests'].outputs['security-issues'] }}"
+          QUALITY_SCORE="${{ needs['validate-tests'].outputs['quality-score'] }}"
           COVERAGE_THRESHOLD="${{ github.event.inputs.coverage_threshold || '80' }}"
 
           echo "Deployment Readiness Metrics:"
@@ -471,13 +470,13 @@ jobs:
       - name: Create deployment summary
         if: always()
         run: |
-          TESTS_TOTAL="${{ needs.validate-tests.outputs.tests-total }}"
-          TESTS_PASSED="${{ needs.validate-tests.outputs.tests-passed }}"
-          PASS_PERCENTAGE="${{ needs.validate-tests.outputs.pass-percentage }}"
-          COVERAGE="${{ needs.validate-tests.outputs.coverage-percentage }}"
-          BUGS_FOUND="${{ needs.validate-tests.outputs.bugs-found }}"
-          SECURITY_ISSUES="${{ needs.validate-tests.outputs.security-issues }}"
-          QUALITY_SCORE="${{ needs.validate-tests.outputs.quality-score }}"
+          TESTS_TOTAL="${{ needs['validate-tests'].outputs['tests-total'] }}"
+          TESTS_PASSED="${{ needs['validate-tests'].outputs['tests-passed'] }}"
+          PASS_PERCENTAGE='${{ needs['validate-tests'].outputs['pass-percentage'] }}'
+          COVERAGE='${{ needs['validate-tests'].outputs['coverage-percentage'] }}'
+          BUGS_FOUND="${{ needs['validate-tests'].outputs['bugs-found'] }}"
+          SECURITY_ISSUES="${{ needs['validate-tests'].outputs['security-issues'] }}"
+          QUALITY_SCORE="${{ needs['validate-tests'].outputs['quality-score'] }}"
           COVERAGE_THRESHOLD="${{ github.event.inputs.coverage_threshold || '80' }}"
           READY="${{ steps.deployment-check.outputs.ready }}"
 
@@ -553,4 +552,4 @@ jobs:
 
       - name: Skip Sonar (no token)
         if: ${{ env.SONAR_TOKEN == '' }}
-        run: "echo 'Sonar analysis skipped: SONAR_TOKEN not configured.'"
+        run: 'echo "Sonar analysis skipped: SONAR_TOKEN not configured."'

@@ -122,23 +122,76 @@ jobs:
           set -e
           cd "$TARGET_ROOT"
 
-          if [ ! -d "tests" ]; then
-            echo "No tests directory found in target_repo/"
+          # Enhanced test discovery - look for various test directory structures
+          TEST_DIRS=()
+          
+          # Check common test directory patterns
+          if [ -d "tests" ]; then
+            TEST_DIRS+=("tests")
+          fi
+          if [ -d "test" ]; then
+            TEST_DIRS+=("test")
+          fi
+          if [ -d "tests/generated" ]; then
+            TEST_DIRS+=("tests/generated")
+          fi
+          if [ -d "src/tests" ]; then
+            TEST_DIRS+=("src/tests")
+          fi
+
+          echo "Searching for test files in the following directories:"
+          for dir in "${TEST_DIRS[@]}"; do
+            echo "  - $dir"
+          done
+
+          # If no standard test directories found, search recursively
+          if [ ${#TEST_DIRS[@]} -eq 0 ]; then
+            echo "No standard test directories found, searching recursively..."
+            TEST_FILES=$(find . -name "test_*.py" -type f | head -20)
+            if [ -n "$TEST_FILES" ]; then
+              echo "Found test files:"
+              echo "$TEST_FILES"
+              # Extract unique directories containing test files
+              TEST_DIRS=($(find . -name "test_*.py" -type f -exec dirname {} \; | sort -u))
+            fi
+          fi
+
+          if [ ${#TEST_DIRS[@]} -eq 0 ]; then
+            echo "No test files found anywhere in the repository"
+            echo "Repository structure:"
+            find . -type f -name "*.py" | head -10
             exit 1
           fi
 
-          TOTAL_TESTS=$(find tests -type f -name "test_*.py" | wc -l | tr -d ' ')
-          UNIT_TESTS=$(find tests -name "test_unit_*.py" 2>/dev/null | wc -l | tr -d ' ')
-          INTEGRATION_TESTS=$(find tests -name "test_integ_*.py" 2>/dev/null | wc -l | tr -d ' ')
-          E2E_TESTS=$(find tests -name "test_e2e_*.py" 2>/dev/null | wc -l | tr -d ' ')
-          GENERATED_TESTS=$(find tests -path "*/generated/*" -name "test_*.py" 2>/dev/null | wc -l | tr -d ' ')
-          TRADITIONAL_UNIT=$(find tests -path "*/unit/*" -name "test_*.py" 2>/dev/null | wc -l | tr -d ' ')
-          TRADITIONAL_INTEG=$(find tests -path "*/integration/*" -name "test_*.py" 2>/dev/null | wc -l | tr -d ' ')
-          TRADITIONAL_E2E=$(find tests -path "*/e2e/*" -name "test_*.py" 2>/dev/null | wc -l | tr -d ' ')
+          # Count tests in all discovered directories
+          TOTAL_TESTS=0
+          for dir in "${TEST_DIRS[@]}"; do
+            if [ -d "$dir" ]; then
+              COUNT=$(find "$dir" -type f -name "test_*.py" | wc -l | tr -d ' ')
+              TOTAL_TESTS=$((TOTAL_TESTS + COUNT))
+              echo "Found $COUNT test files in $dir"
+            fi
+          done
 
-          UNIT_TESTS=$((UNIT_TESTS + TRADITIONAL_UNIT))
-          INTEGRATION_TESTS=$((INTEGRATION_TESTS + TRADITIONAL_INTEG))
-          E2E_TESTS=$((E2E_TESTS + TRADITIONAL_E2E))
+          # Count different test types across all directories
+          UNIT_TESTS=0
+          INTEGRATION_TESTS=0
+          E2E_TESTS=0
+          GENERATED_TESTS=0
+
+          for dir in "${TEST_DIRS[@]}"; do
+            if [ -d "$dir" ]; then
+              UNIT_COUNT=$(find "$dir" -name "test_unit_*.py" 2>/dev/null | wc -l | tr -d ' ')
+              INTEG_COUNT=$(find "$dir" -name "test_integ_*.py" 2>/dev/null | wc -l | tr -d ' ')
+              E2E_COUNT=$(find "$dir" -name "test_e2e_*.py" 2>/dev/null | wc -l | tr -d ' ')
+              GEN_COUNT=$(find "$dir" -path "*/generated/*" -name "test_*.py" 2>/dev/null | wc -l | tr -d ' ')
+              
+              UNIT_TESTS=$((UNIT_TESTS + UNIT_COUNT))
+              INTEGRATION_TESTS=$((INTEGRATION_TESTS + INTEG_COUNT))
+              E2E_TESTS=$((E2E_TESTS + E2E_COUNT))
+              GENERATED_TESTS=$((GENERATED_TESTS + GEN_COUNT))
+            fi
+          done
 
           echo "Test Discovery Results:"
           echo "  Total test files: $TOTAL_TESTS"
@@ -148,10 +201,11 @@ jobs:
           echo "  Generated tests: $GENERATED_TESTS"
 
           if [ "$TOTAL_TESTS" = "0" ]; then
-            echo "No 'test_*.py' files discovered in target_repo/tests/"
+            echo "No 'test_*.py' files discovered in any directory"
             exit 1
           fi
 
+          # Build coverage arguments
           COV_ARGS=()
           if [ -d "src" ]; then
             COV_ARGS+=("--cov=src")
@@ -159,16 +213,26 @@ jobs:
           for d in */ ; do
             [ -d "$d" ] || continue
             [ "$d" = "tests/" ] && continue
+            [ "$d" = "test/" ] && continue
             [ "$d" = "venv/" ] && continue
             [ "$d" = ".git/" ] && continue
+            [ "$d" = "__pycache__/" ] && continue
             [ -f "${d}__init__.py" ] && COV_ARGS+=("--cov=${d%/}")
           done
           if [ ${#COV_ARGS[@]} -eq 0 ]; then
             COV_ARGS+=("--cov=." "--cov-config=.coveragerc")
           fi
 
+          # Create test directory arguments for pytest
+          TEST_DIR_ARGS=""
+          for dir in "${TEST_DIRS[@]}"; do
+            TEST_DIR_ARGS="$TEST_DIR_ARGS $dir"
+          done
+
           echo "Coverage arguments: ${COV_ARGS[*]}"
+          echo "Test directories: $TEST_DIR_ARGS"
           echo "cov_args=${COV_ARGS[*]}" >> $GITHUB_OUTPUT
+          echo "test_dirs=$TEST_DIR_ARGS" >> $GITHUB_OUTPUT
           echo "total_test_files=$TOTAL_TESTS" >> $GITHUB_OUTPUT
 
       - name: Create coverage configuration
@@ -204,9 +268,13 @@ jobs:
           cd "$TARGET_ROOT"
 
           COV_ARGS="${{ steps.discover.outputs.cov_args }}"
+          TEST_DIRS="${{ steps.discover.outputs.test_dirs }}"
+
+          echo "Using test directories: $TEST_DIRS"
+          echo "Using coverage args: $COV_ARGS"
 
           set +e
-          python -m pytest tests \
+          python -m pytest $TEST_DIRS \
             ${COV_ARGS} \
             --cov-report=html:../reports/coverage/html \
             --cov-report=xml:../reports/coverage/coverage.xml \
@@ -496,7 +564,7 @@ jobs:
           | Quality Score | ${QUALITY_SCORE}/100 |
 
           ## 🎯 Decision
-          ${READY:-false}
+          **Deployment Ready:** ${READY:-false}
           EOF
 
       - name: Fail workflow on critical issues
@@ -512,7 +580,7 @@ jobs:
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
       COVERAGE_XML: ${{ github.workspace }}/reports/coverage/coverage.xml
       JUNIT_XML: ${{ github.workspace }}/reports/tests/junit.xml
 

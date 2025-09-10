@@ -584,4 +584,4 @@ jobs:
 
       - name: Skip Sonar (no token)
         if: ${{ env.SONAR_TOKEN == '' }}
-        run: echo "Sonar analysis skipped: SONAR_TOKEN not configured."
+        run: "echo \"Sonar analysis skipped: SONAR_TOKEN not configured.\""

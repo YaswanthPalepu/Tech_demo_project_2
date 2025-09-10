@@ -197,7 +197,7 @@ jobs:
           cd "$TARGET_ROOT"
 
           echo "Repository structure:"
-          { set +o pipefail; find . -name "*.py" -type f 2>/dev/null | head -20; set -o pipefail; }
+          find . -name "*.py" -type f 2>/dev/null | head -20 || true
 
           TEST_DIRS=()
           [ -d "tests" ] && TEST_DIRS+=("tests")
@@ -210,24 +210,25 @@ jobs:
             echo "  - $dir"
             if [ -d "$dir" ]; then
               echo "    Contents:"
-              ls -la "$dir" | head -10
+              # Fix: Handle pipe errors gracefully
+              (ls -la "$dir" 2>/dev/null || true) | (head -10 2>/dev/null || true)
             fi
           done
 
           TOTAL_TESTS=0
           for dir in "${TEST_DIRS[@]}"; do
             if [ -d "$dir" ]; then
-              COUNT=$(find "$dir" -type f -name "test_*.py" | wc -l | tr -d ' ')
+              COUNT=$(find "$dir" -type f -name "test_*.py" 2>/dev/null | wc -l | tr -d ' ')
               TOTAL_TESTS=$((TOTAL_TESTS + COUNT))
               echo "Found $COUNT test files in $dir"
-              { set +o pipefail; find "$dir" -name "test_*.py" 2>/dev/null | head -5; set -o pipefail; }
+              find "$dir" -name "test_*.py" 2>/dev/null | (head -5 2>/dev/null || true)
             fi
           done
 
           echo "Total test files: $TOTAL_TESTS"
           if [ "$TOTAL_TESTS" -eq 0 ]; then
             echo "No test files found. Checking for Python files that might be tests:"
-            { set +o pipefail; find . -name "*test*.py" -type f 2>/dev/null | head -10; set -o pipefail; }
+            find . -name "*test*.py" -type f 2>/dev/null | (head -10 2>/dev/null || true)
           fi
 
           # Coverage targets: prefer real source dirs/packages

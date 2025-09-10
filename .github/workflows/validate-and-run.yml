@@ -21,13 +21,15 @@ on:
         default: "comprehensive"
         type: choice
         options: [basic, standard, comprehensive]
+  # Remove this block if you want strictly manual runs
   push:
     branches: [ test ]
+
 defaults:
   run:
     shell: bash
 
-# Optional: prevent overlapping manual runs
+# Prevent overlapping runs of this workflow name
 concurrency:
   group: test-validation-${{ github.workflow }}
   cancel-in-progress: false
@@ -88,29 +90,33 @@ jobs:
           if [ -f "target_repo/requirements.txt" ]; then pip install -r target_repo/requirements.txt || true; fi
           if ls target_repo/requirements/*.txt >/dev/null 2>&1; then pip install -r target_repo/requirements/*.txt || true; fi
 
+          # Poetry
           if [ -f "target_repo/pyproject.toml" ] && grep -q "\[tool.poetry\]" target_repo/pyproject.toml; then
             pip install poetry || true
             (cd target_repo && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.req) || true
             if [ -s /tmp/poetry.req ]; then pip install -r /tmp/poetry.req || true; fi
           fi
 
+          # PDM
           if [ -f "target_repo/pyproject.toml" ] && grep -q "\[tool.pdm\]" target_repo/pyproject.toml; then
             pip install pdm || true
             (cd target_repo && pdm export -o /tmp/pdm.req --without-hashes --dev) || true
             if [ -s /tmp/pdm.req ]; then pip install -r /tmp/pdm.req || true; fi
           fi
 
+          # Pipenv
           if [ -f "target_repo/Pipfile" ] || [ -f "target_repo/Pipfile.lock" ]; then
             pip install pipenv || true
             (cd target_repo && pipenv requirements > /tmp/pipenv.req) || true
             if [ -s /tmp/pipenv.req ]; then pip install -r /tmp/pipenv.req || true; fi
           fi
 
+          # setup.py / setup.cfg
           if [ -f "target_repo/setup.py" ] || [ -f "target_repo/setup.cfg" ]; then
             pip install -e target_repo || true
           fi
 
-          # Enhanced testing & quality tools
+          # Test & quality tools
           pip install pytest pytest-cov pytest-html pytest-json-report \
                      coverage bandit safety flake8 black isort mypy \
                      pytest-xdist pytest-timeout pytest-mock \
@@ -122,43 +128,30 @@ jobs:
           set -e
           cd "$TARGET_ROOT"
 
-          # Enhanced test discovery - look for various test directory structures
+          # Gather candidate test directories
           TEST_DIRS=()
-          
-          # Check common test directory patterns
-          if [ -d "tests" ]; then
-            TEST_DIRS+=("tests")
-          fi
-          if [ -d "test" ]; then
-            TEST_DIRS+=("test")
-          fi
-          if [ -d "tests/generated" ]; then
-            TEST_DIRS+=("tests/generated")
-          fi
-          if [ -d "src/tests" ]; then
-            TEST_DIRS+=("src/tests")
-          fi
+          [ -d "tests" ] && TEST_DIRS+=("tests")
+          [ -d "test" ] && TEST_DIRS+=("test")
+          [ -d "tests/generated" ] && TEST_DIRS+=("tests/generated")
+          [ -d "src/tests" ] && TEST_DIRS+=("src/tests")
 
           echo "Searching for test files in the following directories:"
-          for dir in "${TEST_DIRS[@]}"; do
-            echo "  - $dir"
-          done
+          for dir in "${TEST_DIRS[@]}"; do echo "  - $dir"; done
 
-          # If no standard test directories found, search recursively
+          # If none found, search recursively
           if [ ${#TEST_DIRS[@]} -eq 0 ]; then
             echo "No standard test directories found, searching recursively..."
             TEST_FILES=$(find . -name "test_*.py" -type f | head -20)
             if [ -n "$TEST_FILES" ]; then
               echo "Found test files:"
               echo "$TEST_FILES"
-              # Extract unique directories containing test files
-              TEST_DIRS=($(find . -name "test_*.py" -type f -exec dirname {} \; | sort -u))
+              mapfile -t TEST_DIRS < <(find . -name "test_*.py" -type f -exec dirname {} \; | sort -u)
             fi
           fi
 
           if [ ${#TEST_DIRS[@]} -eq 0 ]; then
             echo "No test files found anywhere in the repository"
-            echo "Repository structure:"
+            echo "Repository structure (first 10 .py files):"
             find . -type f -name "*.py" | head -10
             exit 1
           fi
@@ -173,24 +166,14 @@ jobs:
             fi
           done
 
-          # Count different test types across all directories
-          UNIT_TESTS=0
-          INTEGRATION_TESTS=0
-          E2E_TESTS=0
-          GENERATED_TESTS=0
-
+          # Count by test type patterns
+          UNIT_TESTS=0; INTEGRATION_TESTS=0; E2E_TESTS=0; GENERATED_TESTS=0
           for dir in "${TEST_DIRS[@]}"; do
-            if [ -d "$dir" ]; then
-              UNIT_COUNT=$(find "$dir" -name "test_unit_*.py" 2>/dev/null | wc -l | tr -d ' ')
-              INTEG_COUNT=$(find "$dir" -name "test_integ_*.py" 2>/dev/null | wc -l | tr -d ' ')
-              E2E_COUNT=$(find "$dir" -name "test_e2e_*.py" 2>/dev/null | wc -l | tr -d ' ')
-              GEN_COUNT=$(find "$dir" -path "*/generated/*" -name "test_*.py" 2>/dev/null | wc -l | tr -d ' ')
-              
-              UNIT_TESTS=$((UNIT_TESTS + UNIT_COUNT))
-              INTEGRATION_TESTS=$((INTEGRATION_TESTS + INTEG_COUNT))
-              E2E_TESTS=$((E2E_TESTS + E2E_COUNT))
-              GENERATED_TESTS=$((GENERATED_TESTS + GEN_COUNT))
-            fi
+            [ -d "$dir" ] || continue
+            UNIT_TESTS=$((UNIT_TESTS + $(find "$dir" -name "test_unit_*.py" 2>/dev/null | wc -l | tr -d ' ')))
+            INTEGRATION_TESTS=$((INTEGRATION_TESTS + $(find "$dir" -name "test_integ_*.py" 2>/dev/null | wc -l | tr -d ' ')))
+            E2E_TESTS=$((E2E_TESTS + $(find "$dir" -name "test_e2e_*.py" 2>/dev/null | wc -l | tr -d ' ')))
+            GENERATED_TESTS=$((GENERATED_TESTS + $(find "$dir" -path "*/generated/*" -name "test_*.py" 2>/dev/null | wc -l | tr -d ' ')))
           done
 
           echo "Test Discovery Results:"
@@ -205,29 +188,23 @@ jobs:
             exit 1
           fi
 
-          # Build coverage arguments
+          # Coverage targets
           COV_ARGS=()
-          if [ -d "src" ]; then
-            COV_ARGS+=("--cov=src")
-          fi
+          [ -d "src" ] && COV_ARGS+=("--cov=src")
           for d in */ ; do
             [ -d "$d" ] || continue
-            [ "$d" = "tests/" ] && continue
-            [ "$d" = "test/" ] && continue
-            [ "$d" = "venv/" ] && continue
-            [ "$d" = ".git/" ] && continue
-            [ "$d" = "__pycache__/" ] && continue
+            case "$d" in
+              tests/|test/|venv/|.git/|__pycache__/) continue ;;
+            esac
             [ -f "${d}__init__.py" ] && COV_ARGS+=("--cov=${d%/}")
           done
           if [ ${#COV_ARGS[@]} -eq 0 ]; then
             COV_ARGS+=("--cov=." "--cov-config=.coveragerc")
           fi
 
-          # Create test directory arguments for pytest
+          # Build pytest dir args
           TEST_DIR_ARGS=""
-          for dir in "${TEST_DIRS[@]}"; do
-            TEST_DIR_ARGS="$TEST_DIR_ARGS $dir"
-          done
+          for dir in "${TEST_DIRS[@]}"; do TEST_DIR_ARGS="$TEST_DIR_ARGS $dir"; done
 
           echo "Coverage arguments: ${COV_ARGS[*]}"
           echo "Test directories: $TEST_DIR_ARGS"
@@ -386,111 +363,130 @@ jobs:
         run: |
           echo "Running comprehensive bug detection..."
           cd "$TARGET_ROOT"
-          mkdir -p ../reports/bugs
+
+          # All bug reports go here (sibling to repo, same place as test/coverage reports)
+          REPORTS_DIR="../reports/bugs"
+          mkdir -p "$REPORTS_DIR"
 
           BUG_LEVEL="${{ github.event.inputs.bug_detection_level || 'comprehensive' }}"
           echo "Bug detection level: $BUG_LEVEL"
 
+          # Choose analysis target
           if [ -d "src" ]; then TARGET_DIR="src"; else TARGET_DIR="."; fi
 
-          bandit -r "$TARGET_DIR" -f json -o ../reports/bugs/security-bandit.json || true
-          bandit -r "$TARGET_DIR" -ll > ../reports/bugs/security-bandit.txt || true
+          # --- Security analysis ---
+          # Bandit
+          bandit -r "$TARGET_DIR" -f json -o "$REPORTS_DIR/security-bandit.json" || true
+          bandit -r "$TARGET_DIR" -ll > "$REPORTS_DIR/security-bandit.txt" || true
 
-          safety check --json --output ../reports/bugs/security-safety.json || true
-          safety check > ../reports/bugs/security-safety.txt || true
+          # Safety (v2/v3 CLI: --output is format; --file is path)
+          safety check --output json --file "$REPORTS_DIR/security-safety.json" || true
+          safety check --output text > "$REPORTS_DIR/security-safety.txt" || true
 
+          # --- Quality & complexity (standard) ---
           if [ "$BUG_LEVEL" != "basic" ]; then
-            flake8 "$TARGET_DIR" --output-file=../reports/bugs/quality-flake8.txt --format='%(path)s:%(row)d:%(col)d: %(code)s %(text)s' || true
-            mypy "$TARGET_DIR" --ignore-missing-imports --json-report ../reports/bugs/quality-mypy --txt-report ../reports/bugs/quality-mypy-txt || true
-            vulture "$TARGET_DIR" --min-confidence 70 > ../reports/bugs/quality-deadcode.txt || true
-            radon cc "$TARGET_DIR" -j > ../reports/bugs/complexity-cyclomatic.json || true
-            radon mi "$TARGET_DIR" -j > ../reports/bugs/complexity-maintainability.json || true
+            flake8 "$TARGET_DIR" --output-file="$REPORTS_DIR/quality-flake8.txt" --format='%(path)s:%(row)d:%(col)d: %(code)s %(text)s' || true
+
+            # mypy: avoid --json-report for compatibility; capture to text
+            mypy "$TARGET_DIR" --ignore-missing-imports --show-error-codes > "$REPORTS_DIR/quality-mypy.txt" || true
+
+            vulture "$TARGET_DIR" --min-confidence 70 > "$REPORTS_DIR/quality-deadcode.txt" || true
+            radon cc "$TARGET_DIR" -j > "$REPORTS_DIR/complexity-cyclomatic.json" || true
+            radon mi "$TARGET_DIR" -j > "$REPORTS_DIR/complexity-maintainability.json" || true
           fi
 
+          # --- Comprehensive extras ---
           if [ "$BUG_LEVEL" = "comprehensive" ]; then
-            prospector "$TARGET_DIR" --output-format json --output-file ../reports/bugs/comprehensive-prospector.json || true
-            pylint "$TARGET_DIR" --output-format=json > ../reports/bugs/comprehensive-pylint.json || true
+            # Prospector prints to stdout; redirect to file
+            prospector "$TARGET_DIR" -o json > "$REPORTS_DIR/comprehensive-prospector.json" || true
+            pylint "$TARGET_DIR" --output-format=json > "$REPORTS_DIR/comprehensive-pylint.json" || true
+
+            # Semgrep (optional)
             if command -v semgrep >/dev/null 2>&1; then
-              semgrep --config=auto "$TARGET_DIR" --json --output=../reports/bugs/comprehensive-semgrep.json || true
+              semgrep --config=auto "$TARGET_DIR" --json --output="$REPORTS_DIR/comprehensive-semgrep.json" || true
             fi
           fi
 
+          # --- Summarize all findings into outputs ---
           python - << 'EOF'
           import json, os
           from pathlib import Path
 
+          reports_dir = Path('../reports/bugs')
+          reports_dir.mkdir(parents=True, exist_ok=True)  # ensure exists
+
           bug_summary = {
-            "security_issues": 0,
-            "quality_issues": 0,
-            "complexity_issues": 0,
-            "total_bugs": 0,
-            "critical_bugs": 0,
-            "bug_categories": {},
-            "quality_score": 100
+              "security_issues": 0,
+              "quality_issues": 0,
+              "complexity_issues": 0,
+              "total_bugs": 0,
+              "critical_bugs": 0,
+              "quality_score": 100
           }
 
-          reports_dir = Path('reports/bugs')
-          
+          # Bandit
           bandit_file = reports_dir / 'security-bandit.json'
           if bandit_file.exists():
-            try:
-              bandit_data = json.loads(bandit_file.read_text())
-              security_count = len(bandit_data.get('results', []))
-              bug_summary["security_issues"] += security_count
-              high_severity = len([r for r in bandit_data.get('results', []) if r.get('issue_severity') == 'HIGH'])
-              bug_summary["critical_bugs"] += high_severity
-            except: pass
+              try:
+                  bandit_data = json.loads(bandit_file.read_text())
+                  results = bandit_data.get('results', [])
+                  bug_summary["security_issues"] += len(results)
+                  bug_summary["critical_bugs"] += sum(1 for r in results if r.get('issue_severity') == 'HIGH')
+              except Exception:
+                  pass
 
+          # Safety (format may vary by version; handle list/object)
           safety_file = reports_dir / 'security-safety.json'
           if safety_file.exists():
-            try:
-              safety_data = json.loads(safety_file.read_text())
-              if isinstance(safety_data, list):
-                bug_summary["security_issues"] += len(safety_data)
-            except: pass
+              try:
+                  data = json.loads(safety_file.read_text())
+                  if isinstance(data, list):
+                      bug_summary["security_issues"] += len(data)
+                  elif isinstance(data, dict):
+                      issues = data.get("vulnerabilities") or data.get("issues") or []
+                      bug_summary["security_issues"] += len(issues)
+              except Exception:
+                  pass
 
+          # flake8
           flake8_file = reports_dir / 'quality-flake8.txt'
           if flake8_file.exists():
-            try:
-              lines = flake8_file.read_text().splitlines()
-              quality_issues = len([l for l in lines if ':' in l and any(c in l for c in ['E','W','F'])])
-              bug_summary["quality_issues"] += quality_issues
-            except: pass
+              try:
+                  lines = flake8_file.read_text().splitlines()
+                  bug_summary["quality_issues"] += sum(1 for l in lines if ':' in l)
+              except Exception:
+                  pass
 
-          complexity_file = reports_dir / 'complexity-cyclomatic.json'
-          if complexity_file.exists():
-            try:
-              complexity_data = json.loads(complexity_file.read_text())
-              high_complexity = 0
-              for item in complexity_data:
-                if isinstance(item, dict):
-                  for _, value in item.items():
-                    if isinstance(value, list):
-                      for func in value:
-                        if isinstance(func, dict) and func.get('complexity', 0) > 10:
-                          high_complexity += 1
-              bug_summary["complexity_issues"] = high_complexity
-            except: pass
+          # radon CC
+          cyclo_file = reports_dir / 'complexity-cyclomatic.json'
+          if cyclo_file.exists():
+              try:
+                  cyclo = json.loads(cyclo_file.read_text())
+                  high = 0
+                  for entry in cyclo:
+                      if isinstance(entry, dict):
+                          for funcs in entry.values():
+                              if isinstance(funcs, list):
+                                  high += sum(1 for f in funcs if isinstance(f, dict) and f.get('complexity', 0) > 10)
+                  bug_summary["complexity_issues"] = high
+              except Exception:
+                  pass
 
-          total_issues = bug_summary["security_issues"] + bug_summary["quality_issues"] + bug_summary["complexity_issues"]
-          bug_summary["total_bugs"] = total_issues
-          score_deduction = min(80, total_issues * 2)
-          critical_deduction = bug_summary["critical_bugs"] * 10
-          bug_summary["quality_score"] = max(0, 100 - score_deduction - critical_deduction)
+          # Compute totals & quality score
+          total = bug_summary["security_issues"] + bug_summary["quality_issues"] + bug_summary["complexity_issues"]
+          bug_summary["total_bugs"] = total
+          bug_summary["quality_score"] = max(0, 100 - min(80, total * 2) - bug_summary["critical_bugs"] * 10)
 
-          print(f"Bug Analysis Summary:")
-          print(f"  Security Issues: {bug_summary['security_issues']}")
-          print(f"  Quality Issues: {bug_summary['quality_issues']}")
-          print(f"  Complexity Issues: {bug_summary['complexity_issues']}")
-          print(f"  Critical Bugs: {bug_summary['critical_bugs']}")
-          print(f"  Total Issues: {bug_summary['total_bugs']}")
-          print(f"  Quality Score: {bug_summary['quality_score']}/100")
+          print("Bug Analysis Summary:")
+          for k, v in bug_summary.items():
+              print(f"  {k.replace('_',' ').title()}: {v}")
 
-          Path('reports/bugs/bug-summary.json').write_text(json.dumps(bug_summary, indent=2))
+          (reports_dir / 'bug-summary.json').write_text(json.dumps(bug_summary, indent=2))
+
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-            f.write(f"bugs-found={bug_summary['total_bugs']}\n")
-            f.write(f"security-issues={bug_summary['security_issues']}\n")
-            f.write(f"quality-score={bug_summary['quality_score']}\n")
+              f.write(f"bugs-found={bug_summary['total_bugs']}\n")
+              f.write(f"security-issues={bug_summary['security_issues']}\n")
+              f.write(f"quality-score={bug_summary['quality_score']}\n")
           EOF
 
       - name: Upload comprehensive reports

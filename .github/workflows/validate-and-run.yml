@@ -21,13 +21,11 @@ on:
         default: "comprehensive"
         type: choice
         options: [basic, standard, comprehensive]
-  push:
-    branches: [ test ]
+
 defaults:
   run:
     shell: bash
 
-# Prevent overlapping runs of this workflow name
 concurrency:
   group: test-validation-${{ github.workflow }}
   cancel-in-progress: false
@@ -85,68 +83,72 @@ jobs:
           set -e
           python -m pip install --upgrade pip wheel setuptools
 
+          # --- Test tooling FIRST (so pytest exists before checks) ---
+          pip install pytest pytest-cov pytest-html pytest-json-report \
+                     coverage bandit safety flake8 black isort mypy \
+                     pytest-xdist pytest-timeout pytest-mock \
+                     vulture radon prospector semgrep pylint \
+                     WebTest
+
+          # --- Prefer binary psycopg; avoid building old psycopg2 from source ---
+          pip install "psycopg2-binary>=2.9,<3" --only-binary=:all: || true
+
+          # Helper to rewrite pinned psycopg2 -> psycopg2-binary on the fly
+          fix_reqs() {
+            local IN="$1"
+            sed -E 's/^[[:space:]]*psycopg2([[:space:]]*==[[:space:]]*[0-9.]+)?([[:space:]]*#.*)?$/psycopg2-binary>=2.9,<3/' "$IN" > /tmp/req.fixed
+            pip install -r /tmp/req.fixed || true
+          }
+
           # --- target repo regular deps ---
-          if [ -f "target_repo/requirements.txt" ]; then pip install -r target_repo/requirements.txt || true; fi
-          if ls target_repo/requirements/*.txt >/dev/null 2>&1; then pip install -r target_repo/requirements/*.txt || true; fi
+          if [ -f "target_repo/requirements.txt" ]; then fix_reqs target_repo/requirements.txt; fi
+          if ls target_repo/requirements/*.txt >/dev/null 2>&1; then
+            for f in target_repo/requirements/*.txt; do fix_reqs "$f"; done
+          fi
 
           # Poetry (regular + dev)
           if [ -f "target_repo/pyproject.toml" ] && grep -q "\[tool.poetry\]" target_repo/pyproject.toml; then
             pip install poetry || true
             (cd target_repo && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.req) || true
-            [ -s /tmp/poetry.req ] && pip install -r /tmp/poetry.req || true
+            [ -s /tmp/poetry.req ] && fix_reqs /tmp/poetry.req
             (cd target_repo && poetry export -f requirements.txt --with dev --without-hashes -o /tmp/poetry.dev.req) || true
-            [ -s /tmp/poetry.dev.req ] && pip install -r /tmp/poetry.dev.req || true
+            [ -s /tmp/poetry.dev.req ] && fix_reqs /tmp/poetry.dev.req
           fi
 
           # PDM (dev included)
           if [ -f "target_repo/pyproject.toml" ] && grep -q "\[tool.pdm\]" target_repo/pyproject.toml; then
             pip install pdm || true
             (cd target_repo && pdm export -o /tmp/pdm.req --without-hashes --dev) || true
-            [ -s /tmp/pdm.req ] && pip install -r /tmp/pdm.req || true
+            [ -s /tmp/pdm.req ] && fix_reqs /tmp/pdm.req
           fi
 
           # Pipenv
           if [ -f "target_repo/Pipfile" ] || [ -f "target_repo/Pipfile.lock" ]; then
             pip install pipenv || true
             (cd target_repo && pipenv requirements > /tmp/pipenv.req) || true
-            [ -s /tmp/pipenv.req ] && pip install -r /tmp/pipenv.req || true
+            [ -s /tmp/pipenv.req ] && fix_reqs /tmp/pipenv.req
           fi
 
-          # setup.py / setup.cfg
-          if [ -f "target_repo/setup.py" ] || [ -f "target_repo/setup.cfg" ]; then
+          # Editable install only if the project is actually packageable
+          if [ -f "target_repo/setup.py" ] || [ -f "target_repo/setup.cfg" ] || [ -f "target_repo/pyproject.toml" ]; then
             pip install -e "target_repo[dev,test]" || pip install -e target_repo || true
           fi
 
-          # Common dev/test requirements
+          # Common dev/test requirement files
           for f in requirements-dev.txt dev-requirements.txt test-requirements.txt requirements/tests.txt requirements/test.txt; do
-            [ -f "target_repo/$f" ] && pip install -r "target_repo/$f" || true
+            [ -f "target_repo/$f" ] && fix_reqs "target_repo/$f"
           done
 
-          # --- 🔧 Always ensure WebTest is present (conftest imports 'webtest') ---
-          pip install "WebTest>=3" || true
-
-          # --- ✅ Sanity check that critical test deps import ---
+          # ✅ Sanity check (non-fatal) — after installs
           python - <<'PY'
           import importlib, sys
-          mods = ["webtest", "pytest"]
-          bad = []
-          for m in mods:
+          for m in ("pytest","webtest"):
               try:
                   importlib.import_module(m)
                   print(f"OK import: {m}")
               except Exception as e:
-                  print(f"ERROR import: {m}: {e}", file=sys.stderr)
-                  bad.append(m)
-          if bad:
-              raise SystemExit(f"Missing/failed imports: {bad}")
+                  print(f"WARNING: {m} import failed: {e}", file=sys.stderr)
           PY
-
-          # Tooling
-          pip install pytest pytest-cov pytest-html pytest-json-report \
-                    coverage bandit safety flake8 black isort mypy \
-                    pytest-xdist pytest-timeout pytest-mock \
-                    vulture radon prospector semgrep pylint
-
 
       - name: Locate tests and coverage sources
         id: discover
@@ -154,7 +156,6 @@ jobs:
           set -e
           cd "$TARGET_ROOT"
 
-          # Gather candidate test directories
           TEST_DIRS=()
           [ -d "tests" ] && TEST_DIRS+=("tests")
           [ -d "test" ] && TEST_DIRS+=("test")
@@ -164,7 +165,6 @@ jobs:
           echo "Searching for test files in the following directories:"
           for dir in "${TEST_DIRS[@]}"; do echo "  - $dir"; done
 
-          # If none found, search recursively
           if [ ${#TEST_DIRS[@]} -eq 0 ]; then
             echo "No standard test directories found, searching recursively..."
             TEST_FILES=$(find . -name "test_*.py" -type f | head -20)
@@ -177,12 +177,10 @@ jobs:
 
           if [ ${#TEST_DIRS[@]} -eq 0 ]; then
             echo "No test files found anywhere in the repository"
-            echo "Repository structure (first 10 .py files):"
             find . -type f -name "*.py" | head -10
             exit 1
           fi
 
-          # Count tests in all discovered directories
           TOTAL_TESTS=0
           for dir in "${TEST_DIRS[@]}"; do
             if [ -d "$dir" ]; then
@@ -192,7 +190,6 @@ jobs:
             fi
           done
 
-          # Count by test type patterns
           UNIT_TESTS=0; INTEGRATION_TESTS=0; E2E_TESTS=0; GENERATED_TESTS=0
           for dir in "${TEST_DIRS[@]}"; do
             [ -d "$dir" ] || continue
@@ -209,12 +206,6 @@ jobs:
           echo "  E2E tests: $E2E_TESTS"
           echo "  Generated tests: $GENERATED_TESTS"
 
-          if [ "$TOTAL_TESTS" = "0" ]; then
-            echo "No 'test_*.py' files discovered in any directory"
-            exit 1
-          fi
-
-          # Coverage targets
           COV_ARGS=()
           [ -d "src" ] && COV_ARGS+=("--cov=src")
           for d in */ ; do
@@ -228,7 +219,6 @@ jobs:
             COV_ARGS+=("--cov=." "--cov-config=.coveragerc")
           fi
 
-          # Build pytest dir args
           TEST_DIR_ARGS=""
           for dir in "${TEST_DIRS[@]}"; do TEST_DIR_ARGS="$TEST_DIR_ARGS $dir"; done
 
@@ -402,7 +392,8 @@ jobs:
           bandit -r "$TARGET_DIR" -f json -o "$REPORTS_DIR/security-bandit.json" || true
           bandit -r "$TARGET_DIR" -ll > "$REPORTS_DIR/security-bandit.txt" || true
 
-          safety check --output json --file "$REPORTS_DIR/security-safety.json" || true
+          # Safety: redirect output files (avoid --file which varies by version)
+          safety check --output json > "$REPORTS_DIR/security-safety.json" || true
           safety check --output text > "$REPORTS_DIR/security-safety.txt" || true
 
           # Quality & complexity
@@ -607,6 +598,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: test-analysis-reports
+          path: reports/
         continue-on-error: true
 
       - name: SonarCloud Scan

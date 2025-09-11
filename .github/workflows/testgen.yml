@@ -126,8 +126,8 @@ jobs:
             echo "Installing from requirement sources (with psycopg2 fix):"
             for rf in "${REQ_FILES[@]}"; do
               echo "Processing $rf"
-              # Replace psycopg2 pin with psycopg2-binary>=2.9
-              sed -E 's/^psycopg2([^a-zA-Z0-9._-]|$)/psycopg2-binary>=2.9\1/' "$rf" > /tmp/req.fixed.txt
+              # Force psycopg2 to psycopg2-binary>=2.9 (drop old version pins)
+              sed -E 's/^psycopg2([[:space:]]*([<>=!]=[^[:space:]]+)*)?/psycopg2-binary>=2.9/' "$rf" > /tmp/req.fixed.txt
               pip install -r /tmp/req.fixed.txt
             done
           fi

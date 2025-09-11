@@ -15,8 +15,8 @@ on:
         description: "TESTGEN_PROMPT_STYLE (ultra_bare recommended)"
         required: false
         default: "ultra_bare"
-  # push:
-  #   branches: [ test ]
+  push:
+    branches: [ test ]
 
 concurrency:
   group: test-gen-${{ github.workflow }}
@@ -79,6 +79,23 @@ jobs:
           python-version: "3.10"
           cache: pip
 
+      # ---- NEW: repo-agnostic constraints bootstrap ----
+      - name: Bootstrap Python constraints (repo-agnostic)
+        run: |
+          python -m pip install --upgrade "pip<25" wheel setuptools
+          # Decide legacy vs modern based on the target repo's dependency pins
+          python ci/py_stack_guard.py | tee /tmp/stack_env
+          # Export PIP_CONSTRAINT + TESTGEN_PIP_CONSTRAINTS for later steps (and generator.py)
+          grep -E '^(PIP_CONSTRAINT|TESTGEN_PIP_CONSTRAINTS)=' /tmp/stack_env >> $GITHUB_ENV
+          MODE="$(cat .stack_mode.txt)"
+          echo "Resolved stack mode: $MODE"
+          # Preinstall legacy Flask stack if needed to avoid import-time crashes
+          if [ "$MODE" = "legacy_flask" ]; then
+            python -m pip install -U -c .constraints.txt \
+              Flask<2.3 Werkzeug<2.3 Flask-SQLAlchemy<3 SQLAlchemy<2.0 \
+              Jinja2<3.1 itsdangerous<2.1 click<8.1 MarkupSafe<2.1
+          fi
+
       - name: Install system build tools
         run: |
           sudo apt-get update -y
@@ -89,7 +106,7 @@ jobs:
 
       - name: Install Python deps (tooling + target libs)
         run: |
-          python -m pip install --upgrade pip wheel setuptools
+          python -m pip install --upgrade "pip<25" wheel setuptools
 
           # --- Prefer requirements files; sanitize psycopg2 -> psycopg2-binary everywhere ---
           if [ -f "target/requirements.txt" ]; then
@@ -105,7 +122,7 @@ jobs:
             done
           fi
 
-          # --- Optional: Poetry/PDM (kept), but Pipenv DISABLED to avoid legacy pins ---
+          # --- Optional: Poetry/PDM (kept) under constraints via PIP_CONSTRAINT ---
           if [ -f "target/pyproject.toml" ] && grep -q "\[tool.poetry\]" target/pyproject.toml; then
             pip install poetry || true
             (cd target && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req) || true
@@ -131,10 +148,8 @@ jobs:
             pip install -e target || true
           fi
 
-          # --- Core testing + common backend libs; ensure psycopg2-binary present ---
-          pip install "openai>=1.51.0" pytest pytest-cov httpx requests \
-                      "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" "annotated-types>=0.6" \
-                      "uvicorn>=0.23" "SQLAlchemy>=2" "typing-extensions>=4.8" psycopg2-binary
+          # --- Core testing + helpers; avoid opinionated modern pins (honors PIP_CONSTRAINT) ---
+          pip install "openai>=1.51.0" pytest pytest-cov httpx requests typing-extensions psycopg2-binary
 
       - name: Analyze target codebase
         run: python -m src.analyzer --root target > /tmp/analysis.json

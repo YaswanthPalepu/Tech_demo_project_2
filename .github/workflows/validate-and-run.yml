@@ -2,11 +2,9 @@ name: Test Validation & Quality Analysis
 
 on:
   # Run automatically only after the AI Test Generation pipeline finishes
-  # workflow_run:
-  #   workflows: ["AI Test Generation"]
-  #   types: [completed]
-
- 
+  workflow_run:
+    workflows: ["AI Test Generation"]
+    types: [completed]
 
   # Optional: still allow manual runs
   workflow_dispatch:
@@ -29,10 +27,6 @@ on:
         default: "comprehensive"
         type: choice
         options: [basic, standard, comprehensive]
-
-# IMPORTANT: remove push trigger so this workflow doesn't run independently
-  push:
-    branches: [ test ]
 
 defaults:
   run:
@@ -86,6 +80,22 @@ jobs:
         with:
           python-version: "3.10"
 
+      # ---- NEW: repo-agnostic constraints bootstrap (replaces ad-hoc conflict fixes) ----
+      - name: Bootstrap Python constraints (repo-agnostic)
+        env:
+          TARGET_ROOT: ${{ env.TARGET_ROOT }}
+        run: |
+          python -m pip install --upgrade "pip<25" wheel setuptools
+          python ci/py_stack_guard.py | tee /tmp/stack_env
+          grep -E '^(PIP_CONSTRAINT|TESTGEN_PIP_CONSTRAINTS)=' /tmp/stack_env >> $GITHUB_ENV
+          MODE="$(cat .stack_mode.txt)"
+          echo "Resolved stack mode: $MODE"
+          if [ "$MODE" = "legacy_flask" ]; then
+            python -m pip install -U -c .constraints.txt \
+              Flask<2.3 Werkzeug<2.3 Flask-SQLAlchemy<3 SQLAlchemy<2.0 \
+              Jinja2<3.1 itsdangerous<2.1 click<8.1 MarkupSafe<2.1
+          fi
+
       - name: Install system dependencies
         run: |
           sudo apt-get update -y
@@ -94,55 +104,43 @@ jobs:
             libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
             libxml2-dev libxslt1-dev curl
 
-      - name: Fix dependency version conflicts
+      - name: Install Python dependencies and tools (constrained)
         run: |
-          set -e
-          python -m pip install --upgrade pip wheel setuptools
-          pip install --force-reinstall \
-            "Jinja2>=3.0.0,<3.1.0" \
-            "MarkupSafe>=2.0.0,<2.1.0" \
-            "Flask>=2.0.0,<3.0.0" \
-            "click>=8.0.0,<8.1.0" \
-            "Werkzeug>=2.0.0,<2.3.0" \
-            "itsdangerous>=2.0.0,<2.2.0"
-
-      - name: Install Python dependencies with compatibility fixes
-        run: |
-          set -e
-          python -m pip install --upgrade pip wheel setuptools
-          pip install --force-reinstall \
+          python -m pip install --upgrade "pip<25" wheel setuptools
+          # Tooling (will honor PIP_CONSTRAINT if legacy)
+          pip install \
             pytest pytest-cov pytest-html pytest-json-report \
             coverage pytest-xdist pytest-timeout pytest-mock \
-            WebTest requests httpx
-          pip install --force-reinstall bandit flake8 black isort mypy || echo "Some tools failed"
-
-          install_filtered_requirements() {
+            WebTest requests httpx bandit flake8 black isort mypy \
+            typing-extensions psycopg2-binary || echo "Some tools failed"
+          # Target repo dependencies
+          install_requirements_file() {
             local req_file="$1"
             if [ -f "$req_file" ]; then
-              echo "Processing $req_file..."
-              grep -v -E "(^Flask==1\.|^Jinja2==2\.|^click==6\.|^click==7\.0|^MarkupSafe==1\.|^Werkzeug==0\.|^itsdangerous==1\.)" "$req_file" > /tmp/filtered_req.txt || true
-              if [ -s /tmp/filtered_req.txt ]; then
-                pip install -r /tmp/filtered_req.txt || echo "Some packages from $req_file failed to install"
-              fi
+              echo "Installing from $req_file (constrained via PIP_CONSTRAINT)..."
+              sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' "$req_file"
+              pip install -r "$req_file" || echo "Some packages from $req_file failed to install"
             fi
           }
-          install_filtered_requirements "target_repo/requirements.txt"
+          install_requirements_file "target_repo/requirements.txt"
           if ls target_repo/requirements/*.txt >/dev/null 2>&1; then
-            for f in target_repo/requirements/*.txt; do install_filtered_requirements "$f"; done
+            for f in target_repo/requirements/*.txt; do install_requirements_file "$f"; done
           fi
           if [ -f "target_repo/pyproject.toml" ] && grep -q "\[tool.poetry\]" target_repo/pyproject.toml; then
             pip install poetry || true
             (cd target_repo && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.req) || true
-            [ -s /tmp/poetry.req ] && install_filtered_requirements /tmp/poetry.req
+            [ -s /tmp/poetry.req ] && pip install -r /tmp/poetry.req || true
           fi
-          echo "Skipping editable installs"
 
+      - name: Print core versions
+        run: |
           python - <<'PY'
-          import flask, jinja2, click
-          print(f'Flask: {flask.__version__}')
-          print(f'Jinja2: {jinja2.__version__}')
-          print(f'Click: {click.__version__}')
-          print('✅ Core dependencies compatible')
+          import importlib
+          for n in ("flask","werkzeug","flask_sqlalchemy","sqlalchemy","jinja2","itsdangerous","click"):
+              try:
+                  m=importlib.import_module(n); print(f"{n}: {getattr(m,'__version__','?')}")
+              except Exception as e:
+                  print(f"{n}: not installed ({e})")
           PY
 
       - name: Create compatibility shims

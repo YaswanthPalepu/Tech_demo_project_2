@@ -80,7 +80,7 @@ jobs:
         with:
           python-version: "3.10"
 
-      # ---- NEW: repo-agnostic constraints bootstrap (replaces ad-hoc conflict fixes) ----
+      # ---- repo-agnostic constraints bootstrap ----
       - name: Bootstrap Python constraints (repo-agnostic)
         env:
           TARGET_ROOT: ${{ env.TARGET_ROOT }}
@@ -92,8 +92,8 @@ jobs:
           echo "Resolved stack mode: $MODE"
           if [ "$MODE" = "legacy_flask" ]; then
             python -m pip install -U -c .constraints.txt \
-              Flask<2.3 Werkzeug<2.3 Flask-SQLAlchemy<3 SQLAlchemy<2.0 \
-              Jinja2<3.1 itsdangerous<2.1 click<8.1 MarkupSafe<2.1
+              "Flask<2.3" "Werkzeug<2.3" "Flask-SQLAlchemy<3" "SQLAlchemy<2.0" \
+              "Jinja2<3.1" "itsdangerous<2.1" "click<8.1" "MarkupSafe<2.1"
           fi
 
       - name: Install system dependencies

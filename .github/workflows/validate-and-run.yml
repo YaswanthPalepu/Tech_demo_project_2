@@ -1,10 +1,10 @@
 name: Test Validation & Quality Analysis
 
 on:
-  # Run automatically only after the AI Test Generation pipeline finishes
-  workflow_run:
-    workflows: ["AI Test Generation"]
-    types: [completed]
+  # # Run automatically only after the AI Test Generation pipeline finishes
+  # workflow_run:
+  #   workflows: ["AI Test Generation"]
+  #   types: [completed]
 
   # Optional: still allow manual runs
   workflow_dispatch:

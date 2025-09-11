@@ -35,14 +35,12 @@ jobs:
 
       TESTGEN_PROMPT_STYLE: ${{ github.event.inputs.prompt_style || 'ultra_bare' }}
 
-      # DB fallbacks for import-time engines (used only by RELAXED bootstrap; tests default to strict)
       DATABASE_URL: "sqlite:///:memory:"
       DB_URL: "sqlite:///:memory:"
       SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
 
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_NO_INPUT: "1"
-
       TESTGEN_STRICT: "1"
 
     steps:
@@ -91,7 +89,6 @@ jobs:
             libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
             libxml2-dev libxslt1-dev curl
 
-      # Install EXACTLY what the target repo declares
       - name: Install target repository dependencies (respect pins/locks; auto-fix psycopg2)
         run: |
           set -e
@@ -129,8 +126,8 @@ jobs:
             echo "Installing from requirement sources (with psycopg2 fix):"
             for rf in "${REQ_FILES[@]}"; do
               echo "Processing $rf"
-              # Replace psycopg2 pin with psycopg2-binary
-              sed -E 's/^psycopg2([^a-zA-Z0-9._-]|$)/psycopg2-binary\1/' "$rf" > /tmp/req.fixed.txt
+              # Replace psycopg2 pin with psycopg2-binary>=2.9
+              sed -E 's/^psycopg2([^a-zA-Z0-9._-]|$)/psycopg2-binary>=2.9\1/' "$rf" > /tmp/req.fixed.txt
               pip install -r /tmp/req.fixed.txt
             done
           fi
@@ -138,7 +135,6 @@ jobs:
           if [ -f "setup.py" ] || [ -f "setup.cfg" ] || [ -f "pyproject.toml" ]; then
             pip install -e .
           fi
-
 
       - name: Freeze environment as constraints for any extra installs
         run: |
@@ -150,7 +146,6 @@ jobs:
 
       - name: Install minimal tooling (constrained; won’t upgrade project deps)
         run: |
-          # only-if-needed prevents unintentional upgrades; constraints forbid drift
           python -m pip install --upgrade-strategy only-if-needed -c /tmp/final.constraints.txt pytest pytest-cov "openai>=1.51.0"
 
       - name: Show key package versions (debug)

@@ -27,7 +27,8 @@ on:
         default: "comprehensive"
         type: choice
         options: [basic, standard, comprehensive]
-
+  push:
+    branches: [ test ]
 defaults:
   run:
     shell: bash

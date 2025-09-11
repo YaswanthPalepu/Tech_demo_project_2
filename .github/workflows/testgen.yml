@@ -128,7 +128,7 @@ jobs:
               echo "Processing $rf"
               # Fix psycopg2 and rewrite relative includes
               sed -E 's/^psycopg2([[:space:]]*([<>=!]=[^[:space:]]+)*)?/psycopg2-binary>=2.9/' "$rf" \
-                | sed -E "s|^-r[[:space:]]*| -r $(dirname "$rf")/|" \
+                | sed -E "s|^-r[[:space:]]*([^\s]+)|-r $(dirname "$rf")/\1|" \
                 > /tmp/req.fixed.txt
               pip install -r /tmp/req.fixed.txt
             done

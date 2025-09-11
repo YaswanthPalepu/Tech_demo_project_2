@@ -29,8 +29,8 @@ on:
         options: [basic, standard, comprehensive]
 
 # IMPORTANT: remove push trigger so this workflow doesn't run independently
-# push:
-#   branches: [ test ]
+  push:
+    branches: [ test ]
 
 defaults:
   run:

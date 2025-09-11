@@ -94,31 +94,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip wheel setuptools
           # Try installing target's dependencies FIRST (best effort)
-          if [ -f "target/requirements.txt" ]; then pip install -r target/requirements.txt || true; fi
-          if ls target/requirements/*.txt >/dev/null 2>&1; then pip install -r target/requirements/*.txt || true; fi
-          if [ -f "target/pyproject.toml" ] && grep -q "\[tool.poetry\]" target/pyproject.toml; then
-            pip install poetry || true
-            (cd target && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req) || true
-            if [ -s /tmp/poetry.lock.req ]; then pip install -r /tmp/poetry.lock.req || true; fi
+          if [ -f "target/requirements.txt" ]; then
+            sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' target/requirements.txt || true
+            pip install -r target/requirements.txt || true
           fi
-          if [ -f "target/pyproject.toml" ] && grep -q "\[tool.pdm\]" target/pyproject.toml; then
-            pip install pdm || true
-            (cd target && pdm export -o /tmp/pdm.lock.req --without-hashes --dev) || true
-            if [ -s /tmp/pdm.lock.req ]; then pip install -r /tmp/pdm.lock.req || true; fi
+          if ls target/requirements/*.txt >/dev/null 2>&1; then
+            sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' target/requirements/*.txt || true
+            pip install -r target/requirements/*.txt || true
           fi
-          if [ -f "target/Pipfile.lock" ] || [ -f "target/Pipfile" ]; then
-            pip install pipenv || true
-            (cd target && pipenv requirements > /tmp/pipenv.lock.req) || true
-            if [ -s /tmp/pipenv.lock.req ]; then pip install -r /tmp/pipenv.lock.req || true; fi
-          fi
-          if [ -f "target/setup.py" ] || [ -f "target/setup.cfg" ]; then
-            pip install -e target || true
-          fi
-
+          ...
           # Core test tooling + Azure OpenAI SDK (new API) + common backend libs used by tests
           pip install "openai>=1.51.0" pytest pytest-cov httpx requests \
                       "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" "annotated-types>=0.6" \
-                      "uvicorn>=0.23" "SQLAlchemy>=2" "typing-extensions>=4.8"
+                      "uvicorn>=0.23" "SQLAlchemy>=2" "typing-extensions>=4.8" psycopg2-binary
+
 
       - name: Analyze target codebase -> /tmp/analysis.json
         run: |

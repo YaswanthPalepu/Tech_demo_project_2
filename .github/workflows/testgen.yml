@@ -89,7 +89,7 @@ jobs:
             libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
             libxml2-dev libxslt1-dev curl
 
-      - name: Install target repository dependencies (respect pins/locks; auto-fix psycopg2)
+      - name: Install target repository dependencies (respect pins/locks; auto-fix psycopg2 and includes)
         run: |
           set -e
           cd target
@@ -123,11 +123,13 @@ jobs:
           if [ "${#REQ_FILES[@]}" -eq 0 ]; then
             echo "No explicit requirement files found."
           else
-            echo "Installing from requirement sources (with psycopg2 fix):"
+            echo "Installing from requirement sources (with psycopg2 + -r fixes):"
             for rf in "${REQ_FILES[@]}"; do
               echo "Processing $rf"
-              # Force psycopg2 to psycopg2-binary>=2.9 (drop old version pins)
-              sed -E 's/^psycopg2([[:space:]]*([<>=!]=[^[:space:]]+)*)?/psycopg2-binary>=2.9/' "$rf" > /tmp/req.fixed.txt
+              # Fix psycopg2 and rewrite relative includes
+              sed -E 's/^psycopg2([[:space:]]*([<>=!]=[^[:space:]]+)*)?/psycopg2-binary>=2.9/' "$rf" \
+                | sed -E "s|^-r[[:space:]]*| -r $(dirname "$rf")/|" \
+                > /tmp/req.fixed.txt
               pip install -r /tmp/req.fixed.txt
             done
           fi

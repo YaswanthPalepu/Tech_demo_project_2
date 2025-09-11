@@ -90,34 +90,48 @@ jobs:
       - name: Install Python deps (tooling + target libs)
         run: |
           python -m pip install --upgrade pip wheel setuptools
-          
-          # --- Handle target requirements.txt (replace psycopg2 → psycopg2-binary) ---
+
+          # --- Prefer requirements files; sanitize psycopg2 -> psycopg2-binary everywhere ---
           if [ -f "target/requirements.txt" ]; then
             sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' target/requirements.txt
             pip install -r target/requirements.txt || true
           fi
 
-          # --- Handle other dependency managers if present ---
+          if compgen -G "target/requirements/*.txt" > /dev/null; then
+            for f in target/requirements/*.txt; do
+              echo "Installing from $f"
+              sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' "$f"
+              pip install -r "$f" || true
+            done
+          fi
+
+          # --- Optional: Poetry/PDM (kept), but Pipenv DISABLED to avoid legacy pins ---
           if [ -f "target/pyproject.toml" ] && grep -q "\[tool.poetry\]" target/pyproject.toml; then
             pip install poetry || true
             (cd target && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req) || true
-            if [ -s /tmp/poetry.lock.req ]; then pip install -r /tmp/poetry.lock.req || true; fi
+            if [ -s /tmp/poetry.lock.req ]; then
+              sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' /tmp/poetry.lock.req
+              pip install -r /tmp/poetry.lock.req || true
+            fi
           fi
           if [ -f "target/pyproject.toml" ] && grep -q "\[tool.pdm\]" target/pyproject.toml; then
             pip install pdm || true
             (cd target && pdm export -o /tmp/pdm.lock.req --without-hashes --dev) || true
-            if [ -s /tmp/pdm.lock.req ]; then pip install -r /tmp/pdm.lock.req || true; fi
+            if [ -s /tmp/pdm.lock.req ]; then
+              sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' /tmp/pdm.lock.req
+              pip install -r /tmp/pdm.lock.req || true
+            fi
           fi
-          if [ -f "target/Pipfile" ]; then
-            pip install pipenv || true
-            (cd target && pipenv requirements > /tmp/pipenv.lock.req) || true
-            if [ -s /tmp/pipenv.lock.req ]; then pip install -r /tmp/pipenv.lock.req || true; fi
-          fi
+
+          # --- DO NOT use Pipenv exports (they pin legacy psycopg2==2.7.5, Flask 1.x, etc.) ---
+          # if [ -f "target/Pipfile" ]; then ... fi   # intentionally omitted
+
+          # --- Editable install if present (best-effort) ---
           if [ -f "target/setup.py" ] || [ -f "target/setup.cfg" ]; then
             pip install -e target || true
           fi
 
-          # --- Core testing + common backend libs (ensure psycopg2-binary is present) ---
+          # --- Core testing + common backend libs; ensure psycopg2-binary present ---
           pip install "openai>=1.51.0" pytest pytest-cov httpx requests \
                       "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" "annotated-types>=0.6" \
                       "uvicorn>=0.23" "SQLAlchemy>=2" "typing-extensions>=4.8" psycopg2-binary
@@ -132,7 +146,6 @@ jobs:
         run: |
           python - <<'PY'
           import os, json
-          from pathlib import Path
           import src.generator as g
           analysis = json.load(open('/tmp/analysis.json'))
           outdir = os.environ['OUTDIR']

@@ -28,29 +28,25 @@ jobs:
     permissions:
       contents: write
     env:
-      # ---- Azure OpenAI (new SDK) ----
       AZURE_OPENAI_KEY:         ${{ secrets.AZURE_OPENAI_KEY         || secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT    || secrets.AZURE_OPENAI_API_ENDPOINT }}
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION || secrets.OPENAI_API_VERSION }}
       AZURE_OPENAI_DEPLOYMENT:  ${{ secrets.AZURE_OPENAI_DEPLOYMENT  || secrets.OPENAI_DEPLOYMENT }}
 
-      # Prompt style for your generator
       TESTGEN_PROMPT_STYLE: ${{ github.event.inputs.prompt_style || 'ultra_bare' }}
 
-      # Safe DB defaults for import-time engines (used only by RELAXED bootstrap)
+      # DB fallbacks for import-time engines (used only by RELAXED bootstrap; tests default to strict)
       DATABASE_URL: "sqlite:///:memory:"
       DB_URL: "sqlite:///:memory:"
       SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
 
-      # Make pip quieter & faster in CI
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_NO_INPUT: "1"
 
-      # Keep tests strict by default (no silent stubbing)
       TESTGEN_STRICT: "1"
 
     steps:
-      - name: Checkout pipeline repo (contains src/* and this workflow)
+      - name: Checkout this repo (contains src/* and workflow)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -95,57 +91,75 @@ jobs:
             libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
             libxml2-dev libxslt1-dev curl
 
-      - name: Install target repository dependencies (exact)
+      # Install EXACTLY what the target repo declares
+      - name: Install target repository dependencies (respect pins/locks; loop each -r)
         run: |
           set -e
           cd target
           python -m pip install --upgrade pip wheel setuptools
-          # Prefer repo's own lock/pins in this order
-          if [ -f "requirements.txt" ]; then
-            pip install -r requirements.txt
-          fi
-          if ls requirements/*.txt >/dev/null 2>&1; then
-            # install additional requirement files if present
-            pip install -r requirements/*.txt
-          fi
-          if [ -f "pyproject.toml" ] && grep -q "\[tool.poetry\]" pyproject.toml; then
-            pip install poetry
-            poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req
-            if [ -s /tmp/poetry.lock.req ]; then pip install -r /tmp/poetry.lock.req; fi
-          fi
-          if [ -f "pyproject.toml" ] && grep -q "\[tool.pdm\]" pyproject.toml; then
-            pip install pdm
-            pdm export -o /tmp/pdm.lock.req --without-hashes --dev
-            if [ -s /tmp/pdm.lock.req ]; then pip install -r /tmp/pdm.lock.req; fi
-          fi
+
+          # Determine all requirement sources with a stable priority:
+          # 1) Pipenv lock, 2) Poetry export, 3) PDM export, 4) requirements*.txt, 5) requirements.txt
+          REQ_FILES=()
+
           if [ -f "Pipfile.lock" ] || [ -f "Pipfile" ]; then
-            pip install pipenv
-            pipenv requirements > /tmp/pipenv.lock.req
-            if [ -s /tmp/pipenv.lock.req ]; then pip install -r /tmp/pipenv.lock.req; fi
+            pip install pipenv || true
+            pipenv requirements > /tmp/req.pipenv.txt || true
+            [ -s /tmp/req.pipenv.txt ] && REQ_FILES+=("/tmp/req.pipenv.txt")
           fi
-          # Editable install (if applicable) so imports resolve exactly as the project expects
+
+          if [ -f "pyproject.toml" ] && grep -q "\[tool.poetry\]" pyproject.toml; then
+            pip install poetry || true
+            poetry export -f requirements.txt --without-hashes -o /tmp/req.poetry.txt || true
+            [ -s /tmp/req.poetry.txt ] && REQ_FILES+=("/tmp/req.poetry.txt")
+          fi
+
+          if [ -f "pyproject.toml" ] && grep -q "\[tool.pdm\]" pyproject.toml; then
+            pip install pdm || true
+            pdm export -o /tmp/req.pdm.txt --without-hashes --dev || true
+            [ -s /tmp/req.pdm.txt ] && REQ_FILES+=("/tmp/req.pdm.txt")
+          fi
+
+          if ls requirements/*.txt >/dev/null 2>&1; then
+            for f in requirements/*.txt; do REQ_FILES+=("$f"); done
+          fi
+          [ -f "requirements.txt" ] && REQ_FILES+=("requirements.txt")
+
+          if [ "${#REQ_FILES[@]}" -eq 0 ]; then
+            echo "No explicit requirement files found."
+          else
+            echo "Installing from requirement sources:"
+            printf ' - %s\n' "${REQ_FILES[@]}"
+            while IFS= read -r rf; do
+              [ -z "$rf" ] && continue
+              echo "pip install -r $rf"
+              pip install -r "$rf"
+            done < <(printf '%s\n' "${REQ_FILES[@]}")
+          fi
+
+          # Editable install (if applicable) so imports behave like the project expects
           if [ -f "setup.py" ] || [ -f "setup.cfg" ] || [ -f "pyproject.toml" ]; then
             pip install -e .
           fi
 
-      - name: Lock environment as constraints for any extra installs
+      - name: Freeze environment as constraints for any extra installs
         run: |
-          pip freeze > /tmp/project.constraints.txt
-          echo "PIP_CONSTRAINT=/tmp/project.constraints.txt" >> $GITHUB_ENV
-          echo "TESTGEN_PIP_CONSTRAINTS=/tmp/project.constraints.txt" >> $GITHUB_ENV
+          pip freeze > /tmp/final.constraints.txt
+          echo "PIP_CONSTRAINT=/tmp/final.constraints.txt" >> $GITHUB_ENV
+          echo "TESTGEN_PIP_CONSTRAINTS=/tmp/final.constraints.txt" >> $GITHUB_ENV
           echo "Created constraints snapshot:"
-          head -n 30 /tmp/project.constraints.txt || true
+          head -n 40 /tmp/final.constraints.txt || true
 
-      - name: Install minimal tooling (constrained)
+      - name: Install minimal tooling (constrained; won’t upgrade project deps)
         run: |
-          # Keep extra deps minimal; they will be constrained by PIP_CONSTRAINT
-          pip install "openai>=1.51.0" pytest pytest-cov
+          # only-if-needed prevents unintentional upgrades; constraints forbid drift
+          python -m pip install --upgrade-strategy only-if-needed -c /tmp/final.constraints.txt pytest pytest-cov "openai>=1.51.0"
 
       - name: Show key package versions (debug)
         run: |
           python - <<'PY'
           import importlib
-          pkgs = ["flask","werkzeug","jinja2","markupsafe","itsdangerous","click",
+          pkgs = ["flask","django","werkzeug","jinja2","markupsafe","itsdangerous","click",
                   "flask_sqlalchemy","flask_migrate","sqlalchemy","pytest","openai"]
           for n in pkgs:
               try:
@@ -159,21 +173,18 @@ jobs:
         run: |
           python -m src.analyzer --root target > /tmp/analysis.json
 
-      - name: Generate tests (smart change detection inside generator)
+      - name: Generate tests (smart change detection; generator respects constraints)
         env:
           TARGET_ROOT: target
           FORCE: ${{ github.event.inputs.force_gen || 'false' }}
-          # pass constraints to generator for any inferred installs
-          TESTGEN_PIP_CONSTRAINTS: /tmp/project.constraints.txt
+          TESTGEN_PIP_CONSTRAINTS: /tmp/final.constraints.txt
         run: |
           python - <<'PY'
           import os, json
           import src.generator as g
           analysis = json.load(open('/tmp/analysis.json'))
           outdir = os.environ['OUTDIR']
-          force = os.environ.get('FORCE', 'false').lower() == 'true'
-          if force:
-              print("Force flag ON (note: generator must honor TESTGEN_FORCE to actually bypass skipping).")
+          if (os.environ.get('FORCE','false').lower()=='true'):
               os.environ['TESTGEN_FORCE'] = 'true'
           g.generate_all(analysis, outdir=outdir, focus_files=None)
           PY
@@ -206,21 +217,16 @@ jobs:
           cd target
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           if [ -z "$GH_PAT3" ]; then
             echo "GH_PAT3 not set — skipping push step."
             exit 0
           fi
-
-          # Point origin to tokened URL for push
           git remote set-url origin "https://x-access-token:${GH_PAT3}@github.com/${REPO_PATH}.git"
-
           git add tests/generated || true
           if git diff --staged --quiet; then
             echo "No changes to commit"
             exit 0
           fi
-
           git commit -m "chore(testgen): update generated tests [skip ci]" || true
           git pull --rebase origin "${DEFAULT_BRANCH}" || true
           git push origin HEAD:"${DEFAULT_BRANCH}"

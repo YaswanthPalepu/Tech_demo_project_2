@@ -4,12 +4,9 @@ from typing import Dict, Any, List, Tuple, Set, Optional
 from openai import AzureOpenAI, RateLimitError  # openai>=1.0.0
 import hashlib
 
-# --------------------------------------------------------------------
-# Prompt style: set TESTGEN_PROMPT_STYLE=ultra_bare to avoid heavy templates
-# --------------------------------------------------------------------
 PROMPT_STYLE = os.getenv("TESTGEN_PROMPT_STYLE", "ultra_bare").strip().lower()
+REPO_ROOT = pathlib.Path(".").resolve()
 
-# ---------------- Minimal Azure OpenAI helpers ----------------
 def _get_any_env(*names: str) -> str:
     for n in names:
         v = os.getenv(n)
@@ -28,11 +25,7 @@ def _deployment_name() -> str:
     return _get_any_env("AZURE_OPENAI_DEPLOYMENT", "OPENAI_DEPLOYMENT")
 
 def _chat_completion_create(client: AzureOpenAI, deployment: str, messages: list):
-    # No temperature/max_tokens; let Azure defaults apply
     return client.chat.completions.create(model=deployment, messages=messages)
-
-# ---------------- Path helpers ----------------
-REPO_ROOT = pathlib.Path(".").resolve()
 
 def _norm_rel(p: str) -> str:
     try:
@@ -54,7 +47,6 @@ def _norm_rel(p: str) -> str:
 def _basename_set(paths: Set[str]) -> Set[str]:
     return {pathlib.Path(p).name for p in paths}
 
-# ---------------- Enhanced Change Detection ----------------
 def _compute_content_hash(content: str) -> str:
     return hashlib.sha256(content.encode('utf-8')).hexdigest()
 
@@ -98,7 +90,6 @@ def _save_current_state(manifest_path: pathlib.Path, current_state: Dict[str, An
 def _detect_detailed_changes(target_root: pathlib.Path, manifest_path: pathlib.Path) -> Tuple[Set[str], Set[str], Set[str]]:
     previous_state = _load_previous_state(manifest_path)
     current_state = {}
-
     for py_file in target_root.rglob("*.py"):
         if any(part.startswith('.') for part in py_file.parts):
             continue
@@ -110,9 +101,7 @@ def _detect_detailed_changes(target_root: pathlib.Path, manifest_path: pathlib.P
             "file_hash": _compute_content_hash(py_file.read_text(encoding='utf-8')),
             "signatures": signatures
         }
-
     added_or_modified, deleted, unchanged = set(), set(), set()
-
     for file_path, current_info in current_state.items():
         if file_path not in previous_state:
             added_or_modified.add(file_path)
@@ -127,15 +116,12 @@ def _detect_detailed_changes(target_root: pathlib.Path, manifest_path: pathlib.P
                     unchanged.add(file_path)
             else:
                 unchanged.add(file_path)
-
     for file_path in previous_state:
         if file_path not in current_state:
             deleted.add(file_path)
-
     _save_current_state(manifest_path, current_state)
     return added_or_modified, deleted, unchanged
 
-# ---------------- Test File Management ----------------
 def _find_related_test_files(outdir: pathlib.Path, source_file: str) -> List[pathlib.Path]:
     related_tests = []
     source_path = pathlib.Path(source_file)
@@ -161,22 +147,18 @@ def _cleanup_deleted_tests(outdir: pathlib.Path, deleted_files: Set[str]):
                 print(f"Warning: Could not remove {test_file}: {e}")
 
 def _create_enhanced_conftest(outdir: pathlib.Path) -> str:
-    """Create an enhanced conftest.py that handles compatibility issues but stays strict on failures."""
     conftest_content = '''import pytest
 import sys
 import os
 import warnings
 
-# Suppress noisy deprecation warnings that clutter CI logs
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
 
-# Add project root to Python path (tests/ directory is the working dir)
 project_root = os.path.dirname(os.path.abspath(__file__))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# ---- Compatibility shims (safe) ----
 def _fix_jinja2_compatibility():
     try:
         import jinja2
@@ -217,16 +199,10 @@ _fix_jinja2_compatibility()
 _fix_collections_compatibility()
 _fix_flask_compatibility()
 
-# NOTE: We DO NOT force database URLs here; misconfig should fail loudly in strict mode.
-# We only disable CSRF to make form tests simpler.
 os.environ.setdefault('WTF_CSRF_ENABLED', 'False')
 
 @pytest.fixture
 def app():
-    """
-    Attempt to locate a Flask app or factory in common places.
-    If not found, tests that rely on it will skip explicitly.
-    """
     try:
         candidates = [
             ('conduit.app', 'create_app'),
@@ -266,7 +242,6 @@ def client(app):
     conftest_path.write_text(conftest_content, encoding="utf-8")
     return str(conftest_path)
 
-# ---------------- Sanitizers & validators ----------------
 def _extract_python_only(text: str) -> str:
     if "```" in text:
         blocks = re.findall(r"```(?:python)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
@@ -289,7 +264,6 @@ def _validate_code(code: str) -> Tuple[bool, str]:
         return False, f"syntax error: {e}"
     return True, ""
 
-# --- Filter brittle patterns ---
 BANNED_IMPORT_SUBSTRS = ["_pytest", "pytest._code"]
 BRITTLE_SNIPPETS = [r"assert\s+repr\(", r"\.fullsource\b", r"\.source\b", r"0x[0-9a-fA-F]+"]
 
@@ -301,10 +275,8 @@ def _ensure_pytest_import(text: str) -> str:
 def _skip_brittle_test_functions(code: str) -> str:
     lines = code.splitlines()
     out, current = [], []
-
     def is_test_header(s: str) -> bool:
         return TEST_FUNC_RE.match(s) is not None
-
     def needs_skip(block: List[str]) -> bool:
         txt = "\n".join(block)
         if any(re.search(pat, txt) for pat in BRITTLE_SNIPPETS):
@@ -312,31 +284,23 @@ def _skip_brittle_test_functions(code: str) -> str:
         if any(sub in txt for sub in BANNED_IMPORT_SUBSTRS):
             return True
         return False
-
     i = 0
     while i < len(lines):
         line = lines[i]
         if is_test_header(line):
             if current:
-                out.extend(current)
-                current = []
-            func_lines = [line]
-            i += 1
+                out.extend(current); current = []
+            func_lines = [line]; i += 1
             while i < len(lines) and not is_test_header(lines[i]):
-                func_lines.append(lines[i])
-                i += 1
+                func_lines.append(lines[i]); i += 1
             if needs_skip(func_lines):
                 out.append("@pytest.mark.skip(reason='auto-skip brittle assertion/import from generator')")
             out.extend(func_lines)
         else:
-            current.append(line)
-            i += 1
-
-    if current:
-        out.extend(current)
+            current.append(line); i += 1
+    if current: out.extend(current)
     text = "\n".join(out)
-    if not text.endswith("\n"):
-        text += "\n"
+    if not text.endswith("\n"): text += "\n"
     return _ensure_pytest_import(text)
 
 def _header_guard_for_banned_imports(code: str) -> str:
@@ -347,7 +311,6 @@ def _header_guard_for_banned_imports(code: str) -> str:
         ) + code
     return code
 
-# ---------------- Analysis compaction ----------------
 def _dedupe_keep(items: List[Dict[str, str]], key: str, limit: int = None) -> List[Dict[str, str]]:
     seen, out = set(), []
     for it in items or []:
@@ -373,40 +336,17 @@ def _compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
         "modules": sorted(set(analysis.get("modules", []))),
     }
 
-# ---------------- Enhanced Dependency Management ----------------
 COMMON_PKG_ALIASES = {
-    "bs4": "beautifulsoup4",
-    "yaml": "PyYAML",
-    "cv2": "opencv-python",
-    "sklearn": "scikit-learn",
-    "PIL": "Pillow",
-    "Crypto": "pycryptodome",
-    "MySQLdb": "mysqlclient",
-    "mysql": "mysqlclient",
-    "psycopg2": "psycopg2-binary",
-    "boto3": "boto3",
-    "httpx": "httpx",
-    "requests": "requests",
-    "uvicorn": "uvicorn",
-    "fastapi": "fastapi",
-    "starlette": "starlette",
-    "pydantic": "pydantic",
-    "typing_extensions": "typing-extensions",
-    "annotated_types": "annotated-types",
-    "sqlalchemy": "SQLAlchemy",
-    "flask": "flask",
-    "django": "Django",
-    "click": "click",
-    "typer": "typer",
-    "jinja2": "Jinja2",
-    "ujson": "ujson",
-    "orjson": "orjson",
-    "pymongo": "pymongo",
-    "redis": "redis",
-    "pytest": "pytest",
-    "jwt": "PyJWT",
-    "markupsafe": "MarkupSafe",
+    "bs4": "beautifulsoup4", "yaml": "PyYAML", "cv2": "opencv-python", "sklearn": "scikit-learn",
+    "PIL": "Pillow", "Crypto": "pycryptodome", "MySQLdb": "mysqlclient", "mysql": "mysqlclient",
+    "psycopg2": "psycopg2-binary", "boto3": "boto3", "httpx": "httpx", "requests": "requests",
+    "uvicorn": "uvicorn", "fastapi": "fastapi", "starlette": "starlette", "pydantic": "pydantic",
+    "typing_extensions": "typing-extensions", "annotated_types": "annotated-types", "sqlalchemy": "SQLAlchemy",
+    "flask": "flask", "django": "Django", "click": "click", "typer": "typer", "jinja2": "Jinja2",
+    "ujson": "ujson", "orjson": "orjson", "pymongo": "pymongo", "redis": "redis", "pytest": "pytest",
+    "jwt": "PyJWT", "markupsafe": "MarkupSafe",
 }
+VERSION_CONSTRAINTS: Dict[str, str] = {}  # no opinionated pins here
 
 VALID_PIP_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 DENY_TOPS = {
@@ -425,11 +365,11 @@ def _is_stdlib(name: str) -> bool:
         if stdmods:
             return name in stdmods
         return name in {
-            "os", "sys", "re", "json", "pathlib", "math", "itertools", "functools", "typing", "subprocess",
-            "datetime", "time", "collections", "dataclasses", "ast", "logging", "unittest", "argparse",
-            "asyncio", "multiprocessing", "threading", "sqlite3", "email", "http", "urllib", "hashlib",
-            "hmac", "base64", "statistics", "random", "fractions", "decimal", "csv", "shutil", "tempfile",
-            "glob", "inspect", "traceback", "textwrap", "string", "pprint", "enum", "types"
+            "os","sys","re","json","pathlib","math","itertools","functools","typing","subprocess",
+            "datetime","time","collections","dataclasses","ast","logging","unittest","argparse",
+            "asyncio","multiprocessing","threading","sqlite3","email","http","urllib","hashlib",
+            "hmac","base64","statistics","random","fractions","decimal","csv","shutil","tempfile",
+            "glob","inspect","traceback","textwrap","string","pprint","enum","types"
         }
     except Exception:
         return False
@@ -452,11 +392,7 @@ def _infer_required_packages(compact: Dict[str, Any]) -> List[str]:
     needed: Set[str] = set()
     for m in mods:
         top = (m.split(".")[0] or "").strip()
-        if not top:
-            continue
-        if top in DENY_TOPS:
-            continue
-        if top.startswith("_") or "__" in top:
+        if not top or top in DENY_TOPS or top.startswith("_") or "__" in top:
             continue
         if any(c.isupper() for c in top):
             continue
@@ -466,29 +402,37 @@ def _infer_required_packages(compact: Dict[str, Any]) -> List[str]:
             continue
         pkg = COMMON_PKG_ALIASES.get(top, top)
         needed.add(pkg)
-
-    # No version guesses here—respect constraints (see _pip_install).
-    return sorted(needed)
+    constrained_packages = []
+    for pkg in sorted(needed):
+        pin = VERSION_CONSTRAINTS.get(pkg.lower())
+        constrained_packages.append(f"{pkg}{pin}" if pin else pkg)
+    # small ecosystem glue (no extra pins)
+    pkg_names = {p.lower() for p in needed}
+    if "fastapi" in pkg_names:
+        needed.update({"starlette", "pydantic"})
+    return constrained_packages
 
 def _pip_install(packages: List[str]) -> None:
+    """
+    Install additional packages **without** upgrading the project's stack.
+    Honors TESTGEN_PIP_CONSTRAINTS or PIP_CONSTRAINT if provided by the workflow.
+    """
     if not packages:
         print("📦 No third-party packages inferred from imports.")
         return
+    constraints = os.getenv("TESTGEN_PIP_CONSTRAINTS") or os.getenv("PIP_CONSTRAINT")
     print("📦 Installing packages:", ", ".join(packages))
     try:
-        # Respect constraints if provided
-        constraints = os.getenv("TESTGEN_PIP_CONSTRAINTS") or os.getenv("PIP_CONSTRAINT")
-        cmd = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-input"]
-        if constraints and pathlib.Path(constraints).exists():
+        cmd = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--upgrade-strategy", "only-if-needed"]
+        if constraints:
             cmd += ["-c", constraints]
-            print(f"🔒 Using constraints file: {constraints}")
+            print(f"    using constraints: {constraints}")
         cmd += packages
         subprocess.check_call(cmd)
         print("✅ Package installation completed successfully")
     except subprocess.CalledProcessError as e:
         print(f"⚠️ pip install failed with exit code {e.returncode} (continuing; tests may skip).")
 
-# ---------------- Sharding helpers ----------------
 def _partition(lst: List[Dict[str, str]], n_parts: int) -> List[List[Dict[str, str]]]:
     if not lst:
         return [[] for _ in range(n_parts)]
@@ -531,29 +475,22 @@ def _focus_for_shard(compact: Dict[str, Any], kind: str, shard_idx: int, total: 
     names = _partition_targets(targets, total, shard_idx)
     return (", ".join(names) if names else "(none)"), names
 
-# ---------------- Filtering analysis by changed files ----------------
 def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Set[str]]) -> Tuple[Dict[str, Any], bool]:
     if not focus_files:
         return analysis, False
-
     focus_norm: Set[str] = {_norm_rel(f) for f in focus_files}
     focus_basenames = _basename_set(focus_norm)
-
     def keep(entry: Dict[str, Any]) -> bool:
         f = entry.get("file") or ""
         fn = _norm_rel(f)
-        if fn in focus_norm:
-            return True
-        if any(fn.endswith("/" + rel) for rel in focus_norm):
-            return True
-        if pathlib.Path(fn).name in focus_basenames:
-            return True
+        if fn in focus_norm: return True
+        if any(fn.endswith("/" + rel) for rel in focus_norm): return True
+        if pathlib.Path(fn).name in focus_basenames: return True
         return False
-
     filt = {
         "functions": [d for d in (analysis.get("functions") or []) if keep(d)],
-        "classes": [d for d in (analysis.get("classes") or []) if keep(d)],
-        "routes": [d for d in (analysis.get("routes") or []) if keep(d)],
+        "classes":   [d for d in (analysis.get("classes")  or []) if keep(d)],
+        "routes":    [d for d in (analysis.get("routes")   or []) if keep(d)],
         "modules": analysis.get("modules", []),
     }
     if not (filt["functions"] or filt["classes"] or filt["routes"]):
@@ -561,7 +498,6 @@ def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Se
         return analysis, True
     return filt, False
 
-# ---------------- Enhanced Universal Bootstrap (STRICT by default) ----------------
 def _enhanced_universal_bootstrap(compact: Dict[str, Any]) -> str:
     tops: List[str] = []
     for m in compact.get("modules") or []:
@@ -570,36 +506,19 @@ def _enhanced_universal_bootstrap(compact: Dict[str, Any]) -> str:
             tops.append(top)
     tops = sorted(set(tops))
     tops_lit = repr(tops)
-
-    py2_alias_map = {
-        "ConfigParser": "configparser",
-        "Queue": "queue",
-        "StringIO": "io",
-        "cStringIO": "io",
-        "urllib2": "urllib.request",
-    }
-    py2_alias_map_lit = repr(py2_alias_map)
-
+    py2_alias_map_lit = repr({"ConfigParser":"configparser","Queue":"queue","StringIO":"io","cStringIO":"io","urllib2":"urllib.request"})
     return f'''# --- ENHANCED UNIVERSAL BOOTSTRAP ---
-import os, sys, importlib as _importlib, importlib.util as _iu, importlib.machinery as _im, types as _types, pytest as _pytest, builtins as _builtins, importlib.util
+import os, sys, importlib as _importlib, importlib.util as _iu, importlib.machinery as _im, types as _types, pytest as _pytest, builtins as _builtins
 import warnings
-
-# Strict mode: default ON (1). Set TESTGEN_STRICT=0 to relax locally.
 STRICT = os.getenv("TESTGEN_STRICT", "1").lower() in ("1","true","yes")
-
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
-
 _target = os.environ.get("TARGET_ROOT") or os.environ.get("ANALYZE_ROOT") or "target"
 if _target and os.path.exists(_target):
-    if _target not in sys.path:
-        sys.path.insert(0, _target)
-    try:
-        os.chdir(_target)
-    except Exception:
-        pass
+    if _target not in sys.path: sys.path.insert(0, _target)
+    try: os.chdir(_target)
+    except Exception: pass
 _TARGET_ABS = os.path.abspath(_target)
-
 def _exc_lookup(name, default):
     try:
         mod_name, _, cls_name = str(name).rpartition(".")
@@ -609,7 +528,6 @@ def _exc_lookup(name, default):
         return getattr(sys.modules.get("builtins"), str(name), default)
     except Exception:
         return default
-
 def _apply_compatibility_fixes():
     try:
         import jinja2
@@ -634,245 +552,147 @@ def _apply_compatibility_fixes():
     except ImportError:
         pass
     try:
-        import collections as _collections
-        import collections.abc as _abc
+        import collections as _collections, collections.abc as _abc
         for _n in ('Mapping','MutableMapping','Sequence','Iterable','Container','MutableSequence','Set','MutableSet'):
             if not hasattr(_collections, _n) and hasattr(_abc, _n):
                 setattr(_collections, _n, getattr(_abc, _n))
     except Exception:
         pass
 _apply_compatibility_fixes()
-
-# Attribute adapter (dangerous): only in RELAXED mode
 _ADAPTED_MODULES = set()
 def _attach_module_getattr(_m):
     try:
-        if getattr(_m, "__name__", None) in _ADAPTED_MODULES:
-            return
+        if getattr(_m, "__name__", None) in _ADAPTED_MODULES: return
         mfile = getattr(_m, "__file__", "") or ""
-        if not mfile or not os.path.abspath(mfile).startsWith(_TARGET_ABS + os.sep):
-            return
+        if not mfile or not os.path.abspath(mfile).startswith(_TARGET_ABS + os.sep): return
         if hasattr(_m, "__getattr__"):
-            _ADAPTED_MODULES.add(_m.__name__)
-            return
+            _ADAPTED_MODULES.add(_m.__name__); return
         def __getattr__(name):
             for _nm, _obj in list(_m.__dict__.items()):
                 if isinstance(_obj, type) and not _nm.startswith("_"):
-                    try:
-                        _inst = _obj()
-                    except Exception:
-                        continue
+                    try: _inst = _obj()
+                    except Exception: continue
                     if hasattr(_inst, name):
                         _val = getattr(_inst, name)
-                        try:
-                            setattr(_m, name, _val)
-                        except Exception:
-                            pass
+                        try: setattr(_m, name, _val)
+                        except Exception: pass
                         return _val
             raise AttributeError(f"module {{_m.__name__!r}} has no attribute {{name!r}}")
-        _m.__getattr__ = __getattr__
-        _ADAPTED_MODULES.add(_m.__name__)
+        _m.__getattr__ = __getattr__; _ADAPTED_MODULES.add(_m.__name__)
     except Exception:
         pass
-
 if not STRICT:
     _orig_import = _builtins.__import__
     def _import_with_adapter(name, globals=None, locals=None, fromlist=(), level=0):
         mod = _orig_import(name, globals, locals, fromlist, level)
         try:
-            if isinstance(mod, _types.ModuleType):
-                _attach_module_getattr(mod)
+            if isinstance(mod, _types.ModuleType): _attach_module_getattr(mod)
             if fromlist:
                 for attr in fromlist:
                     try:
                         sub = getattr(mod, attr, None)
-                        if isinstance(sub, _types.ModuleType):
-                            _attach_module_getattr(sub)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                        if isinstance(sub, _types.ModuleType): _attach_module_getattr(sub)
+                    except Exception: pass
+        except Exception: pass
         return mod
     _builtins.__import__ = _import_with_adapter
-
-# Safe DB defaults & SQLAlchemy fallback ONLY in RELAXED mode
-if not STRICT:
-    for _k in ("DATABASE_URL","DB_URL","SQLALCHEMY_DATABASE_URI"):
-        _v = os.environ.get(_k)
-        if not _v or "://" not in str(_v):
-            os.environ[_k] = "sqlite:///:memory:"
-    try:
-        if _iu.find_spec("sqlalchemy") is not None:
-            import sqlalchemy as _s_sa
-            from sqlalchemy.exc import ArgumentError as _s_ArgErr
-            _s_orig_create_engine = _s_sa.create_engine
-            def _s_safe_create_engine(url, *args, **kwargs):
-                try_url = url
-                try:
-                    if not isinstance(try_url, str) or "://" not in try_url:
-                        try_url = os.environ.get("DATABASE_URL") or os.environ.get("DB_URL") or os.environ.get("SQLALCHEMY_DATABASE_URI") or "sqlite:///:memory:"
-                    return _s_orig_create_engine(try_url, *args, **kwargs)
-                except _s_ArgErr:
-                    return _s_orig_create_engine("sqlite:///:memory:", *args, **kwargs)
-            _s_sa.create_engine = _s_safe_create_engine
-    except Exception:
-        pass
-
-# Django minimal settings only if installed (harmless both modes)
 try:
     if _iu.find_spec("django") is not None:
         import django
         from django.conf import settings as _dj_settings
         if not _dj_settings.configured:
-            _dj_settings.configure(
-                SECRET_KEY="test-key",
-                DEBUG=True,
-                ALLOWED_HOSTS=["*"],
-                INSTALLED_APPS=[],
-                DATABASES={{"default": {{"ENGINE":"django.db.backends.sqlite3","NAME":":memory:"}}}},
-            )
+            _dj_settings.configure(SECRET_KEY="test-key", DEBUG=True, ALLOWED_HOSTS=["*"], INSTALLED_APPS=[], DATABASES={{"default": {{"ENGINE":"django.db.backends.sqlite3","NAME":":memory:"}}}})
             django.setup()
-except Exception:
-    pass
-
-# Py2 alias maps
+except Exception: pass
 _PY2_ALIASES = {py2_alias_map_lit}
 for _old, _new in list(_PY2_ALIASES.items()):
-    if _old in sys.modules:
-        continue
+    if _old in sys.modules: continue
     try:
-        __import__(_new)
-        sys.modules[_old] = sys.modules[_new]
-    except Exception:
-        pass
-
+        __import__(_new); sys.modules[_old] = sys.modules[_new]
+    except Exception: pass
 def _safe_find_spec(name):
-    try:
-        return _iu.find_spec(name)
-    except Exception:
-        return None
-
-# Qt shims: keep even in strict (headless CI), harmless if real Qt present
+    try: return _iu.find_spec(name)
+    except Exception: return None
 def _ensure_pkg(name, is_pkg=None):
     if name in sys.modules:
         m = sys.modules[name]
         if getattr(m, "__spec__", None) is None:
             m.__spec__ = _im.ModuleSpec(name, loader=None, is_package=(is_pkg if is_pkg is not None else ("." not in name)))
-            if "." not in name and not hasattr(m, "__path__"):
-                m.__path__ = []
+            if "." not in name and not hasattr(m, "__path__"): m.__path__ = []
         return m
     m = _types.ModuleType(name)
-    if is_pkg is None:
-        is_pkg = ("." not in name)
-    if is_pkg and not hasattr(m, "__path__"):
-        m.__path__ = []
+    if is_pkg is None: is_pkg = ("." not in name)
+    if is_pkg and not hasattr(m, "__path__"): m.__path__ = []
     m.__spec__ = _im.ModuleSpec(name, loader=None, is_package=is_pkg)
     sys.modules[name] = m
     return m
-
-_qt_roots = ["PyQt5", "PyQt6", "PySide2", "PySide6"]
-for __qt_root in _qt_roots:
+for __qt_root in ["PyQt5","PyQt6","PySide2","PySide6"]:
     if _safe_find_spec(__qt_root) is None:
-        _pkg = _ensure_pkg(__qt_root, is_pkg=True)
-        _core = _ensure_pkg(__qt_root + ".QtCore", is_pkg=False)
-        _gui = _ensure_pkg(__qt_root + ".QtGui", is_pkg=False)
-        _widgets = _ensure_pkg(__qt_root + ".QtWidgets", is_pkg=False)
+        _pkg=_ensure_pkg(__qt_root,True); _core=_ensure_pkg(__qt_root+".QtCore",False); _gui=_ensure_pkg(__qt_root+".QtGui",False); _widgets=_ensure_pkg(__qt_root+".QtWidgets",False)
         class QObject: pass
         def pyqtSignal(*a, **k): return object()
         def pyqtSlot(*a, **k):
             def _decorator(fn): return fn
             return _decorator
-        class QCoreApplication:
-            def __init__(self, *a, **k): pass
+        class QCoreApplication: 
+            def __init__(self,*a,**k): pass
             def exec_(self): return 0
             def exec(self): return 0
-        _core.QObject = QObject
-        _core.pyqtSignal = pyqtSignal
-        _core.pyqtSlot = pyqtSlot
-        _core.QCoreApplication = QCoreApplication
-        class QFont:
-            def __init__(self, *a, **k): pass
+        _core.QObject=QObject; _core.pyqtSignal=pyqtSignal; _core.pyqtSlot=pyqtSlot; _core.QCoreApplication=QCoreApplication
+        class QFont:  # minimal
+            def __init__(self,*a,**k): pass
         class QDoubleValidator:
-            def __init__(self, *a, **k): pass
-            def setBottom(self, *a, **k): pass
-            def setTop(self, *a, **k): pass
-        class QIcon:
-            def __init__(self, *a, **k): pass
+            def __init__(self,*a,**k): pass
+            def setBottom(self,*a,**k): pass
+            def setTop(self,*a,**k): pass
+        class QIcon: 
+            def __init__(self,*a,**k): pass
         class QPixmap:
-            def __init__(self, *a, **k): pass
-        _gui.QFont = QFont
-        _gui.QDoubleValidator = QDoubleValidator
-        _gui.QIcon = QIcon
-        _gui.QPixmap = QPixmap
+            def __init__(self,*a,**k): pass
+        _gui.QFont=QFont; _gui.QDoubleValidator=QDoubleValidator; _gui.QIcon=QIcon; _gui.QPixmap=QPixmap
         class QApplication:
-            def __init__(self, *a, **k): pass
+            def __init__(self,*a,**k): pass
             def exec_(self): return 0
             def exec(self): return 0
-        class QWidget:
-            def __init__(self, *a, **k): pass
+        class QWidget: 
+            def __init__(self,*a,**k): pass
         class QLabel(QWidget):
-            def __init__(self, *a, **k):
-                super().__init__(); self._text = ""
-            def setText(self, t): self._text = str(t)
+            def __init__(self,*a,**k): super().__init__(); self._text=""
+            def setText(self,t): self._text=str(t)
             def text(self): return self._text
         class QLineEdit(QWidget):
-            def __init__(self, *a, **k):
-                super().__init__(); self._text = ""
-            def setText(self, t): self._text = str(t)
+            def __init__(self,*a,**k): super().__init__(); self._text=""
+            def setText(self,t): self._text=str(t)
             def text(self): return self._text
-            def clear(self): self._text = ""
+            def clear(self): self._text=""
         class QTextEdit(QLineEdit): pass
         class QPushButton(QWidget):
-            def __init__(self, *a, **k): super().__init__()
+            def __init__(self,*a,**k): super().__init__()
         class QMessageBox:
             @staticmethod
-            def warning(*a, **k): return None
+            def warning(*a,**k): return None
             @staticmethod
-            def information(*a, **k): return None
+            def information(*a,**k): return None
             @staticmethod
-            def critical(*a, **k): return None
+            def critical(*a,**k): return None
         class QFileDialog:
             @staticmethod
-            def getSaveFileName(*a, **k): return ("history.txt", "")
+            def getSaveFileName(*a,**k): return ("history.txt","")
             @staticmethod
-            def getOpenFileName(*a, **k): return ("history.txt", "")
+            def getOpenFileName(*a,**k): return ("history.txt","")
         class QFormLayout:
-            def __init__(self, *a, **k): pass
-            def addRow(self, *a, **k): pass
+            def __init__(self,*a,**k): pass
+            def addRow(self,*a,**k): pass
         class QGridLayout(QFormLayout):
-            def addWidget(self, *a, **k): pass
-        _widgets.QApplication = QApplication
-        _widgets.QWidget = QWidget
-        _widgets.QLabel = QLabel
-        _widgets.QLineEdit = QLineEdit
-        _widgets.QTextEdit = QTextEdit
-        _widgets.QPushButton = QPushButton
-        _widgets.QMessageBox = QMessageBox
-        _widgets.QFileDialog = QFileDialog
-        _widgets.QFormLayout = QFormLayout
-        _widgets.QGridLayout = QGridLayout
+            def addWidget(self,*a,**k): pass
+        _widgets.QApplication=QApplication; _widgets.QWidget=QWidget; _widgets.QLabel=QLabel; _widgets.QLineEdit=QLineEdit; _widgets.QTextEdit=QTextEdit
+        _widgets.QPushButton=QPushButton; _widgets.QMessageBox=QMessageBox; _widgets.QFileDialog=QFileDialog; _widgets.QFormLayout=QFormLayout; _widgets.QGridLayout=QGridLayout
         for _name in ("QApplication","QWidget","QLabel","QLineEdit","QTextEdit","QPushButton","QMessageBox","QFileDialog","QFormLayout","QGridLayout"):
-            setattr(_gui, _name, getattr(_widgets, _name))
-
-# Optional generic stubs for other missing third-party tops ONLY in RELAXED mode
-if not STRICT:
-    _THIRD_PARTY_TOPS = {tops_lit}
-    for _name in list(_THIRD_PARTY_TOPS):
-        _top = (_name or "").split(".")[0]
-        if not _top or _top in sys.modules:
-            continue
-        if _safe_find_spec(_top) is not None:
-            continue
-        if _top in {"PyQt5","PyQt6","PySide2","PySide6"}:
-            continue
-        _m = _types.ModuleType(_top)
-        _m.__spec__ = _im.ModuleSpec(_top, loader=None, is_package=False)
-        sys.modules[_top] = _m
-
+            setattr(_gui,_name,getattr(_widgets,_name))
+_THIRD_PARTY_TOPS = {tops_lit}
 # --- /ENHANCED UNIVERSAL BOOTSTRAP ---
 '''
 
-# ---------------- Prompt builders ----------------
 _SYSTEM_MIN = (
     "Return ONLY valid Python test code for pytest. No Markdown, no explanations. "
     "Import target modules INSIDE each test function. "
@@ -880,41 +700,28 @@ _SYSTEM_MIN = (
     "Do NOT use private pytest internals. "
     "Do NOT use custom pytest markers. "
     "Prefer non-GUI modules; if a module imports Qt/PySide, rely on shims and do not start event loops. "
-    "For exceptions NEVER assume custom names; always call _exc_lookup('Name', Exception) inside pytest.raises and isinstance. "
+    "For exceptions NEVER assume custom names; always call _exc_lookup('Name', Exception). "
     "Handle import errors gracefully with pytest.skip."
 )
 
-_UNIT_BARE = (
-    "Write concise UNIT tests (3-6). Cover public functions/classes from the focus list. "
-    "Do not assume module-level functions exist if the project uses classes; instantiate classes explicitly. "
-    "Assert outputs and error conditions precisely; for exceptions use _exc_lookup('CustomError', Exception). "
-    "Use tmp_path for filesystem; avoid repr-based asserts and custom markers. "
-    "Wrap imports in try-except with pytest.skip for missing dependencies."
-)
+_UNIT_BARE = ("Write concise UNIT tests (3-6). Cover public functions/classes from the focus list. "
+              "Instantiate classes explicitly when APIs are class-based. "
+              "Assert outputs and error conditions; for exceptions use _exc_lookup('CustomError', Exception). "
+              "Use tmp_path; avoid repr-based asserts and custom markers. "
+              "Gracefully skip on ImportError.")
 
-_INTEG_BARE = (
-    "Write INTEGRATION tests (2-5). Exercise interactions across modules. "
-    "If GUI imports exist, avoid real event loops and windows; rely on shims. "
-    "Mock external effects with monkeypatch; import targets inside tests. "
-    "Handle import errors gracefully with pytest.skip."
-)
+_INTEG_BARE = ("Write INTEGRATION tests (2-5). Exercise interactions across modules. "
+               "Avoid real GUI/event loops. Use monkeypatch. Skip on ImportError.")
 
-_E2E_BARE = (
-    "Write E2E tests (2-4). Compose a realistic black-box workflow using available APIs. "
-    "Keep it deterministic and self-contained; import targets inside tests. "
-    "Handle import errors gracefully with pytest.skip."
-)
+_E2E_BARE = ("Write E2E tests (2-4). Compose a realistic black-box workflow using available APIs. "
+             "Deterministic, self-contained. Skip on ImportError.")
 
 def _limit_str(s: str, max_chars: int = 12000) -> str:
-    if len(s) <= max_chars:
-        return s
-    return s[:max_chars] + "...(truncated)"
+    return s if len(s) <= max_chars else s[:max_chars] + "...(truncated)"
 
 def _sample_targets(names: List[str], k: int) -> List[str]:
-    if not names:
-        return []
-    if len(names) <= k:
-        return names
+    if not names: return []
+    if len(names) <= k: return names
     random.seed(1234)
     return sorted(random.sample(names, k))
 
@@ -934,17 +741,11 @@ def _build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, to
         else:
             user = f"[E2E shard {shard}/{total}] {_E2E_BARE}\nContext: {brief}\nAnalysis: {_limit_str(compact_json)}"
         return [{"role": "system", "content": sys_msg}, {"role": "user", "content": user}]
-
-    SYSTEM = """You are an expert Python test engineer.
-Return ONLY valid Python source code (no Markdown, no backticks, no prose).
-Hard rules:
-- Test ONLY project modules and stdlib; no private pytest internals or custom markers.
-- Deterministic I/O; import targets inside each test.
-- Prefer non-GUI modules; if Qt/PySide appears, avoid event loops (use shims).
-- Do NOT assume module-level functions exist when APIs are class-based; instantiate classes.
-- For exceptions, call _exc_lookup('Name', Exception) with a string, not a bare symbol.
-- Ensure at least one function named test_*.
-- Handle import errors with pytest.skip."""
+    SYSTEM = ("You are an expert Python test engineer.\n"
+              "Return ONLY valid Python source code (no Markdown).\n"
+              "Rules: import targets inside each test; deterministic I/O; no private pytest internals; "
+              "instantiate classes when needed; use _exc_lookup('Name', Exception) for exceptions; "
+              "skip on ImportError.")
     if kind == "unit":
         user = f"Shard {shard}/{total} • Focus: {focus_label}\nAnalysis:\n{compact_json}\nWrite UNIT tests (4-8)."
     elif kind == "integ":
@@ -953,29 +754,26 @@ Hard rules:
         user = f"Shard {shard}/{total} • Focus: {focus_label}\nAnalysis:\n{compact_json}\nWrite E2E tests (2-4)."
     return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
 
-# ---------------- Enhanced smoke fallback ----------------
 def _smoke_from_modules(compact: Dict[str, Any]) -> str:
     mods = sorted(set([m for m in compact.get("modules") or [] if m and (m[0].isalpha() or m[0] == "_")]))
-    body = ["import importlib, pytest", ""]
-    body.append("def test_import_all_modules():")
-    body.append("    \"\"\"Test that all discovered modules can be imported.\"\"\"")
-    body.append("    mods = " + repr(mods))
-    body.append("    for m in mods:")
-    body.append("        try:")
-    body.append("            importlib.import_module(m)")
-    body.append("        except ImportError as e:")
-    body.append("            pytest.skip(f'cannot import {m}: {e}')")
-    body.append("        except Exception as e:")
-    body.append("            pytest.skip(f'error importing {m}: {e}')")
-    body.append("")
-    body.append("def test_python_environment():")
-    body.append("    import sys, os")
-    body.append("    assert sys.version_info >= (3, 8)")
-    body.append("    assert os.path.exists('.')")
-    body.append("")
+    body = ["import importlib, pytest", "",
+            "def test_import_all_modules():",
+            "    mods = " + repr(mods),
+            "    for m in mods:",
+            "        try:",
+            "            importlib.import_module(m)",
+            "        except ImportError as e:",
+            "            pytest.skip(f'cannot import {m}: {e}')",
+            "        except Exception as e:",
+            "            pytest.skip(f'error importing {m}: {e}')",
+            "",
+            "def test_python_environment():",
+            "    import sys, os",
+            "    assert sys.version_info >= (3, 8)",
+            "    assert os.path.exists('.')",
+            ""]
     return "\n".join(body)
 
-# ---------------- Post-generation massaging ----------------
 _RAISES_QUAL = re.compile(r"pytest\.raises\(\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\s*(,|\))")
 _RAISES_BARE = re.compile(r"pytest\.raises\(\s*([A-Za-z_][\w]*)\s*(,|\))")
 _ISINSTANCE_QUAL = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\s*\)")
@@ -990,7 +788,6 @@ def _massage_generated_code(code: str) -> str:
     def _repl_is_b(m): return f'isinstance({m.group(1)}, _exc_lookup("{m.group(2)}", Exception))'
     code = _ISINSTANCE_QUAL.sub(_repl_is_q, code)
     code = _ISINSTANCE_BARE.sub(_repl_is_b, code)
-
     lines = code.splitlines()
     out = []
     for line in lines:
@@ -999,7 +796,6 @@ def _massage_generated_code(code: str) -> str:
             out.append('    """Generated by ai-testgen with strict imports and safe shims."""')
     return "\n".join(out) + ("\n" if not code.endswith("\n") else "")
 
-# ---------------- Manifest helpers ----------------
 def write(path: pathlib.Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -1040,13 +836,12 @@ def _update_manifest(outdir: pathlib.Path, created_files: List[str], change_summ
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-# ---------------- Smart outdir management ----------------
-def _smart_cleanup_outdir(outdir: pathlib.Path, deleted_files: Set[str], modified_files: Set[str]):
+def _smart_cleanup_outdir(outdir: pathlib.Path, deleted_files: Set[str], added_or_modified: Set[str]):
     if not outdir.exists():
         return
-    print(f"🧹 Smart cleanup: {len(deleted_files)} deleted, {len(modified_files)} modified files")
+    print(f"🧹 Smart cleanup: {len(deleted_files)} deleted, {len(added_or_modified)} modified files")
     _cleanup_deleted_tests(outdir, deleted_files)
-    for modified_file in modified_files:
+    for modified_file in added_or_modified:
         related_tests = _find_related_test_files(outdir, modified_file)
         for test_file in related_tests:
             try:
@@ -1061,7 +856,6 @@ def _smart_cleanup_outdir(outdir: pathlib.Path, deleted_files: Set[str], modifie
             except StopIteration:
                 shutil.rmtree(d, ignore_errors=True)
 
-# ---------------- Generation glue ----------------
 def _build_guard_and_messages(compact: Dict[str, Any], compact_json: str, kind: str, focus_label: str, shard: int, total: int):
     guard = _runtime_guard_for(compact)
     messages = _build_prompt(kind, compact_json, focus_label, shard, total, compact)
@@ -1076,7 +870,6 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
 
     target_root = pathlib.Path(os.environ.get("TARGET_ROOT", "target"))
     added_or_modified, deleted, unchanged = _detect_detailed_changes(target_root, manifest_path)
-
     change_summary = {
         "added_or_modified": len(added_or_modified),
         "deleted": len(deleted),
@@ -1116,34 +909,12 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
     filtered_analysis, fallback = _filter_analysis_by_files(analysis, raw_focus if raw_focus else None)
     compact = _compact_analysis(filtered_analysis)
 
-    # Prefer project-declared deps if present (handled by the workflow).
-    # As an extra safety, if a requirements.txt is present and constraints env var is missing,
-    # install it once here (best effort) then set TESTGEN_PIP_CONSTRAINTS from current env.
-    constraints_env = os.getenv("TESTGEN_PIP_CONSTRAINTS") or os.getenv("PIP_CONSTRAINT")
-    if not constraints_env:
-        reqs = None
-        for candidate in ("requirements.txt", "requirements/requirements.txt"):
-            p = pathlib.Path(os.environ.get("TARGET_ROOT", "target")) / candidate
-            if p.exists():
-                reqs = str(p)
-                break
-        if reqs:
-            try:
-                print(f"📦 Installing project dependencies from {reqs} …")
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", reqs, "--disable-pip-version-check", "--no-input"])
-                # Freeze as a constraints snapshot for any follow-up installs
-                snap = "/tmp/testgen.constraints.txt"
-                subprocess.check_call([sys.executable, "-m", "pip", "freeze"], stdout=open(snap, "w"))
-                os.environ["TESTGEN_PIP_CONSTRAINTS"] = snap
-                print(f"🔒 Created constraints snapshot at {snap}")
-            except Exception as e:
-                print(f"⚠️ Failed to install project deps from {reqs}: {e}")
-
-    if added_or_modified or fallback or force_generation:
-        packages = _infer_required_packages(compact)
-        if packages:
-            print("📦 Installing inferred packages …")
-            _pip_install(packages)
+    # Prefer project-declared deps if present (already installed by workflow)
+    # Only infer missing extras if needed, and honor constraints snapshot.
+    packages = _infer_required_packages(compact)
+    if packages:
+        print("📦 Installing inferred packages (constrained, only-if-needed)…")
+        _pip_install(packages)
 
     compact_json = json.dumps(compact, separators=(",", ":"))
     kinds = ["unit", "integ", "e2e"]
@@ -1200,7 +971,6 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
     else:
         print("ℹ️ No tests generated")
 
-# ---------------- LLM call with enhanced validation ----------------
 def _runtime_guard_for(compact: Dict[str, Any]) -> str:
     critical = {"fastapi", "flask", "django", "sqlalchemy", "starlette", "pydantic"}
     mods = {m.split(".")[0].lower() for m in (compact.get("modules") or [])}
@@ -1208,10 +978,7 @@ def _runtime_guard_for(compact: Dict[str, Any]) -> str:
     checks = ""
     if needed:
         checks = "\n".join(
-            [
-                f"if importlib.util.find_spec('{m}') is None:\n    pytest.skip('{m} not installed; skipping module', allow_module_level=True)"
-                for m in needed
-            ]
+            [f"if importlib.util.find_spec('{m}') is None:\n    pytest.skip('{m} not installed; skipping module', allow_module_level=True)" for m in needed]
         ) + "\n"
     bootstrap = _enhanced_universal_bootstrap(compact)
     return ("import importlib.util, pytest\n" + checks + "\n" + bootstrap + "\n")

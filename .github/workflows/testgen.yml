@@ -1,4 +1,3 @@
-# .github/workflows/test-gen.yml
 name: AI Test Generation
 
 on:
@@ -42,6 +41,10 @@ jobs:
       DATABASE_URL: "sqlite:///:memory:"
       DB_URL: "sqlite:///:memory:"
       SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
+
+      # Make pip quieter & faster in CI
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PIP_NO_INPUT: "1"
 
     steps:
       - name: Checkout pipeline repo (contains src/* and this workflow)
@@ -140,11 +143,10 @@ jobs:
           force = os.environ.get('FORCE', 'false').lower() == 'true'
           if force:
               print("Force flag ON (note: generator must honor TESTGEN_FORCE to actually bypass skipping).")
-              os.environ['TESTGEN_FORCE'] = 'true'  # optional: pass-through for generator
+              os.environ['TESTGEN_FORCE'] = 'true'  # pass-through for generator
 
           g.generate_all(analysis, outdir=outdir, focus_files=None)
           PY
-
 
       - name: List generated tests
         run: |
@@ -153,6 +155,13 @@ jobs:
           echo "Preview .py files:"
           find "${OUTDIR}" -type f -name 'test_*.py' | sed 's/^/ - /' || true
 
+      - name: Upload generated tests as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-tests-${{ steps.meta.outputs.repo_slug }}
+          path: ${{ steps.meta.outputs.outdir }}
+
       - name: Copy generated tests into target repo
         run: |
           mkdir -p target/tests/generated
@@ -160,7 +169,7 @@ jobs:
           echo "Final tests copied into target repo:"
           find target/tests/generated -name "test_*.py" | head -20
 
-      - name: Commit & push generated tests to target repo
+      - name: Commit & push generated tests to target repo (if token present)
         env:
           GH_PAT3: ${{ secrets.GH_PAT3 }}
         run: |
@@ -168,10 +177,13 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Point origin to tokened URL for push
-          if [ -n "$GH_PAT3" ]; then
-          git remote set-url origin "https://x-access-token:${GH_PAT3}@github.com/DeviPrasad372002/flask-test-repo.git"
+          if [ -z "$GH_PAT3" ]; then
+            echo "GH_PAT3 not set — skipping push step."
+            exit 0
           fi
+
+          # Point origin to tokened URL for push (uses repo_path derived earlier)
+          git remote set-url origin "https://x-access-token:${GH_PAT3}@github.com/${REPO_PATH}.git"
 
           git add tests/generated || true
           if git diff --staged --quiet; then

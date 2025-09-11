@@ -1,3 +1,4 @@
+# generator.py
 import os, sys, json, pathlib, datetime, time, re, ast, math, subprocess, importlib.util, types as _types, random, shutil
 from typing import Dict, Any, List, Tuple, Set, Optional
 from openai import AzureOpenAI, RateLimitError  # openai>=1.0.0
@@ -55,38 +56,28 @@ def _basename_set(paths: Set[str]) -> Set[str]:
 
 # ---------------- Enhanced Change Detection ----------------
 def _compute_content_hash(content: str) -> str:
-    """Compute SHA256 hash of file content."""
     return hashlib.sha256(content.encode('utf-8')).hexdigest()
 
 def _extract_code_signatures(file_path: pathlib.Path) -> Dict[str, str]:
-    """Extract function/class signatures and their content hashes."""
     signatures = {}
     try:
         content = file_path.read_text(encoding='utf-8')
         tree = ast.parse(content)
-        
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
-                # Get the source code for this node
                 start_line = node.lineno - 1
                 end_line = node.end_lineno if hasattr(node, 'end_lineno') else start_line + 1
                 lines = content.splitlines()
                 node_content = '\n'.join(lines[start_line:end_line])
-                
-                # Create signature key
                 sig_key = f"{type(node).__name__.lower()}:{node.name}"
                 signatures[sig_key] = _compute_content_hash(node_content)
-                
     except Exception as e:
         print(f"Warning: Could not parse {file_path}: {e}")
-    
     return signatures
 
 def _load_previous_state(manifest_path: pathlib.Path) -> Dict[str, Any]:
-    """Load previous analysis state from manifest."""
     if not manifest_path.exists():
         return {}
-    
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         return manifest.get("code_state", {})
@@ -94,98 +85,72 @@ def _load_previous_state(manifest_path: pathlib.Path) -> Dict[str, Any]:
         return {}
 
 def _save_current_state(manifest_path: pathlib.Path, current_state: Dict[str, Any]):
-    """Save current code state to manifest."""
     manifest = {}
     if manifest_path.exists():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except Exception:
             manifest = {}
-    
     manifest["code_state"] = current_state
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 def _detect_detailed_changes(target_root: pathlib.Path, manifest_path: pathlib.Path) -> Tuple[Set[str], Set[str], Set[str]]:
-    """
-    Detect detailed changes in the codebase.
-    Returns: (added_or_modified, deleted, unchanged)
-    """
     previous_state = _load_previous_state(manifest_path)
     current_state = {}
-    
-    # Scan current codebase
+
     for py_file in target_root.rglob("*.py"):
         if any(part.startswith('.') for part in py_file.parts):
             continue
         if "test" in str(py_file).lower():
             continue
-            
         rel_path = str(py_file.relative_to(target_root))
         signatures = _extract_code_signatures(py_file)
         current_state[rel_path] = {
             "file_hash": _compute_content_hash(py_file.read_text(encoding='utf-8')),
             "signatures": signatures
         }
-    
-    # Compare states
-    added_or_modified = set()
-    deleted = set()
-    unchanged = set()
-    
-    # Check for new or modified files
+
+    added_or_modified, deleted, unchanged = set(), set(), set()
+
     for file_path, current_info in current_state.items():
         if file_path not in previous_state:
             added_or_modified.add(file_path)
         else:
             prev_info = previous_state[file_path]
             if current_info["file_hash"] != prev_info.get("file_hash", ""):
-                # File was modified, check what specifically changed
                 prev_sigs = prev_info.get("signatures", {})
                 curr_sigs = current_info["signatures"]
-                
-                # If any signature changed, mark as modified
                 if prev_sigs != curr_sigs:
                     added_or_modified.add(file_path)
                 else:
                     unchanged.add(file_path)
             else:
                 unchanged.add(file_path)
-    
-    # Check for deleted files
+
     for file_path in previous_state:
         if file_path not in current_state:
             deleted.add(file_path)
-    
-    # Save current state for next run
+
     _save_current_state(manifest_path, current_state)
-    
     return added_or_modified, deleted, unchanged
 
 # ---------------- Test File Management ----------------
 def _find_related_test_files(outdir: pathlib.Path, source_file: str) -> List[pathlib.Path]:
-    """Find test files that might be related to a source file."""
     related_tests = []
-    
-    # Extract module/class/function names from source file
     source_path = pathlib.Path(source_file)
     source_stem = source_path.stem
-    
-    # Look for test files that might contain tests for this source
     for test_file in outdir.rglob("test_*.py"):
         try:
             content = test_file.read_text(encoding='utf-8')
-            # Check if the source file name or its components are referenced
             if (source_stem in content or 
                 source_file.replace('/', '.').replace('.py', '') in content):
                 related_tests.append(test_file)
         except Exception:
             continue
-    
     return related_tests
 
 def _cleanup_deleted_tests(outdir: pathlib.Path, deleted_files: Set[str]):
-    """Remove test files for deleted source files."""
     for deleted_file in deleted_files:
         related_tests = _find_related_test_files(outdir, deleted_file)
         for test_file in related_tests:
@@ -196,93 +161,74 @@ def _cleanup_deleted_tests(outdir: pathlib.Path, deleted_files: Set[str]):
                 print(f"Warning: Could not remove {test_file}: {e}")
 
 def _create_enhanced_conftest(outdir: pathlib.Path) -> str:
-    """Create an enhanced conftest.py that handles compatibility issues."""
+    """Create an enhanced conftest.py that handles compatibility issues but stays strict on failures."""
     conftest_content = '''import pytest
 import sys
 import os
 import warnings
 
-# Suppress common warnings that clutter test output
+# Suppress noisy deprecation warnings that clutter CI logs
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
 
-# Add project root to Python path
+# Add project root to Python path (tests/ directory is the working dir)
 project_root = os.path.dirname(os.path.abspath(__file__))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# Fix Jinja2/Flask compatibility issues
+# ---- Compatibility shims (safe) ----
 def _fix_jinja2_compatibility():
-    """Fix Jinja2 Markup compatibility for Flask."""
     try:
         import jinja2
         if not hasattr(jinja2, 'Markup'):
             try:
-                from markupsafe import Markup
+                from markupsafe import Markup, escape
                 jinja2.Markup = Markup
                 if not hasattr(jinja2, 'escape'):
-                    from markupsafe import escape
                     jinja2.escape = escape
-            except ImportError:
-                # Fallback if markupsafe not available
-                class MockMarkup(str):
-                    def __html__(self): return self
-                jinja2.Markup = MockMarkup
-                jinja2.escape = lambda x: MockMarkup(str(x))
+            except Exception:
+                pass
     except ImportError:
         pass
 
 def _fix_collections_compatibility():
-    """Fix collections ABC compatibility for older libraries."""
     try:
         import collections
         import collections.abc as abc
-        for name in ['Mapping', 'MutableMapping', 'Sequence', 'Iterable', 'Container']:
+        for name in ['Mapping', 'MutableMapping', 'Sequence', 'Iterable', 'Container', 'MutableSequence', 'Set', 'MutableSet']:
             if not hasattr(collections, name) and hasattr(abc, name):
                 setattr(collections, name, getattr(abc, name))
     except ImportError:
         pass
 
 def _fix_flask_compatibility():
-    """Fix Flask compatibility issues."""
     try:
         import flask
         if not hasattr(flask, 'escape'):
             try:
                 from markupsafe import escape
                 flask.escape = escape
-            except ImportError:
-                flask.escape = lambda x: str(x)
+            except Exception:
+                pass
     except ImportError:
         pass
 
-# Apply all compatibility fixes
 _fix_jinja2_compatibility()
-_fix_collections_compatibility() 
+_fix_collections_compatibility()
 _fix_flask_compatibility()
 
-@pytest.fixture(autouse=True)
-def setup_test_environment():
-    """Set up a clean test environment for each test."""
-    # Set safe database URLs
-    for key in ('DATABASE_URL', 'DB_URL', 'SQLALCHEMY_DATABASE_URI'):
-        if not os.environ.get(key):
-            os.environ[key] = 'sqlite:///:memory:'
-    
-    # Disable CSRF for testing
-    os.environ['WTF_CSRF_ENABLED'] = 'False'
-    
-    yield
-    
-    # Cleanup after test
-    pass
+# NOTE: We DO NOT force database URLs here; misconfig should fail loudly in strict mode.
+# We only disable CSRF to make form tests simpler.
+os.environ.setdefault('WTF_CSRF_ENABLED', 'False')
 
 @pytest.fixture
 def app():
-    """Create application for testing if it exists."""
+    """
+    Attempt to locate a Flask app or factory in common places.
+    If not found, tests that rely on it will skip explicitly.
+    """
     try:
-        # Try different common app factory patterns
-        app_patterns = [
+        candidates = [
             ('conduit.app', 'create_app'),
             ('app', 'create_app'),
             ('application', 'create_app'),
@@ -290,62 +236,31 @@ def app():
             ('conduit.app', 'app'),
             ('app', 'app'),
         ]
-        
         app_instance = None
-        for module_name, attr_name in app_patterns:
+        for module_name, attr_name in candidates:
             try:
                 module = __import__(module_name, fromlist=[attr_name])
-                app_factory = getattr(module, attr_name, None)
-                if app_factory:
-                    if callable(app_factory):
-                        app_instance = app_factory()
-                    else:
-                        app_instance = app_factory
+                attr = getattr(module, attr_name, None)
+                if attr:
+                    app_instance = attr() if callable(attr) else attr
                     break
-            except ImportError:
+            except Exception:
                 continue
-        
         if not app_instance:
             pytest.skip("No app factory found")
-        
-        # Configure for testing
         app_instance.config['TESTING'] = True
         app_instance.config['WTF_CSRF_ENABLED'] = False
-        app_instance.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
-        
         return app_instance
-        
     except Exception as e:
         pytest.skip(f"Could not create app: {e}")
 
 @pytest.fixture
 def client(app):
-    """Create test client."""
     try:
         return app.test_client()
     except Exception as e:
         pytest.skip(f"Could not create test client: {e}")
-
-# Global exception handler for better error messages
-def pytest_runtest_call(pyfuncitem):
-    """Handle test execution with better error reporting."""
-    try:
-        return pyfuncitem.runtest()
-    except ImportError as e:
-        pytest.skip(f"Import error: {e}")
-    except Exception as e:
-        # Re-raise with more context
-        raise type(e)(f"Test failed in {pyfuncitem.name}: {e}") from e
-
-# Handle collection errors gracefully
-def pytest_collection_modifyitems(config, items):
-    """Skip items that have collection issues."""
-    for item in items:
-        if hasattr(item, '_request') and hasattr(item._request, 'raiseerror'):
-            # Mark problematic tests for skipping
-            item.add_marker(pytest.mark.skip(reason="Collection error"))
 '''
-    
     conftest_path = outdir / "conftest.py"
     conftest_path.parent.mkdir(parents=True, exist_ok=True)
     conftest_path.write_text(conftest_content, encoding="utf-8")
@@ -448,11 +363,9 @@ def _dedupe_keep(items: List[Dict[str, str]], key: str, limit: int = None) -> Li
 def _compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
     total_funcs = len(analysis.get("functions", []))
     soft_cap = 120 if total_funcs > 400 else 80 if total_funcs > 200 else 50
-
     funcs = sorted(analysis.get("functions", []), key=lambda x: x.get("file", ""))
     clss = sorted(analysis.get("classes", [])   , key=lambda x: x.get("file", ""))
     routes = sorted(analysis.get("routes", [])  , key=lambda x: x.get("file", ""))
-
     return {
         "functions": _dedupe_keep(funcs, "name", soft_cap),
         "classes": _dedupe_keep(clss, "name", max(30, soft_cap // 2)),
@@ -495,13 +408,14 @@ COMMON_PKG_ALIASES = {
     "markupsafe": "MarkupSafe",
 }
 
-# Version constraints for problematic packages
+# Keep pins minimal; many modern stacks need latest.
 VERSION_CONSTRAINTS = {
-    "flask": ">=2.0.0,<3.0.0",
-    "jinja2": ">=3.0.0,<3.1.0", 
-    "markupsafe": ">=2.0.0,<2.1.0",
-    "click": ">=8.0.0,<8.1.0",
-    "typer": ">=0.7.0,<0.8.0",
+    # If you KNOW you need old Flask stack, uncomment these:
+    # "flask": ">=2.0.0,<3.0.0",
+    # "jinja2": ">=3.0.0,<3.1.0",
+    # "markupsafe": ">=2.0.0,<2.1.0",
+    # "click": ">=8.0.0,<8.1.0",
+    # "typer": ">=0.7.0,<0.8.0",
 }
 
 VALID_PIP_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
@@ -554,7 +468,7 @@ def _infer_required_packages(compact: Dict[str, Any]) -> List[str]:
             continue
         if top.startswith("_") or "__" in top:
             continue
-        if any(c.isupper() for c in top):  # avoid GUI mega-pkgs like PyQt*
+        if any(c.isupper() for c in top):
             continue
         if not VALID_PIP_RE.match(top):
             continue
@@ -562,37 +476,25 @@ def _infer_required_packages(compact: Dict[str, Any]) -> List[str]:
             continue
         pkg = COMMON_PKG_ALIASES.get(top, top)
         needed.add(pkg)
-    
-    # Add version constraints for problematic packages
+
     constrained_packages = []
     for pkg in sorted(needed):
-        if pkg.lower() in VERSION_CONSTRAINTS:
-            constrained_packages.append(f"{pkg}{VERSION_CONSTRAINTS[pkg.lower()]}")
-        else:
-            constrained_packages.append(pkg)
-    
-    # Special handling for Flask ecosystem
+        pin = VERSION_CONSTRAINTS.get(pkg.lower())
+        constrained_packages.append(f"{pkg}{pin}" if pin else pkg)
+
+    # Ecosystem hints
     pkg_names = {p.lower() for p in needed}
-    if "flask" in pkg_names:
-        # Ensure compatible versions for Flask ecosystem
-        if "markupsafe" not in constrained_packages:
-            constrained_packages.append("MarkupSafe>=2.0.0,<2.1.0")
-        if "jinja2" not in constrained_packages:
-            constrained_packages.append("Jinja2>=3.0.0,<3.1.0")
-    
     if "fastapi" in pkg_names:
         needed.update({"starlette", "pydantic"})
-    
     return constrained_packages
 
 def _pip_install(packages: List[str]) -> None:
     if not packages:
         print("📦 No third-party packages inferred from imports.")
         return
-    print("📦 Installing packages with version constraints:", ", ".join(packages))
+    print("📦 Installing packages:", ", ".join(packages))
     try:
-        # Use --force-reinstall to ensure compatible versions
-        cmd = [sys.executable, "-m", "pip", "install", "--force-reinstall", "--disable-pip-version-check", "--no-input"] + packages
+        cmd = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-input"] + packages
         subprocess.check_call(cmd)
         print("✅ Package installation completed successfully")
     except subprocess.CalledProcessError as e:
@@ -624,23 +526,21 @@ def _auto_files_per_kind(compact: Dict[str, Any], kind: str) -> int:
     cap = int(os.getenv("TESTGEN_FILES_PER_KIND_MAX", "6"))
     return min(base, max(1, min(n, cap)))
 
+def _partition_targets(targets: List[Dict[str, str]], total: int, shard_idx: int) -> List[str]:
+    groups = _partition(targets, total)
+    return [d.get("name") or d.get("handler") for d in groups[shard_idx] if d.get("name") or d.get("handler")]
+
 def _focus_for_shard(compact: Dict[str, Any], kind: str, shard_idx: int, total: int) -> Tuple[str, List[str]]:
     if kind == "unit":
         targets = (compact.get("functions", []) or []) + (compact.get("classes", []) or [])
-        groups = _partition(targets, total)
-        names = [d.get("name") for d in groups[shard_idx] if d.get("name")]
-        return ", ".join(names) if names else "(none)", names
-
+        names = _partition_targets(targets, total, shard_idx)
+        return (", ".join(names) if names else "(none)"), names
     routes = compact.get("routes", []) or []
     if routes:
-        groups = _partition(routes, total)
-        names = [d.get("handler") for d in groups[shard_idx] if d.get("handler")]
-        label = ", ".join(sorted(set(names))) if names else "(none)"
-        return label, names
-
+        names = _partition_targets(routes, total, shard_idx)
+        return (", ".join(sorted(set(names))) if names else "(none)"), names
     targets = (compact.get("functions", []) or []) + (compact.get("classes", []) or [])
-    groups = _partition(targets, total)
-    names = [d.get("name") for d in groups[shard_idx] if d.get("name")]
+    names = _partition_targets(targets, total, shard_idx)
     return (", ".join(names) if names else "(none)"), names
 
 # ---------------- Filtering analysis by changed files ----------------
@@ -673,12 +573,12 @@ def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Se
         return analysis, True
     return filt, False
 
-# ---------------- Enhanced Universal Bootstrap ----------------
+# ---------------- Enhanced Universal Bootstrap (STRICT by default) ----------------
 def _enhanced_universal_bootstrap(compact: Dict[str, Any]) -> str:
     tops: List[str] = []
     for m in compact.get("modules") or []:
         top = (m.split(".")[0] or "").strip()
-        if top and not _is_stdlib(top) and not _is_local_import(top):
+        if top:
             tops.append(top)
     tops = sorted(set(tops))
     tops_lit = repr(tops)
@@ -693,104 +593,69 @@ def _enhanced_universal_bootstrap(compact: Dict[str, Any]) -> str:
     py2_alias_map_lit = repr(py2_alias_map)
 
     return f'''# --- ENHANCED UNIVERSAL BOOTSTRAP ---
-import os, sys, importlib as _importlib, importlib.util as _iu, importlib.machinery as _im, types as _types, pytest as _pytest, builtins as _builtins
+import os, sys, importlib as _importlib, importlib.util as _iu, importlib.machinery as _im, types as _types, pytest as _pytest, builtins as _builtins, importlib.util
 import warnings
 
-# Suppress noisy warnings
+# Strict mode: default ON (1). Set TESTGEN_STRICT=0 to relax locally.
+STRICT = os.getenv("TESTGEN_STRICT", "1").lower() in ("1","true","yes")
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
 
-# Ensure target root importable
 _target = os.environ.get("TARGET_ROOT") or os.environ.get("ANALYZE_ROOT") or "target"
 if _target and os.path.exists(_target):
     if _target not in sys.path:
         sys.path.insert(0, _target)
-    # Change to target directory for relative imports
     try:
         os.chdir(_target)
     except Exception:
         pass
 _TARGET_ABS = os.path.abspath(_target)
 
-# Enhanced exception lookup with multiple fallback strategies
-def _exc_lookup(name, default=Exception):
-    """Enhanced exception lookup with fallbacks."""
-    if not name or not isinstance(name, str):
+def _exc_lookup(name, default):
+    try:
+        mod_name, _, cls_name = str(name).rpartition(".")
+        if mod_name:
+            mod = __import__(mod_name, fromlist=[cls_name])
+            return getattr(mod, cls_name, default)
+        return getattr(sys.modules.get("builtins"), str(name), default)
+    except Exception:
         return default
-    
-    # Direct builtin lookup
-    if hasattr(_builtins, name):
-        return getattr(_builtins, name)
-    
-    # Try common exception modules
-    for module_name in ['builtins', 'exceptions']:
-        try:
-            module = __import__(module_name)
-            if hasattr(module, name):
-                return getattr(module, name)
-        except ImportError:
-            continue
-    
-    # Parse module.ClassName format
-    if '.' in name:
-        try:
-            mod_name, _, cls_name = name.rpartition('.')
-            module = __import__(mod_name, fromlist=[cls_name])
-            if hasattr(module, cls_name):
-                return getattr(module, cls_name)
-        except ImportError:
-            pass
-    
-    return default
 
-# Apply comprehensive compatibility fixes
 def _apply_compatibility_fixes():
-    """Apply various compatibility fixes for common issues."""
-    
-    # Jinja2/Flask compatibility
     try:
         import jinja2
         if not hasattr(jinja2, 'Markup'):
             try:
-                from markupsafe import Markup
+                from markupsafe import Markup, escape
                 jinja2.Markup = Markup
                 if not hasattr(jinja2, 'escape'):
-                    from markupsafe import escape
                     jinja2.escape = escape
-            except ImportError:
-                # Fallback implementation
-                class MockMarkup(str):
-                    def __html__(self): return self
-                jinja2.Markup = MockMarkup
-                jinja2.escape = lambda x: MockMarkup(str(x))
+            except Exception:
+                pass
     except ImportError:
         pass
-    
-    # Flask compatibility
     try:
         import flask
         if not hasattr(flask, 'escape'):
             try:
                 from markupsafe import escape
                 flask.escape = escape
-            except ImportError:
-                flask.escape = lambda x: str(x)
+            except Exception:
+                pass
     except ImportError:
         pass
-    
-    # Collections compatibility  
     try:
-        import collections
-        import collections.abc as abc
-        for name in ['Mapping', 'MutableMapping', 'Sequence', 'Iterable', 'Container']:
-            if not hasattr(collections, name) and hasattr(abc, name):
-                setattr(collections, name, getattr(abc, name))
-    except ImportError:
+        import collections as _collections
+        import collections.abc as _abc
+        for _n in ('Mapping','MutableMapping','Sequence','Iterable','Container','MutableSequence','Set','MutableSet'):
+            if not hasattr(_collections, _n) and hasattr(_abc, _n):
+                setattr(_collections, _n, getattr(_abc, _n))
+    except Exception:
         pass
-
 _apply_compatibility_fixes()
 
-# Enhanced module attribute adapter (PEP 562 __getattr__)
+# Attribute adapter (dangerous): only in RELAXED mode
 _ADAPTED_MODULES = set()
 def _attach_module_getattr(_m):
     try:
@@ -798,23 +663,21 @@ def _attach_module_getattr(_m):
             return
         mfile = getattr(_m, "__file__", "") or ""
         if not mfile or not os.path.abspath(mfile).startswith(_TARGET_ABS + os.sep):
-            return  # only adapt modules under target/
+            return
         if hasattr(_m, "__getattr__"):
             _ADAPTED_MODULES.add(_m.__name__)
             return
-
         def __getattr__(name):
-            # Try to resolve missing attributes from any instantiable public class
             for _nm, _obj in list(_m.__dict__.items()):
                 if isinstance(_obj, type) and not _nm.startswith("_"):
                     try:
-                        _inst = _obj()  # only no-arg constructors will work; otherwise skip
+                        _inst = _obj()
                     except Exception:
                         continue
                     if hasattr(_inst, name):
                         _val = getattr(_inst, name)
                         try:
-                            setattr(_m, name, _val)  # cache for future lookups/imports
+                            setattr(_m, name, _val)
                         except Exception:
                             pass
                         return _val
@@ -824,80 +687,67 @@ def _attach_module_getattr(_m):
     except Exception:
         pass
 
-# Wrap builtins.__import__ for automatic module adaptation
-_orig_import = _builtins.__import__
-def _import_with_adapter(name, globals=None, locals=None, fromlist=(), level=0):
-    mod = _orig_import(name, globals, locals, fromlist, level)
+if not STRICT:
+    _orig_import = _builtins.__import__
+    def _import_with_adapter(name, globals=None, locals=None, fromlist=(), level=0):
+        mod = _orig_import(name, globals, locals, fromlist, level)
+        try:
+            if isinstance(mod, _types.ModuleType):
+                _attach_module_getattr(mod)
+            if fromlist:
+                for attr in fromlist:
+                    try:
+                        sub = getattr(mod, attr, None)
+                        if isinstance(sub, _types.ModuleType):
+                            _attach_module_getattr(sub)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return mod
+    _builtins.__import__ = _import_with_adapter
+
+# Safe DB defaults & SQLAlchemy fallback ONLY in RELAXED mode
+if not STRICT:
+    for _k in ("DATABASE_URL","DB_URL","SQLALCHEMY_DATABASE_URI"):
+        _v = os.environ.get(_k)
+        if not _v or "://" not in str(_v):
+            os.environ[_k] = "sqlite:///:memory:"
     try:
-        # Ensure top-level module object is adapted
-        if isinstance(mod, _types.ModuleType):
-            _attach_module_getattr(mod)
-        # If a package was imported and fromlist asks for submodules, adapt them after real import
-        if fromlist:
-            for attr in fromlist:
+        if _iu.find_spec("sqlalchemy") is not None:
+            import sqlalchemy as _s_sa
+            from sqlalchemy.exc import ArgumentError as _s_ArgErr
+            _s_orig_create_engine = _s_sa.create_engine
+            def _s_safe_create_engine(url, *args, **kwargs):
+                try_url = url
                 try:
-                    sub = getattr(mod, attr, None)
-                    if isinstance(sub, _types.ModuleType):
-                        _attach_module_getattr(sub)
-                except Exception:
-                    pass
+                    if not isinstance(try_url, str) or "://" not in try_url:
+                        try_url = os.environ.get("DATABASE_URL") or os.environ.get("DB_URL") or os.environ.get("SQLALCHEMY_DATABASE_URI") or "sqlite:///:memory:"
+                    return _s_orig_create_engine(try_url, *args, **kwargs)
+                except _s_ArgErr:
+                    return _s_orig_create_engine("sqlite:///:memory:", *args, **kwargs)
+            _s_sa.create_engine = _s_safe_create_engine
     except Exception:
         pass
-    return mod
-_builtins.__import__ = _import_with_adapter
 
-# Safe database configuration
-def _setup_safe_db_config():
-    """Set up safe database configuration."""
-    safe_db_url = "sqlite:///:memory:"
-    for key in ("DATABASE_URL", "DB_URL", "SQLALCHEMY_DATABASE_URI"):
-        current = os.environ.get(key)
-        if not current or "://" not in str(current):
-            os.environ[key] = safe_db_url
-
-_setup_safe_db_config()
-
-# Enhanced Django setup
+# Django minimal settings only if installed (harmless both modes)
 try:
-    import django
-    from django.conf import settings
-    if not settings.configured:
-        settings.configure(
-            SECRET_KEY='test-key-not-for-production',
-            DEBUG=True,
-            TESTING=True,
-            DATABASES={{
-                'default': {{
-                    'ENGINE': 'django.db.backends.sqlite3',
-                    'NAME': ':memory:',
-                }}
-            }},
-            INSTALLED_APPS=[],
-            USE_TZ=True,
-        )
-        django.setup()
-except ImportError:
+    if _iu.find_spec("django") is not None:
+        import django
+        from django.conf import settings as _dj_settings
+        if not _dj_settings.configured:
+            _dj_settings.configure(
+                SECRET_KEY="test-key",
+                DEBUG=True,
+                ALLOWED_HOSTS=["*"],
+                INSTALLED_APPS=[],
+                DATABASES={{"default": {{"ENGINE":"django.db.backends.sqlite3","NAME":":memory:"}}}},
+            )
+            django.setup()
+except Exception:
     pass
 
-# Enhanced SQLAlchemy safety
-try:
-    import sqlalchemy as sa
-    _orig_create_engine = sa.create_engine
-    
-    def _safe_create_engine(url, *args, **kwargs):
-        """Create engine with fallback to safe URL."""
-        try:
-            if not url or "://" not in str(url):
-                url = os.environ.get("DATABASE_URL", "sqlite:///:memory:")
-            return _orig_create_engine(url, *args, **kwargs)
-        except Exception:
-            return _orig_create_engine("sqlite:///:memory:", *args, **kwargs)
-    
-    sa.create_engine = _safe_create_engine
-except ImportError:
-    pass
-
-# Py2 alias maps for legacy compatibility
+# Py2 alias maps
 _PY2_ALIASES = {py2_alias_map_lit}
 for _old, _new in list(_PY2_ALIASES.items()):
     if _old in sys.modules:
@@ -914,7 +764,7 @@ def _safe_find_spec(name):
     except Exception:
         return None
 
-# Enhanced Qt family stubs (PyQt5/6, PySide2/6) for headless CI
+# Qt shims: keep even in strict (headless CI), harmless if real Qt present
 def _ensure_pkg(name, is_pkg=None):
     if name in sys.modules:
         m = sys.modules[name]
@@ -939,8 +789,6 @@ for __qt_root in _qt_roots:
         _core = _ensure_pkg(__qt_root + ".QtCore", is_pkg=False)
         _gui = _ensure_pkg(__qt_root + ".QtGui", is_pkg=False)
         _widgets = _ensure_pkg(__qt_root + ".QtWidgets", is_pkg=False)
-
-        # QtCore minimal API
         class QObject: pass
         def pyqtSignal(*a, **k): return object()
         def pyqtSlot(*a, **k):
@@ -954,15 +802,13 @@ for __qt_root in _qt_roots:
         _core.pyqtSignal = pyqtSignal
         _core.pyqtSlot = pyqtSlot
         _core.QCoreApplication = QCoreApplication
-
-        # QtGui minimal API
-        class QFont:
+        class QFont:  # minimal placeholders
             def __init__(self, *a, **k): pass
         class QDoubleValidator:
             def __init__(self, *a, **k): pass
             def setBottom(self, *a, **k): pass
             def setTop(self, *a, **k): pass
-        class QIcon:
+        class QIcon:  # noqa
             def __init__(self, *a, **k): pass
         class QPixmap:
             def __init__(self, *a, **k): pass
@@ -970,13 +816,11 @@ for __qt_root in _qt_roots:
         _gui.QDoubleValidator = QDoubleValidator
         _gui.QIcon = QIcon
         _gui.QPixmap = QPixmap
-
-        # QtWidgets minimal API
         class QApplication:
             def __init__(self, *a, **k): pass
             def exec_(self): return 0
             def exec(self): return 0
-        class QWidget:
+        class QWidget: 
             def __init__(self, *a, **k): pass
         class QLabel(QWidget):
             def __init__(self, *a, **k):
@@ -1009,7 +853,6 @@ for __qt_root in _qt_roots:
             def addRow(self, *a, **k): pass
         class QGridLayout(QFormLayout):
             def addWidget(self, *a, **k): pass
-
         _widgets.QApplication = QApplication
         _widgets.QWidget = QWidget
         _widgets.QLabel = QLabel
@@ -1020,26 +863,23 @@ for __qt_root in _qt_roots:
         _widgets.QFileDialog = QFileDialog
         _widgets.QFormLayout = QFormLayout
         _widgets.QGridLayout = QGridLayout
-
-        # Mirror common widget symbols into QtGui
         for _name in ("QApplication","QWidget","QLabel","QLineEdit","QTextEdit","QPushButton","QMessageBox","QFileDialog","QFormLayout","QGridLayout"):
             setattr(_gui, _name, getattr(_widgets, _name))
 
-# Generic stub for other missing third-party packages
-_THIRD_PARTY_TOPS = {tops_lit}
-for _name in list(_THIRD_PARTY_TOPS):
-    _top = (_name or "").split(".")[0]
-    if not _top:
-        continue
-    if _top in sys.modules:
-        continue
-    if _safe_find_spec(_top) is not None:
-        continue
-    if _top in {{"PyQt5","PyQt6","PySide2","PySide6"}}:
-        continue
-    _m = _types.ModuleType(_top)
-    _m.__spec__ = _im.ModuleSpec(_top, loader=None, is_package=False)
-    sys.modules[_top] = _m
+# Optional generic stubs for other missing third-party tops ONLY in RELAXED mode
+if not STRICT:
+    _THIRD_PARTY_TOPS = {tops_lit}
+    for _name in list(_THIRD_PARTY_TOPS):
+        _top = (_name or "").split(".")[0]
+        if not _top or _top in sys.modules:
+            continue
+        if _safe_find_spec(_top) is not None:
+            continue
+        if _top in {"PyQt5","PyQt6","PySide2","PySide6"}:
+            continue
+        _m = _types.ModuleType(_top)
+        _m.__spec__ = _im.ModuleSpec(_top, loader=None, is_package=False)
+        sys.modules[_top] = _m
 
 # --- /ENHANCED UNIVERSAL BOOTSTRAP ---
 '''
@@ -1099,7 +939,6 @@ def _build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, to
         pick = _sample_targets(fnames + cnames + rnames, 16)
         context = {"focus": focus_label or "(none)", "suggested_targets": pick}
         brief = json.dumps(context, ensure_ascii=False)
-
         if kind == "unit":
             user = f"[UNIT shard {shard}/{total}] {_UNIT_BARE}\nContext: {brief}\nAnalysis: {_limit_str(compact_json)}"
         elif kind == "integ":
@@ -1108,7 +947,6 @@ def _build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, to
             user = f"[E2E shard {shard}/{total}] {_E2E_BARE}\nContext: {brief}\nAnalysis: {_limit_str(compact_json)}"
         return [{"role": "system", "content": sys_msg}, {"role": "user", "content": user}]
 
-    # Legacy prompt format
     SYSTEM = """You are an expert Python test engineer.
 Return ONLY valid Python source code (no Markdown, no backticks, no prose).
 Hard rules:
@@ -1143,9 +981,8 @@ def _smoke_from_modules(compact: Dict[str, Any]) -> str:
     body.append("            pytest.skip(f'error importing {m}: {e}')")
     body.append("")
     body.append("def test_python_environment():")
-    body.append("    \"\"\"Basic smoke test for Python environment.\"\"\"")
     body.append("    import sys, os")
-    body.append("    assert sys.version_info >= (3, 6)")
+    body.append("    assert sys.version_info >= (3, 8)")
     body.append("    assert os.path.exists('.')")
     body.append("")
     return "\n".join(body)
@@ -1157,37 +994,23 @@ _ISINSTANCE_QUAL = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_]
 _ISINSTANCE_BARE = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)")
 
 def _massage_generated_code(code: str) -> str:
-    # Normalize pytest.raises / isinstance calls
     def _repl_qual(m): return f'pytest.raises(_exc_lookup("{m.group(1)}", Exception){m.group(2)}'
     def _repl_bare(m): return f'pytest.raises(_exc_lookup("{m.group(1)}", Exception){m.group(2)}'
     code = _RAISES_QUAL.sub(_repl_qual, code)
     code = _RAISES_BARE.sub(_repl_bare, code)
-
     def _repl_is_q(m): return f'isinstance({m.group(1)}, _exc_lookup("{m.group(2)}", Exception))'
     def _repl_is_b(m): return f'isinstance({m.group(1)}, _exc_lookup("{m.group(2)}", Exception))'
     code = _ISINSTANCE_QUAL.sub(_repl_is_q, code)
     code = _ISINSTANCE_BARE.sub(_repl_is_b, code)
 
-    # Downgrade hallucinated exceptions to known ones
-    known_excs = {
-        "Exception", "ZeroDivisionError", "ValueError", "TypeError", "IndexError",
-        "KeyError", "RuntimeError", "AttributeError", "ImportError",
-        "OSError", "FileNotFoundError", "PermissionError", "StopIteration"
-    }
-    for name in re.findall(r'_exc_lookup\("([^"]+)"', code):
-        if name not in known_excs:
-            code = code.replace(f'_exc_lookup("{name}"', '_exc_lookup("Exception"')
-
-    # Add enhanced import error handling
+    # Add a tiny docstring for each test for readability in reports
     lines = code.splitlines()
-    enhanced_lines = []
-    for line in lines:
-        enhanced_lines.append(line)
-        # Add try-except around direct imports in test functions
+    out = []
+    for i, line in enumerate(lines):
+        out.append(line)
         if re.match(r'\s*def test_', line):
-            enhanced_lines.append("    \"\"\"Test with enhanced error handling.\"\"\"")
-            
-    return "\n".join(enhanced_lines) + "\n"
+            out.append('    """Generated by ai-testgen with strict imports and safe shims."""')
+    return "\n".join(out) + ("\n" if not code.endswith("\n") else "")
 
 # ---------------- Manifest helpers ----------------
 def write(path: pathlib.Path, content: str):
@@ -1217,17 +1040,14 @@ def _update_manifest(outdir: pathlib.Path, created_files: List[str], change_summ
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except Exception:
             manifest = {}
-    
     runs = manifest.get("runs", [])
     run_info = {
         "ts": datetime.datetime.utcnow().isoformat() + "Z",
         "files_generated": created_files,
         "focus_files": _load_list(os.getenv("FOCUS_FILES_JSON_PATH")) or [],
     }
-    
     if change_summary:
         run_info["change_summary"] = change_summary
-    
     runs.append(run_info)
     manifest["runs"] = runs
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1235,16 +1055,10 @@ def _update_manifest(outdir: pathlib.Path, created_files: List[str], change_summ
 
 # ---------------- Smart outdir management ----------------
 def _smart_cleanup_outdir(outdir: pathlib.Path, deleted_files: Set[str], modified_files: Set[str]):
-    """Intelligently clean up test directory based on code changes."""
     if not outdir.exists():
         return
-    
     print(f"🧹 Smart cleanup: {len(deleted_files)} deleted, {len(modified_files)} modified files")
-    
-    # Remove tests for deleted source files
     _cleanup_deleted_tests(outdir, deleted_files)
-    
-    # For modified files, remove related old tests to allow regeneration
     for modified_file in modified_files:
         related_tests = _find_related_test_files(outdir, modified_file)
         for test_file in related_tests:
@@ -1253,8 +1067,6 @@ def _smart_cleanup_outdir(outdir: pathlib.Path, deleted_files: Set[str], modifie
                 test_file.unlink()
             except Exception as e:
                 print(f"Warning: Could not remove {test_file}: {e}")
-    
-    # Clean up empty directories
     for d in sorted(outdir.glob("*")):
         if d.is_dir():
             try:
@@ -1262,45 +1074,35 @@ def _smart_cleanup_outdir(outdir: pathlib.Path, deleted_files: Set[str], modifie
             except StopIteration:
                 shutil.rmtree(d, ignore_errors=True)
 
-# ---------------- Enhanced Generation ----------------
+# ---------------- Generation glue ----------------
 def _build_guard_and_messages(compact: Dict[str, Any], compact_json: str, kind: str, focus_label: str, shard: int, total: int):
     guard = _runtime_guard_for(compact)
     messages = _build_prompt(kind, compact_json, focus_label, shard, total, compact)
     return guard, messages
 
 def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files: Optional[List[str]] = None):
-    """
-    Enhanced generation with smart change detection, compatibility fixes, and error handling.
-    """
     out = pathlib.Path(outdir)
     manifest_path = out / "_manifest.json"
-    
-    # Create enhanced conftest.py first
+
     print("📝 Creating enhanced conftest.py with compatibility fixes...")
     _create_enhanced_conftest(out)
-    
-    # Determine target root for change detection
+
     target_root = pathlib.Path(os.environ.get("TARGET_ROOT", "target"))
-    
-    # Perform detailed change detection
     added_or_modified, deleted, unchanged = _detect_detailed_changes(target_root, manifest_path)
-    
-    # Log change summary
+
     change_summary = {
         "added_or_modified": len(added_or_modified),
         "deleted": len(deleted),
         "unchanged": len(unchanged),
         "files_analyzed": len(added_or_modified) + len(deleted) + len(unchanged)
     }
-    
-    print(f"📊 Change Analysis:")
+    print("📊 Change Analysis:")
     print(f"  ➕ Added/Modified: {len(added_or_modified)}")
-    print(f"  ➖ Deleted: {len(deleted)}")  
+    print(f"  ➖ Deleted: {len(deleted)}")
     print(f"  ⚪ Unchanged: {len(unchanged)}")
-    
-    # Early exit logic with better messaging
+
     force_generation = os.environ.get("TESTGEN_FORCE", "false").lower() == "true"
-    
+
     if not force_generation and not added_or_modified and not deleted and unchanged:
         if list(out.rglob("test_*.py")):
             print("✅ No code changes detected and tests exist. Skipping generation.")
@@ -1312,41 +1114,54 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
         print("✅ No code changes detected. Skipping test generation.")
         print("   (Set TESTGEN_FORCE=true to force regeneration)")
         return
-    
+
     if force_generation:
         print("🔧 Force generation enabled - regenerating all tests")
-    
-    # Smart cleanup based on changes
+
     _smart_cleanup_outdir(out, deleted, added_or_modified)
 
     ts = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
-    # Filter analysis to focus on changed files only (unless forced)
     raw_focus = set(focus_files or _load_list(os.getenv("FOCUS_FILES_JSON_PATH")) or [])
     if not raw_focus and not force_generation:
-        raw_focus = added_or_modified  # Use detected changes as focus
-        
-    filtered_analysis, fallback = _filter_analysis_by_files(analysis, raw_focus if raw_focus else None)
+        raw_focus = added_or_modified
 
+    filtered_analysis, fallback = _filter_analysis_by_files(analysis, raw_focus if raw_focus else None)
     compact = _compact_analysis(filtered_analysis)
 
-    # Install packages with enhanced compatibility handling
+    # Prefer project-declared deps if present
+    reqs = None
+    for candidate in ("requirements.txt", "pyproject.toml", "Pipfile"):
+        p = pathlib.Path(os.environ.get("TARGET_ROOT", "target")) / candidate
+        if p.exists():
+            reqs = str(p)
+            break
+    if reqs:
+        try:
+            print(f"📦 Installing project dependencies from {reqs} …")
+            if reqs.endswith("requirements.txt"):
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", reqs, "--disable-pip-version-check", "--no-input"])
+            elif reqs.endswith("pyproject.toml"):
+                subprocess.check_call([sys.executable, "-m", "pip", "install", ".", "--disable-pip-version-check", "--no-input"], cwd=str(pathlib.Path(reqs).parent))
+            else:
+                # best effort
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", reqs, "--disable-pip-version-check", "--no-input"])
+        except Exception as e:
+            print(f"⚠️ Failed to install project deps from {reqs}: {e}")
+
     if added_or_modified or fallback or force_generation:
         packages = _infer_required_packages(compact)
         if packages:
-            print("📦 Installing packages with compatibility constraints...")
+            print("📦 Installing inferred packages …")
             _pip_install(packages)
 
     compact_json = json.dumps(compact, separators=(",", ":"))
     kinds = ["unit", "integ", "e2e"]
-
     created_files: List[str] = []
 
-    # Check if we have targets to test
     total_targets = len(compact.get("functions", [])) + len(compact.get("classes", [])) + len(compact.get("routes", []))
     if total_targets == 0:
         print("⚠️ No test targets found in analysis. Creating basic smoke tests...")
-        # Create a basic smoke test file
         smoke_code = _smoke_from_modules(compact)
         guard = _runtime_guard_for(compact)
         fname = f"test_smoke_{ts}.py"
@@ -1361,31 +1176,25 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
         if files_per_kind <= 0:
             print(f"⚠️ No targets for {kind} → skipping {kind}")
             continue
-
         print(f"🔧 Generating {files_per_kind} {kind} test files...")
-
         for i in range(files_per_kind):
             focus_label, _ = _focus_for_shard(compact, kind, i, files_per_kind)
             guard, messages = _build_guard_and_messages(compact, compact_json, kind, focus_label, i + 1, files_per_kind)
-
             try:
                 code = _gen_validated(messages, compact=compact)
                 code = _massage_generated_code(code)
-
                 fname = f"test_{kind}_{ts}_{i+1:02d}.py"
                 path = out / fname
                 write(path, guard + code)
                 created_files.append(str(path))
             except Exception as e:
                 print(f"⚠️ Failed to generate {kind} test {i+1}: {e}")
-                # Create fallback smoke test
                 smoke_code = _smoke_from_modules(compact)
                 fname = f"test_{kind}_fallback_{ts}_{i+1:02d}.py"
                 path = out / fname
                 write(path, guard + smoke_code)
                 created_files.append(str(path))
 
-    # Save list of generated files
     out_list = os.getenv("GENERATED_LIST_PATH")
     if out_list:
         try:
@@ -1394,7 +1203,6 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
             pass
 
     _update_manifest(out, created_files, change_summary)
-
     if created_files:
         print(f"✅ Generated {len(created_files)} test files")
         if added_or_modified:
@@ -1415,14 +1223,12 @@ def _runtime_guard_for(compact: Dict[str, Any]) -> str:
                 for m in needed
             ]
         ) + "\n"
-    
     bootstrap = _enhanced_universal_bootstrap(compact)
     return ("import importlib.util, pytest\n" + checks + "\n" + bootstrap + "\n")
 
 def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, backoff_seq=(3, 7, 15), compact: Optional[Dict[str, Any]] = None) -> str:
     client = _client()
     deployment = _deployment_name()
-
     attempts = 0
     reason = "unknown"
     while attempts < attempts_per_file:
@@ -1440,7 +1246,7 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
                     code = _header_guard_for_banned_imports(code)
                     return code
                 messages.append({
-                    "role": "user", 
+                    "role": "user",
                     "content": f"Invalid: {reason}. Regenerate STRICT pytest code (no markdown), import targets inside tests, avoid custom markers, instantiate classes when APIs are class-based, use _exc_lookup for exceptions, and handle import errors with pytest.skip."
                 })
                 break
@@ -1452,7 +1258,6 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
             except Exception as e:
                 print(f"⚠️ Error during generation attempt {attempts}: {e}")
                 break
-    
     print(f"⚠️ LLM generation failed after {attempts} attempts, using smoke test fallback")
     return _smoke_from_modules(compact or {})
 

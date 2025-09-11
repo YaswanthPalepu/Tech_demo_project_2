@@ -1,6 +1,12 @@
 name: Test Validation & Quality Analysis
 
 on:
+  # Run automatically only after the AI Test Generation pipeline finishes
+  workflow_run:
+    workflows: ["AI Test Generation"]
+    types: [completed]
+
+  # Optional: still allow manual runs
   workflow_dispatch:
     inputs:
       repo_url:
@@ -21,8 +27,10 @@ on:
         default: "comprehensive"
         type: choice
         options: [basic, standard, comprehensive]
-  push:
-    branches: [ test ]
+
+# IMPORTANT: remove push trigger so this workflow doesn't run independently
+# push:
+#   branches: [ test ]
 
 defaults:
   run:
@@ -34,6 +42,8 @@ concurrency:
 
 jobs:
   validate-tests:
+    # Only proceed automatically when the upstream workflow succeeded
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -62,11 +72,11 @@ jobs:
 
       - name: Clone target repository to ./target_repo
         run: |
+          # For workflow_run (auto), there are no inputs; fall back to default if not provided
           REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/flask-test-repo.git' }}"
           echo "Cloning ${REPO}"
           git clone --depth 1 "$REPO" target_repo
           echo "TARGET_ROOT=$PWD/target_repo" >> $GITHUB_ENV
-          # Make target importable across steps
           echo "PYTHONPATH=$PWD/target_repo:$PYTHONPATH" >> $GITHUB_ENV
 
       - name: Setup Python
@@ -164,7 +174,6 @@ jobs:
               pass
           EOF
 
-      # Move .coveragerc earlier so later steps can rely on it
       - name: Create coverage configuration
         run: |
           cd "$TARGET_ROOT"
@@ -210,7 +219,6 @@ jobs:
             echo "  - $dir"
             if [ -d "$dir" ]; then
               echo "    Contents:"
-              # Fix: Handle pipe errors gracefully
               (ls -la "$dir" 2>/dev/null || true) | (head -10 2>/dev/null || true)
             fi
           done
@@ -226,12 +234,7 @@ jobs:
           done
 
           echo "Total test files: $TOTAL_TESTS"
-          if [ "$TOTAL_TESTS" -eq 0 ]; then
-            echo "No test files found. Checking for Python files that might be tests:"
-            find . -name "*test*.py" -type f 2>/dev/null | (head -10 2>/dev/null || true)
-          fi
 
-          # Coverage targets: prefer real source dirs/packages
           COV_ARGS=()
           [ -d "src" ] && COV_ARGS+=("--cov=src")
           [ -d "conduit" ] && COV_ARGS+=("--cov=conduit")
@@ -246,9 +249,6 @@ jobs:
             [ -d "$dir" ] && TEST_DIR_ARGS="$TEST_DIR_ARGS $dir"
           done
           [ -z "$TEST_DIR_ARGS" ] && TEST_DIR_ARGS="."
-
-          echo "Coverage arguments: ${COV_ARGS[*]}"
-          echo "Test directories: $TEST_DIR_ARGS"
 
           echo "cov_args=${COV_ARGS[*]}" >> $GITHUB_OUTPUT
           echo "test_dirs=$TEST_DIR_ARGS" >> $GITHUB_OUTPUT
@@ -269,7 +269,6 @@ jobs:
           echo "Using test directories: $TEST_DIRS"
           echo "Using coverage args: $COV_ARGS"
 
-          # Create a simple test if no tests exist
           if [ "${{ steps.discover.outputs.total_test_files }}" = "0" ]; then
             echo "No tests found, creating a basic smoke test..."
             mkdir -p tests
@@ -430,10 +429,10 @@ jobs:
           TESTS_TOTAL="${{ needs['validate-tests'].outputs['tests-total'] }}"
           PASS_PERCENTAGE='${{ needs['validate-tests'].outputs['pass-percentage'] }}'
           COVERAGE='${{ needs['validate-tests'].outputs['coverage-percentage'] }}'
-          BUGS_FOUND="${{ needs['validate-tests'].outputs['bugs-found'] }}"
-          SECURITY_ISSUES="${{ needs['validate-tests'].outputs['security-issues'] }}"
-          QUALITY_SCORE="${{ needs['validate-tests'].outputs['quality-score'] }}"
-          COVERAGE_THRESHOLD="${{ github.event.inputs.coverage_threshold || '80' }}"
+          BUGS_FOUND='${{ needs['validate-tests'].outputs['bugs-found'] }}'
+          SECURITY_ISSUES='${{ needs['validate-tests'].outputs['security-issues'] }}'
+          QUALITY_SCORE='${{ needs['validate-tests'].outputs['quality-score'] }}'
+          COVERAGE_THRESHOLD='${{ github.event.inputs.coverage_threshold || '80' }}'
           echo "Deployment Readiness Metrics:"
           echo "  Tests: $TESTS_PASSED/$TESTS_TOTAL passed ($PASS_PERCENTAGE%)"
           echo "  Coverage: $COVERAGE%"

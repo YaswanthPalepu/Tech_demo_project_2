@@ -92,14 +92,12 @@ jobs:
             libxml2-dev libxslt1-dev curl
 
       # Install EXACTLY what the target repo declares
-      - name: Install target repository dependencies (respect pins/locks; loop each -r)
+      - name: Install target repository dependencies (respect pins/locks; auto-fix psycopg2)
         run: |
           set -e
           cd target
           python -m pip install --upgrade pip wheel setuptools
 
-          # Determine all requirement sources with a stable priority:
-          # 1) Pipenv lock, 2) Poetry export, 3) PDM export, 4) requirements*.txt, 5) requirements.txt
           REQ_FILES=()
 
           if [ -f "Pipfile.lock" ] || [ -f "Pipfile" ]; then
@@ -128,19 +126,19 @@ jobs:
           if [ "${#REQ_FILES[@]}" -eq 0 ]; then
             echo "No explicit requirement files found."
           else
-            echo "Installing from requirement sources:"
-            printf ' - %s\n' "${REQ_FILES[@]}"
-            while IFS= read -r rf; do
-              [ -z "$rf" ] && continue
-              echo "pip install -r $rf"
-              pip install -r "$rf"
-            done < <(printf '%s\n' "${REQ_FILES[@]}")
+            echo "Installing from requirement sources (with psycopg2 fix):"
+            for rf in "${REQ_FILES[@]}"; do
+              echo "Processing $rf"
+              # Replace psycopg2 pin with psycopg2-binary
+              sed -E 's/^psycopg2([^a-zA-Z0-9._-]|$)/psycopg2-binary\1/' "$rf" > /tmp/req.fixed.txt
+              pip install -r /tmp/req.fixed.txt
+            done
           fi
 
-          # Editable install (if applicable) so imports behave like the project expects
           if [ -f "setup.py" ] || [ -f "setup.cfg" ] || [ -f "pyproject.toml" ]; then
             pip install -e .
           fi
+
 
       - name: Freeze environment as constraints for any extra installs
         run: |

@@ -29,6 +29,7 @@ on:
         options: [basic, standard, comprehensive]
   push:
     branches: [ test ]
+
 defaults:
   run:
     shell: bash
@@ -159,18 +160,53 @@ jobs:
                   pytest.skip(f"Skipping tests due to import error: {e}")
           EOF
           cat > sitecustomize.py << 'EOF'
+          # Loaded automatically when this directory is on sys.path.
+          # Cross-repo shims for legacy Flask/SQLAlchemy stacks and friends.
+
+          # --- Jinja2<->MarkupSafe compatibility ---
           try:
               import jinja2
               if not hasattr(jinja2, 'Markup'):
-                  from markupsafe import Markup
-                  jinja2.Markup = Markup
+                  from markupsafe import Markup as _Markup
+                  jinja2.Markup = _Markup
           except Exception:
               pass
+
+          # --- collections.abc re-exports expected by old libs ---
           try:
-              import collections, collections.abc as abc
-              for name in ['Mapping','MutableMapping','Sequence','Iterable']:
-                  if not hasattr(collections, name) and hasattr(abc, name):
-                      setattr(collections, name, getattr(abc, name))
+              import collections, collections.abc as _abc
+              for _name in ('Mapping','MutableMapping','Sequence','Iterable','Container','MutableSequence','Set','MutableSet'):
+                  if not hasattr(collections, _name) and hasattr(_abc, _name):
+                      setattr(collections, _name, getattr(_abc, _name))
+          except Exception:
+              pass
+
+          # --- Add __ident_func__ to Flask context stacks for old flask_sqlalchemy ---
+          try:
+              import threading
+              try:
+                  from flask import _app_ctx_stack, _request_ctx_stack
+                  for _stack in (_app_ctx_stack, _request_ctx_stack):
+                      if _stack is not None and not hasattr(_stack, "__ident_func__"):
+                          _stack.__ident_func__ = getattr(threading, "get_ident", None) or (lambda: 0)
+              except Exception:
+                  pass
+          except Exception:
+              pass
+
+          # --- Flask.escape shim if missing ---
+          try:
+              import flask
+              if not hasattr(flask, "escape"):
+                  from markupsafe import escape as _escape
+                  flask.escape = _escape
+          except Exception:
+              pass
+
+          # --- Disable CSRF for tests by default ---
+          try:
+              import os as _os
+              _os.environ.setdefault('WTF_CSRF_ENABLED', 'False')
           except Exception:
               pass
           EOF

@@ -113,6 +113,24 @@ jobs:
                       setattr(collections, _name, getattr(_abc, _name))
           except Exception:
               pass
+
+          # -- pytest-django ↔ old Django compat: swallow unknown 'debug' kwarg if present --
+          # (No-op if Django isn't installed or already supports 'debug'.)
+          try:
+              import importlib, inspect
+              dtu = importlib.import_module('django.test.utils')
+              try:
+                  sig = inspect.signature(dtu.setup_test_environment)
+              except (ValueError, TypeError):
+                  sig = None
+              if not sig or 'debug' not in sig.parameters:
+                  _orig = dtu.setup_test_environment
+                  def _shim_setup_test_environment(*args, **kwargs):
+                      kwargs.pop('debug', None)
+                      return _orig(*args, **kwargs)
+                  dtu.setup_test_environment = _shim_setup_test_environment
+          except Exception:
+              pass
           EOF
 
       - name: Create coverage configuration

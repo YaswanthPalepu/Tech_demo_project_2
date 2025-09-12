@@ -21,8 +21,7 @@ concurrency:
 
 jobs:
   validate-tests:
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       checks: write
@@ -30,40 +29,17 @@ jobs:
       COVERAGE_THRESHOLD: ${{ github.event.inputs.coverage_threshold || '80' }}
 
     steps:
-      - name: Checkout pipeline repo
+      - name: Checkout target repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Clone target repository to ./target_repo
-        run: |
-          REPO="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
-          echo "Cloning ${REPO}"
-          git clone --depth 1 "$REPO" target_repo
-          echo "TARGET_ROOT=$PWD/target_repo" >> $GITHUB_ENV
-          # Ensure the repo root (with sitecustomize.py) is on sys.path globally
-          echo "PYTHONPATH=$PWD/target_repo:$PYTHONPATH" >> $GITHUB_ENV
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Bootstrap Python constraints (optional, safe if file missing)
-        run: |
-          python -m pip install --upgrade "pip<25" wheel setuptools
-          python ci/py_stack_guard.py | tee /tmp/stack_env || true
-          grep -E '^(PIP_CONSTRAINT|TESTGEN_PIP_CONSTRAINTS)=' /tmp/stack_env >> $GITHUB_ENV || true
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends \
-            build-essential python3-dev libpq-dev default-libmysqlclient-dev \
-            libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
-            libxml2-dev libxslt1-dev curl
-
-      - name: Install base Python testing tools
+      - name: Install test dependencies
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
           pip install \
@@ -71,145 +47,93 @@ jobs:
             coverage pytest-xdist pytest-timeout pytest-mock \
             typing-extensions || true
 
-      - name: Install target requirements (if present; repo-agnostic)
+      - name: Install repo requirements (if present)
         run: |
-          install_requirements_file() {
-            local req_file="$1"
-            if [ -f "$req_file" ]; then
-              echo "Installing from $req_file ..."
-              # avoid building psycopg2 from source on CI
-              sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' "$req_file" || true
-              pip install -r "$req_file" || echo "Some packages from $req_file failed to install"
-            fi
-          }
-          install_requirements_file "target_repo/requirements.txt"
-          if [ -d "target_repo/requirements" ]; then
-            for f in target_repo/requirements/*.txt; do
-              [ -f "$f" ] && install_requirements_file "$f"
+          if [ -f requirements.txt ]; then
+            sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' requirements.txt || true
+            pip install -r requirements.txt || true
+          fi
+          if [ -d requirements ]; then
+            for f in requirements/*.txt; do
+              sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' "$f" || true
+              pip install -r "$f" || true
             done
           fi
-          if [ -f "target_repo/pyproject.toml" ] && grep -q "\[tool.poetry\]" target_repo/pyproject.toml; then
-            pip install poetry || true
-            (cd target_repo && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.req) || true
-            [ -s /tmp/poetry.req ] && pip install -r /tmp/poetry.req || true
-          fi
 
-      # ---- Generic shims + OPTIONAL Django auto-bootstrap (repo-agnostic) ----
-      - name: Write sitecustomize.py (generic shims + optional Django setup)
+      - name: Write sitecustomize.py (fix collection errors generically)
         run: |
-          cd "$TARGET_ROOT"
           cat > sitecustomize.py << 'EOF'
-          # Auto-loaded when this directory is on sys.path.
+          """
+          Auto-loaded before tests. Provides compatibility shims to prevent collection errors.
+          """
 
-          # -- collections.* ABCs compatibility for Python 3.10+ (fixes old libs importing from `collections`) --
+          # Fix collections.* re-exports
           try:
               import collections, collections.abc as _abc
-              _aliases = (
-                  'Mapping','MutableMapping','Sequence','MutableSequence','Set','MutableSet',
-                  'Iterable','Iterator','Generator','Container','Callable','Hashable'
-              )
-              for _name in _aliases:
+              for _name in ('Mapping','MutableMapping','Sequence','MutableSequence','Set',
+                            'MutableSet','Iterable','Iterator','Generator','Container',
+                            'Callable','Hashable'):
                   if not hasattr(collections, _name) and hasattr(_abc, _name):
                       setattr(collections, _name, getattr(_abc, _name))
           except Exception:
               pass
 
-          # -- pytest-django ↔ old Django compat: swallow unknown 'debug' kwarg if present --
-          # (No-op if Django isn't installed or already supports 'debug'.)
+          # Flask / Jinja2 shims
           try:
-              import importlib, inspect
-              dtu = importlib.import_module('django.test.utils')
-              try:
-                  sig = inspect.signature(dtu.setup_test_environment)
-              except (ValueError, TypeError):
-                  sig = None
-              if not sig or 'debug' not in sig.parameters:
-                  _orig = dtu.setup_test_environment
-                  def _shim_setup_test_environment(*args, **kwargs):
-                      kwargs.pop('debug', None)
-                      return _orig(*args, **kwargs)
-                  dtu.setup_test_environment = _shim_setup_test_environment
+              import flask
+              if not hasattr(flask, "escape"):
+                  from markupsafe import escape
+                  flask.escape = escape
+          except Exception:
+              pass
+          try:
+              import jinja2
+              if not hasattr(jinja2, "Markup"):
+                  from markupsafe import Markup, escape
+                  jinja2.Markup = Markup
+                  jinja2.escape = escape
           except Exception:
               pass
 
-          # -- OPTIONAL: if Django is installed but SETTINGS aren't configured,
-          #    auto-discover <pkg>.settings or create a minimal in-memory config.
-          #    This keeps the workflow repo-agnostic (no hard-coded framework),
-          #    yet lets Django-based repos actually run tests.
+          # Marshmallow shim
           try:
-              import os
-              from pathlib import Path
-              import importlib
-              root = Path(__file__).resolve().parent
-
-              # If Django isn't importable, this block is a no-op.
-              import django
-              from django.conf import settings
-
-              if not settings.configured:
-                  # 1) Try to detect a real settings module like "<pkg>.settings"
-                  settings_mod = ""
-                  for p in root.iterdir():
-                      if p.is_dir() and (p / "__init__.py").exists():
-                          if (p / "settings.py").exists() or (p / "settings" / "__init__.py").exists():
-                              settings_mod = f"{p.name}.settings"
-                              break
-                  if settings_mod:
-                      os.environ.setdefault("DJANGO_SETTINGS_MODULE", settings_mod)
-                  else:
-                      # 2) Fallback: write a tiny settings module compatible with old Django (1.10+)
-                      #    Include both MIDDLEWARE and MIDDLEWARE_CLASSES to satisfy older/newer code.
-                      apps = []
-                      # Heuristic: include top-level packages that look like Django apps (have models.py or migrations/)
-                      for p in root.iterdir():
-                          if p.is_dir() and (p / "__init__.py").exists():
-                              if (p / "models.py").exists() or (p / "migrations").exists() or (p / "apps").exists():
-                                  apps.append(p.name)
-                      minimal = f'''
-          SECRET_KEY = "test-secret"
-          DEBUG = True
-          ALLOWED_HOSTS = ["*"]
-          INSTALLED_APPS = [
-              "django.contrib.auth",
-              "django.contrib.contenttypes",
-              "django.contrib.sessions",
-              "django.contrib.messages",
-              "django.contrib.admin",
-              {",".join(repr(a) for a in apps)}
-          ]
-          DATABASES = {{
-              "default": {{"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}
-          }}
-          # Support old/new middleware styles
-          MIDDLEWARE = []
-          MIDDLEWARE_CLASSES = []
-          TEMPLATES = [{{
-              "BACKEND": "django.template.backends.django.DjangoTemplates",
-              "DIRS": [],
-              "APP_DIRS": True,
-              "OPTIONS": {{"context_processors": []}}
-          }}]
-          USE_TZ = True
-          TIME_ZONE = "UTC"
-          DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
-                      '''
-                      (root / "test_settings.py").write_text(minimal, encoding="utf-8")
-                      os.environ.setdefault("DJANGO_SETTINGS_MODULE", "test_settings")
-
-                  # Finally initialize Django; ignore if it still can't set up.
-                  try:
-                      django.setup()
-                  except Exception as _e:
-                      # Leave a breadcrumb for debugging without crashing collection.
-                      print("NOTE: django.setup() failed in sitecustomize:", _e)
+              import marshmallow as _mm
+              if not hasattr(_mm, "__version__"):
+                  _mm.__version__ = "4"
           except Exception:
-              # No Django or some other import-time issue — ignore.
+              pass
+
+          # Django auto-bootstrap
+          try:
+              import os, django
+              from django.conf import settings
+              if not settings.configured:
+                  os.environ.setdefault("DJANGO_SETTINGS_MODULE", "test_settings")
+                  if not os.path.exists("test_settings.py"):
+                      with open("test_settings.py","w") as f:
+                          f.write("SECRET_KEY='x'\nDEBUG=True\nINSTALLED_APPS=[]\n"
+                                  "DATABASES={'default':{'ENGINE':'django.db.backends.sqlite3','NAME':':memory:'}}\n")
+                  django.setup()
+          except Exception:
+              pass
+
+          # pytest-django shim for debug kwarg
+          try:
+              import importlib, inspect
+              dtu = importlib.import_module("django.test.utils")
+              sig = inspect.signature(dtu.setup_test_environment)
+              if "debug" not in sig.parameters:
+                  _orig = dtu.setup_test_environment
+                  def _shim(*a, **kw):
+                      kw.pop("debug", None)
+                      return _orig(*a, **kw)
+                  dtu.setup_test_environment = _shim
+          except Exception:
               pass
           EOF
 
-      - name: Create coverage configuration
+      - name: Create coverage config
         run: |
-          cd "$TARGET_ROOT"
           cat > .coveragerc << 'EOF'
           [run]
           source = .
@@ -231,114 +155,55 @@ jobs:
               if __name__ == .__main__.:
           EOF
 
-      - name: Discover tests (repo-agnostic)
-        id: discover
+      - name: Run pytest
         run: |
-          set -e
-          cd "$TARGET_ROOT"
-
-          TEST_DIRS=()
-          [ -d "tests" ] && TEST_DIRS+=("tests")
-          [ -d "test" ] && TEST_DIRS+=("test")
-          [ -d "tests/generated" ] && TEST_DIRS+=("tests/generated")
-          [ -d "src/tests" ] && TEST_DIRS+=("src/tests")
-          [ ${#TEST_DIRS[@]} -eq 0 ] && TEST_DIRS=(".")
-
-          echo "test_dirs=${TEST_DIRS[*]}" >> $GITHUB_OUTPUT
-
-          COV_ARGS=()
-          # Try common code roots; fallback to project root
-          for p in src app core backend package conduit; do
-            [ -d "$p" ] && COV_ARGS+=("--cov=$p")
-          done
-          [ ${#COV_ARGS[@]} -eq 0 ] && COV_ARGS+=(--cov=.)
-          [ -f ".coveragerc" ] && COV_ARGS+=("--cov-config=.coveragerc")
-          echo "cov_args=${COV_ARGS[*]}" >> $GITHUB_OUTPUT
-
-          # If literally no tests found, create a smoke test
-          FOUND=$(find "${TEST_DIRS[@]}" -type f -name "test_*.py" 2>/dev/null | wc -l | tr -d ' ')
-          if [ "$FOUND" = "0" ]; then
-            mkdir -p tests
-            cat > tests/test_smoke.py <<'PY'
-          def test_smoke():
-              assert True
-          PY
-            echo "Created smoke test to validate runner/tooling."
-          fi
-
-      - name: Run tests (repo-agnostic, show skip reasons)
-        id: run_tests
-        env:
-          PYTHONPATH: ${{ env.TARGET_ROOT }}
-        run: |
-          set -e
-          cd "$TARGET_ROOT"
-          mkdir -p ../reports/coverage ../reports/tests
-
-          TEST_DIRS="${{ steps.discover.outputs.test_dirs }}"
-          COV_ARGS="${{ steps.discover.outputs.cov_args }}"
-
+          mkdir -p reports/coverage reports/tests
           set +e
-          python -m pytest $TEST_DIRS \
-            ${COV_ARGS} \
-            --cov-report=html:../reports/coverage/html \
-            --cov-report=xml:../reports/coverage/coverage.xml \
-            --cov-report=json:../reports/coverage/coverage.json \
+          pytest tests tests/generated \
+            --cov=. --cov-config=.coveragerc \
+            --cov-report=xml:reports/coverage/coverage.xml \
+            --cov-report=json:reports/coverage/coverage.json \
             --cov-report=term-missing \
-            --html=../reports/tests/test-report.html \
-            --json-report --json-report-file=../reports/tests/test-results.json \
+            --html=reports/tests/test-report.html \
+            --json-report --json-report-file=reports/tests/test-results.json \
             --tb=short --timeout=300 --maxfail=50 \
-            -vv -rA --continue-on-collection-errors
+            -vv -rA
           CODE=$?
           set -e
           echo "exit_code=$CODE" >> $GITHUB_OUTPUT
 
-      - name: Parse results & coverage
-        id: summarize
+      - name: Summarize results
         run: |
-          python - << 'PY'
-          import json, os, pathlib, re
-          rep = pathlib.Path('reports/tests/test-results.json')
-          data = {"summary": {"total": 0, "passed": 0, "failed": 0, "error": 0, "skipped": 0}, "tests":[]}
+          python - <<'PY'
+          import json, pathlib
+          rep = pathlib.Path("reports/tests/test-results.json")
+          cov = pathlib.Path("reports/coverage/coverage.json")
+
+          results = {"summary": {"total": 0, "passed": 0, "failed": 0, "error": 0, "skipped": 0}}
           if rep.exists():
-              try: data = json.loads(rep.read_text())
-              except Exception: pass
-          s = data.get("summary", {})
-          total  = int(s.get("total", 0) or 0)
-          passed = int(s.get("passed", 0) or 0)
-          failed = int(s.get("failed", 0) or 0)
-          errors = int(s.get("error", 0) or 0)
-          pass_pct = (passed/total*100) if total else 0.0
+              try: results = json.loads(rep.read_text())
+              except: pass
+          s = results.get("summary", {})
+          total  = s.get("total", 0)
+          passed = s.get("passed", 0)
+          failed = s.get("failed", 0) + s.get("error", 0)
+          skipped = s.get("skipped", 0)
+          pct = (passed/total*100) if total else 0.0
 
           covp = 0.0
-          cp = pathlib.Path('reports/coverage/coverage.json')
-          if cp.exists():
+          if cov.exists():
               try:
-                  cov = json.loads(cp.read_text())
-                  covp = float(cov.get("totals", {}).get("percent_covered", 0.0))
-              except Exception:
-                  pass
+                  covp = json.loads(cov.read_text()).get("totals", {}).get("percent_covered", 0.0)
+              except: pass
 
-          # summarize skip reasons (purely informational)
-          reasons = {}
-          for t in data.get("tests", []):
-              if t.get("outcome") == "skipped":
-                  msg = t.get("longrepr", "") or t.get("setup", "")
-                  m = re.search(r"Skipped:\s*(.+)", str(msg))
-                  reason = (m.group(1).strip() if m else str(msg).splitlines()[:1][0] if msg else "unknown")[:160]
-                  reasons[reason] = reasons.get(reason, 0) + 1
-          if reasons:
-              print("Skip reasons:")
-              for k,v in sorted(reasons.items(), key=lambda x: -x[1]): print(f"  {v} × {k}")
+          print(f"Summary: total={total}, passed={passed}, failed={failed}, skipped={skipped}, pass%={pct:.2f}, coverage={covp:.2f}%")
 
-          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
-              f.write(f"tests-total={total}\n")
-              f.write(f"tests-passed={passed}\n")
-              f.write(f"tests-failed={failed+errors}\n")
-              f.write(f"pass-percentage={pass_pct:.2f}\n")
-              f.write(f"coverage-percentage={covp:.2f}\n")
-
-          print(f"Summary: total={total}, passed={passed}, failed={failed}, errors={errors}, pass%={pass_pct:.2f}, coverage={covp:.2f}")
+          # enforce coverage threshold
+          import sys, os
+          threshold = float(os.environ.get("COVERAGE_THRESHOLD","80"))
+          if covp < threshold:
+              print(f"❌ Coverage {covp:.2f}% is below threshold {threshold}%")
+              sys.exit(1)
           PY
 
       - name: Upload reports

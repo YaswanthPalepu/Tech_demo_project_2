@@ -60,12 +60,12 @@ jobs:
         run: |
           if [ -f requirements.txt ]; then
             sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' requirements.txt || true
-            pip install -r requirements.txt
+            pip install -r requirements.txt   # fail if this fails
           fi
           if [ -d requirements ]; then
             for f in requirements/*.txt; do
               sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' "$f" || true
-              pip install -r "$f" || true
+              pip install -r "$f" || true     # extras best-effort
             done
           fi
           pip install -e . || true
@@ -185,7 +185,8 @@ jobs:
       - name: Run tests (existing + generated) with coverage and reports
         working-directory: target_repo
         env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"   # disable autoload; we explicitly enable the plugins below
+          # Disable autoload; explicitly enable only the plugins we need
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
           mkdir -p ../reports/coverage ../reports/tests
 
@@ -228,19 +229,17 @@ jobs:
               print("sitecustomize not loaded:", e)
           PY
 
-          # Enable ONLY required plugins by their entry-point names
-          ENABLED_PLUGINS=(-p cov -p json-report -p html -p timeout)
+          # Correct plugin module names:
+          ENABLED_PLUGINS=(-p pytest_cov -p pytest_html -p pytest_jsonreport -p pytest_timeout)
 
-          # Add pytest-django only if Django is present
+          # Add pytest-django only if Django is importable
           python - <<'PY'
-          import importlib.util
-          import pathlib
-          have_django = importlib.util.find_spec("django") is not None
-          if have_django:
-              pathlib.Path("ENABLED_DJANGO.txt").write_text("1")
+          import importlib.util, pathlib
+          if importlib.util.find_spec("django"):
+              pathlib.Path("ENABLE_DJANGO.txt").write_text("1")
           PY
-          if [[ -f ENABLED_DJANGO.txt ]]; then
-            ENABLED_PLUGINS+=(-p django)
+          if [[ -f ENABLE_DJANGO.txt ]]; then
+            ENABLED_PLUGINS+=(-p pytest_django)
             echo "Enabling pytest-django plugin (Django detected)."
           fi
 
@@ -258,7 +257,7 @@ jobs:
           CODE=$?
           set -e
 
-          # Exit code 2: INTERNALERROR, exit code 4: usage/arg error (e.g., plugin not loaded)
+          # Exit code 2: INTERNALERROR, exit code 4: usage/arg error
           if [ "$CODE" -eq 2 ] || [ "$CODE" -eq 4 ]; then
             echo "❌ Pytest crashed or had usage error (exit $CODE). See reports."
             exit 1

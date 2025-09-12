@@ -29,10 +29,17 @@ jobs:
       COVERAGE_THRESHOLD: ${{ github.event.inputs.coverage_threshold || '80' }}
 
     steps:
-      - name: Checkout target repo
+      - name: Checkout pipeline repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Clone target repository to ./target_repo
+        run: |
+          REPO_URL="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
+          rm -rf target_repo
+          git clone --depth=1 "$REPO_URL" target_repo
+          echo "Cloned $REPO_URL into ./target_repo"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -45,11 +52,13 @@ jobs:
           pip install \
             pytest pytest-cov pytest-html pytest-json-report \
             coverage pytest-xdist pytest-timeout pytest-mock \
-            typing-extensions || true
+            pytest-django typing-extensions || true
 
-      - name: Install repo requirements (if present)
+      - name: Install target requirements (if present)
+        working-directory: target_repo
         run: |
           if [ -f requirements.txt ]; then
+            # Prefer prebuilt wheel for psycopg2 to avoid build issues
             sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' requirements.txt || true
             pip install -r requirements.txt || true
           fi
@@ -60,14 +69,14 @@ jobs:
             done
           fi
 
-      - name: Write sitecustomize.py (fix collection errors generically)
+      - name: Write sitecustomize.py (generic test-collection shims)
+        working-directory: target_repo
         run: |
           cat > sitecustomize.py << 'EOF'
           """
           Auto-loaded before tests. Provides compatibility shims to prevent collection errors.
           """
-
-          # Fix collections.* re-exports
+          # collections.abc re-exports for old code
           try:
               import collections, collections.abc as _abc
               for _name in ('Mapping','MutableMapping','Sequence','MutableSequence','Set',
@@ -103,7 +112,7 @@ jobs:
           except Exception:
               pass
 
-          # Django auto-bootstrap
+          # Minimal Django bootstrap if project uses Django without settings wired
           try:
               import os, django
               from django.conf import settings
@@ -117,7 +126,7 @@ jobs:
           except Exception:
               pass
 
-          # pytest-django shim for debug kwarg
+          # pytest-django shim for older signatures
           try:
               import importlib, inspect
               dtu = importlib.import_module("django.test.utils")
@@ -133,6 +142,7 @@ jobs:
           EOF
 
       - name: Create coverage config
+        working-directory: target_repo
         run: |
           cat > .coveragerc << 'EOF'
           [run]
@@ -155,51 +165,85 @@ jobs:
               if __name__ == .__main__.:
           EOF
 
-      - name: Run pytest
+      - name: Run tests (existing + generated) with coverage and reports
+        working-directory: target_repo
         run: |
-          mkdir -p reports/coverage reports/tests
+          mkdir -p ../reports/coverage ../reports/tests
+
+          # Build test target list only if they exist; otherwise use auto-discovery
+          TEST_DIRS=()
+          [[ -d tests ]] && TEST_DIRS+=(tests)
+          [[ -d tests/generated ]] && TEST_DIRS+=(tests/generated)
+          if (( ${#TEST_DIRS[@]} == 0 )); then
+            echo "::warning::No tests/ directories found; using auto-discovery"
+            PYTEST_TARGETS=(".")
+          else
+            PYTEST_TARGETS=("${TEST_DIRS[@]}")
+          fi
+
+          # Compute source directories for --cov (exclude common non-source dirs)
+          SRC_DIRS=$(python - <<'PY'
+import os
+skip={'tests','tests_generated','tests-generated','.git','.github','venv','.venv','env',
+      'node_modules','dist','build','__pycache__','.mypy_cache','.idea','.vscode'}
+c=[]
+for d in os.listdir('.'):
+    if d in skip or not os.path.isdir(d): continue
+    for root,_,files in os.walk(d):
+        if any(f.endswith('.py') for f in files):
+            c.append(d); break
+print(' '.join(sorted(set(c))))
+PY
+)
+
+          echo "Running pytest on: ${PYTEST_TARGETS[*]}"
+          echo "Coverage on source dirs: ${SRC_DIRS:-<none detected>}"
+
           set +e
-          pytest tests tests/generated \
-            --cov=. --cov-config=.coveragerc \
-            --cov-report=xml:reports/coverage/coverage.xml \
-            --cov-report=json:reports/coverage/coverage.json \
-            --cov-report=term-missing \
-            --html=reports/tests/test-report.html \
-            --json-report --json-report-file=reports/tests/test-results.json \
-            --tb=short --timeout=300 --maxfail=50 \
-            -vv -rA
+          pytest -q "${PYTEST_TARGETS[@]}" \
+            -rA --maxfail=1 --tb=short --timeout=300 \
+            --json-report --json-report-file=../reports/tests/test-results.json \
+            --html=../reports/tests/test-report.html --self-contained-html \
+            ${SRC_DIRS:+--cov=${SRC_DIRS}} \
+            --cov-config=.coveragerc \
+            --cov-report=xml:../reports/coverage/coverage.xml \
+            --cov-report=json:../reports/coverage/coverage.json \
+            --cov-report=term-missing
           CODE=$?
           set -e
-          echo "exit_code=$CODE" >> $GITHUB_OUTPUT
+          echo "pytest_exit_code=$CODE" >> $GITHUB_OUTPUT
 
-      - name: Summarize results
+          echo "Reports generated:"
+          ls -l ../reports/tests || true
+          ls -l ../reports/coverage || true
+
+      - name: Summarize & enforce coverage threshold
         run: |
           python - <<'PY'
-          import json, pathlib
+          import json, pathlib, os, sys
           rep = pathlib.Path("reports/tests/test-results.json")
           cov = pathlib.Path("reports/coverage/coverage.json")
 
           results = {"summary": {"total": 0, "passed": 0, "failed": 0, "error": 0, "skipped": 0}}
           if rep.exists():
               try: results = json.loads(rep.read_text())
-              except: pass
+              except Exception: pass
           s = results.get("summary", {})
-          total  = s.get("total", 0)
-          passed = s.get("passed", 0)
-          failed = s.get("failed", 0) + s.get("error", 0)
-          skipped = s.get("skipped", 0)
+          total  = int(s.get("total", 0) or 0)
+          passed = int(s.get("passed", 0) or 0)
+          failed = int(s.get("failed", 0) or 0) + int(s.get("error", 0) or 0)
+          skipped = int(s.get("skipped", 0) or 0)
           pct = (passed/total*100) if total else 0.0
 
           covp = 0.0
           if cov.exists():
               try:
-                  covp = json.loads(cov.read_text()).get("totals", {}).get("percent_covered", 0.0)
-              except: pass
+                  covp = float(json.loads(cov.read_text()).get("totals", {}).get("percent_covered", 0.0))
+              except Exception:
+                  pass
 
           print(f"Summary: total={total}, passed={passed}, failed={failed}, skipped={skipped}, pass%={pct:.2f}, coverage={covp:.2f}%")
 
-          # enforce coverage threshold
-          import sys, os
           threshold = float(os.environ.get("COVERAGE_THRESHOLD","80"))
           if covp < threshold:
               print(f"❌ Coverage {covp:.2f}% is below threshold {threshold}%")

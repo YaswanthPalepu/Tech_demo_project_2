@@ -1,109 +1,92 @@
 #!/usr/bin/env python3
 """
-Decide constraints for arbitrary repos.
-- If repo pins old Flask stack (Flask<2.3 or Flask-SQLAlchemy<3 or Werkzeug<2.3 or SQLAlchemy<2)
-  -> emit legacy constraints (fixes LocalStack.__ident_func__ errors)
-- Else -> emit empty constraints (modern/default)
-Writes:
-  .constraints.txt   – pip constraints file
-  .stack_mode.txt    – "legacy_flask" or "modern"
-Prints chosen mode for logs.
+Repo-agnostic stack guard.
+
+- Detects likely "legacy Flask/SQLAlchemy" stacks in the TARGET_ROOT
+- Emits PIP_CONSTRAINT and TESTGEN_PIP_CONSTRAINTS pointing to .constraints.txt
+- Writes .stack_mode.txt with either "legacy_flask" or "modern"
+
+Heuristics are intentionally light so this works across many repos.
 """
-import os, re, sys, pathlib
+from __future__ import annotations
+import os, re, sys, json
+from pathlib import Path
 
-ROOT = pathlib.Path(os.environ.get("TARGET_ROOT") or ".").resolve()
+def read_text(p: Path) -> str:
+    try:
+        return p.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return ""
 
-REQ_GLOBS = [
-    "requirements.txt",
-    "requirements/*.txt",
-    "pyproject.toml",     # we only sniff (no export here)
-    "Pipfile",            # sniff only
-]
+def any_exists(paths):
+    return any(Path(p).exists() for p in paths)
 
-PIN_RE = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*([<>=!~]=.*?)?\s*(#.*)?$")
+def find_target_root() -> Path:
+    # Prefer explicit env, fall back to common names
+    env = os.environ.get("TARGET_ROOT")
+    if env:
+        return Path(env).resolve()
+    for cand in ("target_repo", "target"):
+        p = Path(cand)
+        if p.exists():
+            return p.resolve()
+    return Path(".").resolve()
 
-def _iter_req_lines():
-    for pat in REQ_GLOBS:
-        for p in ROOT.glob(pat):
-            try:
-                for line in p.read_text(encoding="utf-8", errors="ignore").splitlines():
-                    yield p.name, line
-            except Exception:
-                pass
+def collect_requirement_text(root: Path) -> str:
+    blobs = []
+    files = [root / "requirements.txt"]
+    files += list((root / "requirements").glob("*.txt"))
+    files += [root / "pyproject.toml"]
+    for f in files:
+        if f.exists():
+            blobs.append(read_text(f))
+    return "\n".join(blobs)
 
-def _norm(name: str) -> str:
-    return name.lower().replace("_","-")
+def looks_legacy_flask(req: str, root: Path) -> bool:
+    req_low = req.lower()
 
-def _wants_legacy(pins: dict) -> bool:
-    """Heuristics for legacy Flask stack."""
-    def vlt(name, major):
-        pin = pins.get(name)
-        if not pin: return False
-        # quick and permissive check
-        return any(s in pin for s in (f"<{major}", f"=={major-1}."))
-
-    # If any *explicit* pin forces the old stack, use legacy
-    if vlt("flask", 2.3) or vlt("werkzeug", 2.3) or vlt("flask-sqlalchemy", 3) or vlt("sqlalchemy", 2):
+    # Simple markers in requirements/pyproject
+    markers = [
+        r"flask[<>=]\s*2\.2", r"flask[<]\s*2\.3",
+        r"werkzeug[<]\s*2\.3",
+        r"sqlalchemy[<]\s*2\.0",
+        r"flask[-_]?sqlalchemy",  # any presence strongly hints legacy patterns
+    ]
+    if any(re.search(m, req_low) for m in markers):
         return True
 
-    # If Flask-SQLAlchemy is present but *explicitly modern*, prefer modern
-    if pins.get("flask-sqlalchemy") and (">=3" in pins["flask-sqlalchemy"] or "==3." in pins["flask-sqlalchemy"]):
-        return False
-    if pins.get("sqlalchemy") and (">=2" in pins["sqlalchemy"] or "==2." in pins["sqlalchemy"]):
-        return False
+    # Look for imports in source code (best-effort, cheap scan)
+    for py in list(root.glob("**/*.py"))[:400]:  # cap to keep fast
+        content = read_text(py)
+        if "flask_sqlalchemy" in content or "from flask_sqlalchemy" in content:
+            return True
+        if re.search(r"\.query\.get\(", content):  # SA 1.x pattern
+            return True
 
-    # If the repo *mentions* flask_sqlalchemy in code and no modern pins detected, be conservative? -> NO.
-    # Default to modern unless old pins are found (safer for new apps).
     return False
 
-def sniff_pins() -> dict:
-    pins = {}
-    for fn, line in _iter_req_lines():
-        s = line.strip()
-        if not s or s.startswith("#"):
-            continue
-        m = PIN_RE.match(s)
-        if not m:
-            continue
-        name, spec, _ = m.groups()
-        n = _norm(name)
-        if n in {"-r","--requirement","--find-links","--extra-index-url","--index-url"}:
-            continue
-        if n not in pins:
-            pins[n] = (spec or "").replace(" ", "")
-    return pins
+def main() -> int:
+    repo_root = Path(".").resolve()
+    target_root = find_target_root()
+    constraints = repo_root / ".constraints.txt"
 
-def write_constraints(mode: str, path: pathlib.Path):
+    req_blob = collect_requirement_text(target_root)
+    legacy = looks_legacy_flask(req_blob, target_root)
+
+    mode = "legacy_flask" if legacy and constraints.exists() else "modern"
+
+    # Persist mode for the workflows to read
+    (repo_root / ".stack_mode.txt").write_text(mode, encoding="utf-8")
+
+    print(f"[py-stack-guard] mode={mode}", file=sys.stderr)
     if mode == "legacy_flask":
-        path.write_text(
-            "\n".join([
-                "Flask<2.3",
-                "Werkzeug<2.3",
-                "Flask-SQLAlchemy<3",
-                "SQLAlchemy<2.0",
-                "Jinja2<3.1",
-                "itsdangerous<2.1",
-                "click<8.1",
-                "MarkupSafe<2.1",
-                "",
-            ]),
-            encoding="utf-8",
-        )
-    else:
-        # Modern/default: no pins (keep file empty but present)
-        path.write_text("", encoding="utf-8")
+        print(f"[py-stack-guard] constraints={constraints}")
+        # Only emit env exports if constraints file is present
+        if constraints.exists():
+            print(f"PIP_CONSTRAINT={constraints}")
+            print(f"TESTGEN_PIP_CONSTRAINTS={constraints}")
 
-def main():
-    pins = sniff_pins()
-    mode = "legacy_flask" if _wants_legacy(pins) else "modern"
-    out = pathlib.Path(".constraints.txt").resolve()
-    write_constraints(mode, out)
-    pathlib.Path(".stack_mode.txt").write_text(mode, encoding="utf-8")
-    print(f"[py-stack-guard] mode={mode} constraints={out}")
-    # Export for later steps
-    print(f"PIP_CONSTRAINT={out}", file=sys.stdout)
-    # For your generator.py (it honors TESTGEN_PIP_CONSTRAINTS)
-    print(f"TESTGEN_PIP_CONSTRAINTS={out}", file=sys.stdout)
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

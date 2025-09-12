@@ -15,8 +15,8 @@ on:
         description: "TESTGEN_PROMPT_STYLE (ultra_bare recommended)"
         required: false
         default: "ultra_bare"
-  push:
-    branches: [ test ]
+  # push:
+  #   branches: [ test ]
 
 concurrency:
   group: test-gen-${{ github.workflow }}
@@ -28,7 +28,7 @@ jobs:
     permissions:
       contents: write
     env:
-      # ---- Azure OpenAI ----
+      # ---- Azure OpenAI (or OpenAI) ----
       AZURE_OPENAI_KEY:         ${{ secrets.AZURE_OPENAI_KEY         || secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT    || secrets.AZURE_OPENAI_API_ENDPOINT }}
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION || secrets.OPENAI_API_VERSION }}
@@ -79,17 +79,14 @@ jobs:
           python-version: "3.10"
           cache: pip
 
-      # ---- repo-agnostic constraints bootstrap ----
+      # ---- repo-agnostic constraints bootstrap (same pattern as validate workflow) ----
       - name: Bootstrap Python constraints (repo-agnostic)
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
-          # Decide legacy vs modern based on the target repo's dependency pins
           python ci/py_stack_guard.py | tee /tmp/stack_env
-          # Export PIP_CONSTRAINT + TESTGEN_PIP_CONSTRAINTS for later steps (and generator.py)
           grep -E '^(PIP_CONSTRAINT|TESTGEN_PIP_CONSTRAINTS)=' /tmp/stack_env >> $GITHUB_ENV
           MODE="$(cat .stack_mode.txt)"
           echo "Resolved stack mode: $MODE"
-          # Preinstall legacy Flask stack if needed to avoid import-time crashes
           if [ "$MODE" = "legacy_flask" ]; then
             python -m pip install -U -c .constraints.txt \
               "Flask<2.3" "Werkzeug<2.3" "Flask-SQLAlchemy<3" "SQLAlchemy<2.0" \
@@ -104,52 +101,55 @@ jobs:
             libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
             libxml2-dev libxslt1-dev curl
 
-      - name: Install Python deps (tooling + target libs)
+      - name: Install Python deps (tooling + target libs, constrained)
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
 
-          # --- Prefer requirements files; sanitize psycopg2 -> psycopg2-binary everywhere ---
-          if [ -f "target/requirements.txt" ]; then
-            sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' target/requirements.txt
-            pip install -r target/requirements.txt || true
-          fi
+          # --- Tooling (honors PIP_CONSTRAINT when set) ---
+          pip install "openai>=1.51.0" pytest pytest-cov httpx requests \
+                      "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" "annotated-types>=0.6" \
+                      "uvicorn>=0.23" "typing-extensions>=4.8" psycopg2-binary || true
 
-          if compgen -G "target/requirements/*.txt" > /dev/null; then
+          # --- Target requirements (convert psycopg2 -> psycopg2-binary) ---
+          install_requirements_file() {
+            local req_file="$1"
+            if [ -f "$req_file" ]; then
+              echo "Installing from $req_file (constrained via PIP_CONSTRAINT if present)..."
+              sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' "$req_file"
+              pip install -r "$req_file" || echo "Some packages from $req_file failed to install"
+            fi
+          }
+
+          install_requirements_file "target/requirements.txt"
+
+          if compgen -G "target/requirements/*.txt" >/dev/null; then
             for f in target/requirements/*.txt; do
-              echo "Installing from $f"
-              sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' "$f"
-              pip install -r "$f" || true
+              install_requirements_file "$f"
             done
           fi
 
-          # --- Optional: Poetry/PDM (kept) under constraints via PIP_CONSTRAINT ---
+          # --- Poetry/PDM exports respected; Pipenv intentionally skipped ---
           if [ -f "target/pyproject.toml" ] && grep -q "\[tool.poetry\]" target/pyproject.toml; then
             pip install poetry || true
             (cd target && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req) || true
-            if [ -s /tmp/poetry.lock.req ]; then
-              sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' /tmp/poetry.lock.req
-              pip install -r /tmp/poetry.lock.req || true
-            fi
+            [ -s /tmp/poetry.lock.req ] && pip install -r /tmp/poetry.lock.req || true
           fi
           if [ -f "target/pyproject.toml" ] && grep -q "\[tool.pdm\]" target/pyproject.toml; then
             pip install pdm || true
             (cd target && pdm export -o /tmp/pdm.lock.req --without-hashes --dev) || true
-            if [ -s /tmp/pdm.lock.req ]; then
-              sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' /tmp/pdm.lock.req
-              pip install -r /tmp/pdm.lock.req || true
-            fi
+            [ -s /tmp/pdm.lock.req ] && pip install -r /tmp/pdm.lock.req || true
           fi
 
-          # --- DO NOT use Pipenv exports (they pin legacy psycopg2==2.7.5, Flask 1.x, etc.) ---
-          # if [ -f "target/Pipfile" ]; then ... fi   # intentionally omitted
-
-          # --- Editable install if present (best-effort) ---
-          if [ -f "target/setup.py" ] || [ -f "target/setup.cfg" ]; then
-            pip install -e target || true
-          fi
-
-          # --- Core testing + helpers; avoid opinionated modern pins (honors PIP_CONSTRAINT) ---
-          pip install "openai>=1.51.0" pytest pytest-cov httpx requests typing-extensions psycopg2-binary
+      - name: Print core versions (debug)
+        run: |
+          python - <<'PY'
+          import importlib
+          for n in ("flask","werkzeug","flask_sqlalchemy","sqlalchemy","jinja2","itsdangerous","click","marshmallow"):
+              try:
+                  m=importlib.import_module(n); print(f"{n}: {getattr(m,'__version__','?')}")
+              except Exception as e:
+                  print(f"{n}: not installed ({e})")
+          PY
 
       - name: Analyze target codebase
         run: python -m src.analyzer --root target > /tmp/analysis.json
@@ -191,7 +191,8 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [ -n "$GH_PAT3" ]; then
-            git remote set-url origin "https://x-access-token:${GH_PAT3}@github.com/DeviPrasad372002/flask-test-repo.git"
+            # If you're always pushing to the analyzed repo, replace the URL below with $REPO_URL
+            git remote set-url origin "https://x-access-token:${GH_PAT3}@github.com/${{ steps.meta.outputs.repo_path }}.git"
           fi
           git add tests/generated || true
           if git diff --staged --quiet; then

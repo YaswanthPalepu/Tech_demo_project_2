@@ -183,21 +183,21 @@ jobs:
 
           # Compute source directories for --cov (exclude common non-source dirs)
           SRC_DIRS=$(python - <<'PY'
-import os
-skip={'tests','tests_generated','tests-generated','.git','.github','venv','.venv','env',
-      'node_modules','dist','build','__pycache__','.mypy_cache','.idea','.vscode'}
-c=[]
-for d in os.listdir('.'):
-    if d in skip or not os.path.isdir(d): continue
-    for root,_,files in os.walk(d):
-        if any(f.endswith('.py') for f in files):
-            c.append(d); break
-print(' '.join(sorted(set(c))))
-PY
-)
+          import os
+          skip={'tests','tests_generated','tests-generated','.git','.github','venv','.venv','env',
+                'node_modules','dist','build','__pycache__','.mypy_cache','.idea','.vscode'}
+          c=[]
+          for d in os.listdir('.'):
+              if d in skip or not os.path.isdir(d): continue
+              for root,_,files in os.walk(d):
+                  if any(f.endswith('.py') for f in files):
+                      c.append(d); break
+          print(' '.join(sorted(set(c))))
+          PY
+          )
 
-          echo "Running pytest on: ${PYTEST_TARGETS[*]}"
-          echo "Coverage on source dirs: ${SRC_DIRS:-<none detected>}"
+                    echo "Running pytest on: ${PYTEST_TARGETS[*]}"
+                    echo "Coverage on source dirs: ${SRC_DIRS:-<none detected>}"
 
           set +e
           pytest -q "${PYTEST_TARGETS[@]}" \

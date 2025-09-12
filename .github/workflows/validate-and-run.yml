@@ -2,10 +2,6 @@
 name: Test Validation & Quality Analysis
 
 on:
-  # workflow_run:
-  #   workflows: ["AI Test Generation"]
-  #   types: [completed]
-  #   branches: [test]
   workflow_dispatch:
     inputs:
       repo_url:
@@ -31,9 +27,6 @@ jobs:
       contents: read
       checks: write
     env:
-      DATABASE_URL: "sqlite:///:memory:"
-      DB_URL: "sqlite:///:memory:"
-      SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
       COVERAGE_THRESHOLD: ${{ github.event.inputs.coverage_threshold || '80' }}
 
     steps:
@@ -48,6 +41,7 @@ jobs:
           echo "Cloning ${REPO}"
           git clone --depth 1 "$REPO" target_repo
           echo "TARGET_ROOT=$PWD/target_repo" >> $GITHUB_ENV
+          # Ensure the repo root (with sitecustomize.py) is on sys.path globally
           echo "PYTHONPATH=$PWD/target_repo:$PYTHONPATH" >> $GITHUB_ENV
 
       - name: Setup Python
@@ -55,18 +49,11 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Bootstrap Python constraints (repo-agnostic)
+      - name: Bootstrap Python constraints (optional, safe if file missing)
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
           python ci/py_stack_guard.py | tee /tmp/stack_env || true
           grep -E '^(PIP_CONSTRAINT|TESTGEN_PIP_CONSTRAINTS)=' /tmp/stack_env >> $GITHUB_ENV || true
-          MODE="$(cat .stack_mode.txt 2>/dev/null || echo modern)"
-          echo "Resolved stack mode: $MODE"
-          if [ "$MODE" = "legacy_flask" ] && [ -f ".constraints.txt" ]; then
-            python -m pip install -U -c .constraints.txt \
-              "Flask<2.3" "Werkzeug<2.3" "Flask-SQLAlchemy<3" "SQLAlchemy<2.0" \
-              "Jinja2<3.1" "itsdangerous<2.1" "click<8.1"
-          fi
 
       - name: Install system dependencies
         run: |
@@ -76,25 +63,30 @@ jobs:
             libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
             libxml2-dev libxslt1-dev curl
 
-      - name: Install Python dependencies and tools (constrained)
+      - name: Install base Python testing tools
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
           pip install \
             pytest pytest-cov pytest-html pytest-json-report \
             coverage pytest-xdist pytest-timeout pytest-mock \
-            WebTest requests httpx bandit flake8 black isort mypy \
-            typing-extensions psycopg2-binary || true
+            typing-extensions || true
+
+      - name: Install target requirements (if present; repo-agnostic)
+        run: |
           install_requirements_file() {
             local req_file="$1"
             if [ -f "$req_file" ]; then
-              echo "Installing from $req_file..."
-              sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' "$req_file"
+              echo "Installing from $req_file ..."
+              # avoid building psycopg2 from source on CI
+              sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' "$req_file" || true
               pip install -r "$req_file" || echo "Some packages from $req_file failed to install"
             fi
           }
           install_requirements_file "target_repo/requirements.txt"
-          if ls target_repo/requirements/*.txt >/dev/null 2>&1; then
-            for f in target_repo/requirements/*.txt; do install_requirements_file "$f"; done
+          if [ -d "target_repo/requirements" ]; then
+            for f in target_repo/requirements/*.txt; do
+              [ -f "$f" ] && install_requirements_file "$f"
+            done
           fi
           if [ -f "target_repo/pyproject.toml" ] && grep -q "\[tool.poetry\]" target_repo/pyproject.toml; then
             pip install poetry || true
@@ -102,13 +94,14 @@ jobs:
             [ -s /tmp/poetry.req ] && pip install -r /tmp/poetry.req || true
           fi
 
-      # ---------- NEW: Create sitecustomize EARLY so every Python process gets shims ----------
-      - name: Write compatibility shims (EARLY, repo-agnostic)
+      # ---- Generic compatibility shims loaded by every Python process (repo-agnostic) ----
+      - name: Write sitecustomize.py (generic shims)
         run: |
           cd "$TARGET_ROOT"
           cat > sitecustomize.py << 'EOF'
           # Auto-loaded when this directory is on sys.path.
-          # Re-export missing ABCs from collections.abc for Python 3.10+ compatibility
+
+          # -- collections.* ABCs compatibility for Python 3.10+ (fixes old libs importing from `collections`) --
           try:
               import collections, collections.abc as _abc
               _aliases = (
@@ -120,130 +113,7 @@ jobs:
                       setattr(collections, _name, getattr(_abc, _name))
           except Exception:
               pass
-          # Jinja2/MarkupSafe compat
-          try:
-              import jinja2
-              if not hasattr(jinja2, 'Markup'):
-                  from markupsafe import Markup as _Markup
-                  jinja2.Markup = _Markup
-          except Exception:
-              pass
-          # Flask.escape shim if missing
-          try:
-              import flask
-              if not hasattr(flask, "escape"):
-                  from markupsafe import escape as _escape
-                  flask.escape = _escape
-          except Exception:
-              pass
-          # Disable CSRF by default in tests (if app reads env)
-          try:
-              import os as _os
-              _os.environ.setdefault('WTF_CSRF_ENABLED', 'False')
-          except Exception:
-              pass
           EOF
-
-      # ---------- Optional Django bootstrap (repo-agnostic) ----------
-      - name: Detect Django & install pytest-django if needed
-        id: detect
-        run: |
-          set -e
-          cd "$TARGET_ROOT"
-          python - <<'PY'
-          import os, re
-          from pathlib import Path
-          root = Path(".")
-          looks = False
-          if (root/"manage.py").exists():
-              looks = True
-          else:
-              rx = re.compile(r"\bdjango\b", re.I)
-              for f in [root/"requirements.txt", *(root/"requirements").glob("*.txt") if (root/"requirements").exists() else [] , root/"pyproject.toml"]:
-                  try:
-                      if f.exists() and rx.search(f.read_text(errors="ignore")):
-                          looks = True; break
-                  except Exception: pass
-          print(f"is_django={looks}")
-          with open(os.environ["GITHUB_OUTPUT"], "a") as g:
-              g.write(f"is_django={'true' if looks else 'false'}\n")
-          PY
-          if [ "${{ steps.detect.outputs.is_django }}" = "true" ]; then
-            pip install pytest-django Django djangorestframework PyJWT || true
-          fi
-
-      - name: Bootstrap Django (only if detected) with pre-import shim
-        if: steps.detect.outputs.is_django == 'true'
-        run: |
-          set -e
-          cd "$TARGET_ROOT"
-          python - <<'PY'
-          import os, sys
-          from pathlib import Path
-          root = Path(".").resolve()
-          sys.path.insert(0, str(root))
-          # ---- inline shim BEFORE importing django ----
-          try:
-              import collections, collections.abc as _abc
-              for _n in ('Mapping','MutableMapping','Sequence','MutableSequence','Set','MutableSet',
-                         'Iterable','Iterator','Generator','Container','Callable','Hashable'):
-                  if not hasattr(collections, _n) and hasattr(_abc, _n):
-                      setattr(collections, _n, getattr(_abc, _n))
-          except Exception:
-              pass
-          os.environ.setdefault("SECRET_KEY","test-secret")
-
-          # try to find a settings package like <pkg>/settings.py
-          settings_module = ""
-          for pkg in [p.name for p in root.iterdir() if p.is_dir() and (p/"__init__.py").exists()]:
-              if (root/pkg/"settings.py").exists() or (root/pkg/"settings"/"__init__.py").exists():
-                  settings_module = f"{pkg}.settings"; break
-
-          def try_setup(mod):
-              if not mod: return False
-              os.environ["DJANGO_SETTINGS_MODULE"] = mod
-              try:
-                  import django
-                  django.setup()
-                  print(f"Django setup OK with {mod}")
-                  return True
-              except Exception as e:
-                  print(f"django.setup() failed with {mod}: {e}")
-                  return False
-
-          if not try_setup(settings_module):
-              # minimal fallback settings using only importable app pkgs under any top-level pkg/apps/*
-              apps = []
-              pkgs = [p for p in root.iterdir() if p.is_dir() and (p/"__init__.py").exists()]
-              for pkg in pkgs:
-                  apps_dir = Path(pkg) / "apps"
-                  if apps_dir.is_dir():
-                      for d in apps_dir.iterdir():
-                          if d.is_dir() and (d/"__init__.py").exists():
-                              apps.append(f"{Path(pkg).name}.apps.{d.name}")
-              base = f'''
-              SECRET_KEY = "test-secret"
-              DEBUG = True
-              ALLOWED_HOSTS = ["*"]
-              INSTALLED_APPS = [
-                "django.contrib.auth","django.contrib.contenttypes","django.contrib.sessions",
-                "django.contrib.messages","django.contrib.admin",
-                {",".join(repr(a) for a in apps)}
-              ]
-              DATABASES = {{"default": {{"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}}}
-              MIDDLEWARE = []
-              TEMPLATES = [{{"BACKEND":"django.template.backends.django.DjangoTemplates","DIRS": [],"APP_DIRS": True,"OPTIONS":{{"context_processors":[]}}}}]
-              DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
-              '''
-              (root/"test_settings.py").write_text(base, encoding="utf-8")
-              os.environ["DJANGO_SETTINGS_MODULE"] = "test_settings"
-              import django
-              django.setup()
-              print("Django setup OK with test_settings")
-          PY
-          if [ -f manage.py ]; then
-            python manage.py migrate --noinput || true
-          fi
 
       - name: Create coverage configuration
         run: |
@@ -269,10 +139,8 @@ jobs:
               if __name__ == .__main__.:
           EOF
 
-      - name: Locate tests and run
-        id: run_tests
-        env:
-          PYTHONPATH: ${{ env.TARGET_ROOT }}
+      - name: Discover tests (repo-agnostic)
+        id: discover
         run: |
           set -e
           cd "$TARGET_ROOT"
@@ -284,27 +152,51 @@ jobs:
           [ -d "src/tests" ] && TEST_DIRS+=("src/tests")
           [ ${#TEST_DIRS[@]} -eq 0 ] && TEST_DIRS=(".")
 
+          echo "test_dirs=${TEST_DIRS[*]}" >> $GITHUB_OUTPUT
+
           COV_ARGS=()
-          [ -d "src" ] && COV_ARGS+=("--cov=src")
-          [ -d "conduit" ] && COV_ARGS+=("--cov=conduit")
-          [ -d "app" ] && COV_ARGS+=("--cov=app")
+          # Try common code roots; fallback to project root
+          for p in src app core backend package; do
+            [ -d "$p" ] && COV_ARGS+=("--cov=$p")
+          done
           [ ${#COV_ARGS[@]} -eq 0 ] && COV_ARGS+=(--cov=.)
           [ -f ".coveragerc" ] && COV_ARGS+=("--cov-config=.coveragerc")
+          echo "cov_args=${COV_ARGS[*]}" >> $GITHUB_OUTPUT
 
+          # If literally no tests found, create a smoke test
+          FOUND=$(find "${TEST_DIRS[@]}" -type f -name "test_*.py" 2>/dev/null | wc -l | tr -d ' ')
+          if [ "$FOUND" = "0" ]; then
+            mkdir -p tests
+            cat > tests/test_smoke.py <<'PY'
+          def test_smoke():
+              assert True
+          PY
+            echo "Created smoke test to validate runner/tooling."
+          fi
+
+      - name: Run tests (repo-agnostic, show skip reasons)
+        id: run_tests
+        env:
+          PYTHONPATH: ${{ env.TARGET_ROOT }}
+        run: |
+          set -e
+          cd "$TARGET_ROOT"
           mkdir -p ../reports/coverage ../reports/tests
 
+          TEST_DIRS="${{ steps.discover.outputs.test_dirs }}"
+          COV_ARGS="${{ steps.discover.outputs.cov_args }}"
+
           set +e
-          python -m pytest "${TEST_DIRS[@]}" \
-            ${COV_ARGS[@]} \
+          python -m pytest $TEST_DIRS \
+            ${COV_ARGS} \
             --cov-report=html:../reports/coverage/html \
             --cov-report=xml:../reports/coverage/coverage.xml \
             --cov-report=json:../reports/coverage/coverage.json \
             --cov-report=term-missing \
             --html=../reports/tests/test-report.html \
             --json-report --json-report-file=../reports/tests/test-results.json \
-            --tb=short --timeout=300 --maxfail=50 --verbose \
-            -vv -rA \
-            --continue-on-collection-errors --junitxml=../reports/tests/junit.xml
+            --tb=short --timeout=300 --maxfail=50 \
+            -vv -rA --continue-on-collection-errors
           CODE=$?
           set -e
           echo "exit_code=$CODE" >> $GITHUB_OUTPUT
@@ -314,25 +206,28 @@ jobs:
         run: |
           python - << 'PY'
           import json, os, pathlib, re
-          p = pathlib.Path('reports/tests/test-results.json')
+          rep = pathlib.Path('reports/tests/test-results.json')
           data = {"summary": {"total": 0, "passed": 0, "failed": 0, "error": 0, "skipped": 0}, "tests":[]}
-          if p.exists():
-              try: data = json.loads(p.read_text())
+          if rep.exists():
+              try: data = json.loads(rep.read_text())
               except Exception: pass
           s = data.get("summary", {})
-          total = int(s.get("total", 0) or 0)
+          total  = int(s.get("total", 0) or 0)
           passed = int(s.get("passed", 0) or 0)
           failed = int(s.get("failed", 0) or 0)
           errors = int(s.get("error", 0) or 0)
-          pass_pct = (passed / total * 100) if total else 0.0
+          pass_pct = (passed/total*100) if total else 0.0
+
           covp = 0.0
           cp = pathlib.Path('reports/coverage/coverage.json')
           if cp.exists():
               try:
                   cov = json.loads(cp.read_text())
                   covp = float(cov.get("totals", {}).get("percent_covered", 0.0))
-              except Exception: pass
-          # summarize skip reasons
+              except Exception:
+                  pass
+
+          # summarize skip reasons (purely informational)
           reasons = {}
           for t in data.get("tests", []):
               if t.get("outcome") == "skipped":
@@ -342,16 +237,16 @@ jobs:
                   reasons[reason] = reasons.get(reason, 0) + 1
           if reasons:
               print("Skip reasons:")
-              for k,v in sorted(reasons.items(), key=lambda x: -x[1]):
-                  print(f"  {v} × {k}")
-          out = os.environ['GITHUB_OUTPUT']
-          with open(out, 'a') as f:
+              for k,v in sorted(reasons.items(), key=lambda x: -x[1]): print(f"  {v} × {k}")
+
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
               f.write(f"tests-total={total}\n")
               f.write(f"tests-passed={passed}\n")
               f.write(f"tests-failed={failed+errors}\n")
               f.write(f"pass-percentage={pass_pct:.2f}\n")
               f.write(f"coverage-percentage={covp:.2f}\n")
-          print(f"Summary: total={total}, passed={passed}, pass%={pass_pct:.2f}, coverage={covp:.2f}")
+
+          print(f"Summary: total={total}, passed={passed}, failed={failed}, errors={errors}, pass%={pass_pct:.2f}, coverage={covp:.2f}")
           PY
 
       - name: Upload reports

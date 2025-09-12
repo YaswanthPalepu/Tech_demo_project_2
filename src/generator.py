@@ -367,6 +367,11 @@ COMMON_PKG_ALIASES = {
 }
 VERSION_CONSTRAINTS: Dict[str, str] = {}  # no opinionated pins here
 
+# denylist for legacy/problematic PyPI names (overridable via env)
+DENY_INFER: Set[str] = {
+    *(p.strip().lower() for p in os.getenv("TESTGEN_DENY_PKGS", "models,relations").split(",") if p.strip())
+}
+
 VALID_PIP_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 # Add this block above or near DENY_TOPS
 BAD_GENERIC_TOPS = {
@@ -431,37 +436,50 @@ def _infer_required_packages(compact: Dict[str, Any]) -> List[str]:
         if _is_stdlib(top) or _is_local_import(top):
             continue
         pkg = COMMON_PKG_ALIASES.get(top, top)
-        needed.add(pkg)
-    constrained_packages = []
+        if pkg and pkg.lower() not in DENY_INFER:
+            needed.add(pkg)
+
+    constrained: List[str] = []
     for pkg in sorted(needed):
         pin = VERSION_CONSTRAINTS.get(pkg.lower())
-        constrained_packages.append(f"{pkg}{pin}" if pin else pkg)
-    # small ecosystem glue (no extra pins)
+        constrained.append(f"{pkg}{pin}" if pin else pkg)
+
+    # small ecosystem glue (only if not denied)
     pkg_names = {p.lower() for p in needed}
     if "fastapi" in pkg_names:
-        needed.update({"starlette", "pydantic"})
-    return constrained_packages
+        for extra in {"starlette", "pydantic"}:
+            if extra not in DENY_INFER:
+                constrained.append(extra)
+
+    # unique + sorted
+    return sorted(set(constrained), key=str.lower)
 
 def _pip_install(packages: List[str]) -> None:
     """
-    Install additional packages **without** upgrading the project's stack.
-    Honors TESTGEN_PIP_CONSTRAINTS or PIP_CONSTRAINT if provided by the workflow.
+    Install extras **without** upgrading the project's stack.
+    Try packages one-by-one; skip failures.
+    Respects TESTGEN_PIP_CONSTRAINTS or PIP_CONSTRAINT.
     """
-    if not packages:
+    pkgs = [p for p in (packages or []) if p and p.strip() and p.lower() not in DENY_INFER]
+    if not pkgs:
         print("📦 No third-party packages inferred from imports.")
         return
+
     constraints = os.getenv("TESTGEN_PIP_CONSTRAINTS") or os.getenv("PIP_CONSTRAINT")
-    print("📦 Installing packages:", ", ".join(packages))
-    try:
-        cmd = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--upgrade-strategy", "only-if-needed"]
+    print("📦 Installing packages (one-by-one):", ", ".join(pkgs))
+    for pkg in pkgs:
+        cmd = [sys.executable, "-m", "pip", "install",
+               "--disable-pip-version-check", "--no-input",
+               "--upgrade-strategy", "only-if-needed"]
         if constraints:
             cmd += ["-c", constraints]
-            print(f"    using constraints: {constraints}")
-        cmd += packages
-        subprocess.check_call(cmd)
-        print("✅ Package installation completed successfully")
-    except subprocess.CalledProcessError as e:
-        print(f"⚠️ pip install failed with exit code {e.returncode} (continuing; tests may skip).")
+        cmd.append(pkg)
+        try:
+            subprocess.check_call(cmd)
+            print(f"  ✅ {pkg}")
+        except subprocess.CalledProcessError as e:
+            print(f"  ⚠️ Skipping {pkg} (pip exit {e.returncode})")
+            continue
 
 def _partition(lst: List[Dict[str, str]], n_parts: int) -> List[List[Dict[str, str]]]:
     if not lst:

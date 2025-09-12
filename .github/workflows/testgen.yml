@@ -96,9 +96,10 @@ jobs:
           # Legacy pins only when explicitly detected; skip gracefully if file missing
           if [ "$MODE" = "legacy_flask" ]; then
             if [ -f ".constraints.txt" ]; then
-              python -m pip install -U -c .constraints.txt \
-                "Flask<2.3" "Werkzeug<2.3" "Flask-SQLAlchemy<3" "SQLAlchemy<2.0" \
-                "Jinja2<3.1" "itsdangerous<2.1" "click<8.1"
+             python -m pip install -U -c .constraints.txt \
+            "Flask<2.3" "Werkzeug<2.3" "Flask-SQLAlchemy<3" "SQLAlchemy<2.0" \
+            "Jinja2<3.1" "itsdangerous<2.1" "click<8.1"
+
             else
               echo "Note: .constraints.txt not present; continuing without legacy pins"
             fi

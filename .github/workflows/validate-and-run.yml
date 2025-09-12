@@ -1,9 +1,9 @@
 name: Test Validation & Quality Analysis
 
 on:
-  # workflow_run:
-  #   workflows: ["AI Test Generation"]
-  #   types: [completed]
+  workflow_run:
+    workflows: ["AI Test Generation"]
+    types: [completed]
 
   workflow_dispatch:
     inputs:
@@ -26,8 +26,6 @@ on:
         type: choice
         options: [basic, standard, comprehensive]
 
-  push:
-    branches: [ test ]
 
 defaults:
   run:

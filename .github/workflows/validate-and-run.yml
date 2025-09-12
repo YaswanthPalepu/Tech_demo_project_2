@@ -61,12 +61,12 @@ jobs:
           if [ -f requirements.txt ]; then
             # Prefer prebuilt wheel for psycopg2 to avoid build issues
             sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' requirements.txt || true
-            pip install -r requirements.txt         # <-- fail if this fails
+            pip install -r requirements.txt   # fail if this fails
           fi
           if [ -d requirements ]; then
             for f in requirements/*.txt; do
               sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' "$f" || true
-              pip install -r "$f" || true           # extras best-effort
+              pip install -r "$f" || true     # extras best-effort
             done
           fi
           # Install the package/module itself if applicable (best-effort)
@@ -169,8 +169,27 @@ jobs:
               if __name__ == .__main__.:
           EOF
 
+      # ---------- NEW: Collection probe with plugin autoload disabled ----------
+      - name: Probe collection (no plugins) to pinpoint collection issues
+        working-directory: target_repo
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          mkdir -p ../reports/tests
+          echo "== Collect-only probe (no plugins) =="
+          set +e
+          pytest --collect-only -q --maxfail=1 --full-trace > ../reports/tests/collect-only.txt 2>&1
+          CODE=$?
+          set -e
+          echo "collect_exit_code=$CODE"
+          echo "---- tail collect-only ----"
+          tail -n 120 ../reports/tests/collect-only.txt || true
+
       - name: Run tests (existing + generated) with coverage and reports
         working-directory: target_repo
+        env:
+          # Critical: block auto-loading of 3rd-party plugins; enable only what we choose.
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
           mkdir -p ../reports/coverage ../reports/tests
 
@@ -193,7 +212,7 @@ jobs:
           c=[]
           for d in os.listdir('.'):
               if d in skip or not os.path.isdir(d): continue
-              for root,_,files in os.walk(d):
+              for _,_,files in os.walk(d):
                   if any(f.endswith('.py') for f in files):
                       c.append(d); break
           print(' '.join(sorted(set(c))))
@@ -203,9 +222,32 @@ jobs:
           echo "Running pytest on: ${PYTEST_TARGETS[*]}"
           echo "Coverage on source dirs: ${SRC_DIRS:-<none detected>}"
 
+          # Helpful debug: confirm sitecustomize loaded
+          python - <<'PY' || true
+          try:
+              import sitecustomize, sys
+              print("sitecustomize:", getattr(sitecustomize, "__file__", "<builtin>"))
+              print("sys.path[0]:", sys.path[0])
+          except Exception as e:
+              print("sitecustomize not loaded:", e)
+          PY
+
+          # Explicitly enable only the plugins we need; add django if Django is importable
+          ENABLED_PLUGINS=(-p pytest_cov -p pytest_jsonreport -p pytest_html)
+          python - <<'PY'
+          import importlib.util, os
+          if importlib.util.find_spec("django"):
+              with open("ENABLED_DJANGO.txt","w") as f: f.write("1")
+          PY
+          if [[ -f ENABLED_DJANGO.txt ]]; then
+            ENABLED_PLUGINS+=(-p django)
+            echo "Enabling pytest-django plugin (Django detected)."
+          fi
+
           set +e
           pytest "${PYTEST_TARGETS[@]}" \
-            -rA --tb=short --timeout=300 \
+            "${ENABLED_PLUGINS[@]}" \
+            -rA --tb=short --timeout=300 --full-trace \
             --json-report --json-report-file=../reports/tests/test-results.json \
             --html=../reports/tests/test-report.html --self-contained-html \
             ${SRC_DIRS:+--cov=${SRC_DIRS}} \
@@ -215,6 +257,13 @@ jobs:
             --cov-report=term-missing
           CODE=$?
           set -e
+
+          # Exit code 2 is a Pytest INTERNALERROR — fail immediately with a clear message.
+          if [ "$CODE" -eq 2 ]; then
+            echo "❌ Pytest INTERNALERROR during collection or execution. See reports."
+            exit 1
+          fi
+
           echo "pytest_exit_code=$CODE"
 
           echo "Reports generated:"

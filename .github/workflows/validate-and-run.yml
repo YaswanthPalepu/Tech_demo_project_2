@@ -2,10 +2,10 @@
 name: Test Validation & Quality Analysis
 
 on:
-  workflow_run:
-    workflows: ["AI Test Generation"]   # must match the first workflow's name exactly
-    types: [completed]
-    branches: [test]                     # listens only when the triggering run was on 'test'
+  # workflow_run:
+  #   workflows: ["AI Test Generation"]   # must match the first workflow's name exactly
+  #   types: [completed]
+  #   branches: [test]                     # listens only when the triggering run was on 'test'
   workflow_dispatch:
     inputs:
       repo_url:
@@ -16,16 +16,17 @@ on:
         description: "Minimum coverage threshold (%)"
         required: false
         default: "80"
-
+  push:
+    branches: [ test ]
 concurrency:
   group: test-validation-${{ github.workflow }}
   cancel-in-progress: false
 
 jobs:
   validate-tests:
-    # run on success only; remove '== success' if you want it to run for failures too
+    
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
       checks: write

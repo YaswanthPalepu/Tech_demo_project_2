@@ -59,17 +59,15 @@ jobs:
         working-directory: target_repo
         run: |
           if [ -f requirements.txt ]; then
-            # Prefer prebuilt wheel for psycopg2 to avoid build issues
             sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' requirements.txt || true
-            pip install -r requirements.txt   # fail if this fails
+            pip install -r requirements.txt
           fi
           if [ -d requirements ]; then
             for f in requirements/*.txt; do
               sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' "$f" || true
-              pip install -r "$f" || true     # extras best-effort
+              pip install -r "$f" || true
             done
           fi
-          # Install the package/module itself if applicable (best-effort)
           pip install -e . || true
           pip check || true
 
@@ -169,7 +167,6 @@ jobs:
               if __name__ == .__main__.:
           EOF
 
-      # ---------- NEW: Collection probe with plugin autoload disabled ----------
       - name: Probe collection (no plugins) to pinpoint collection issues
         working-directory: target_repo
         env:
@@ -188,8 +185,7 @@ jobs:
       - name: Run tests (existing + generated) with coverage and reports
         working-directory: target_repo
         env:
-          # Critical: block auto-loading of 3rd-party plugins; enable only what we choose.
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"   # disable autoload; we explicitly enable the plugins below
         run: |
           mkdir -p ../reports/coverage ../reports/tests
 
@@ -222,7 +218,7 @@ jobs:
           echo "Running pytest on: ${PYTEST_TARGETS[*]}"
           echo "Coverage on source dirs: ${SRC_DIRS:-<none detected>}"
 
-          # Helpful debug: confirm sitecustomize loaded
+          # Confirm sitecustomize loaded
           python - <<'PY' || true
           try:
               import sitecustomize, sys
@@ -232,12 +228,16 @@ jobs:
               print("sitecustomize not loaded:", e)
           PY
 
-          # Explicitly enable only the plugins we need; add django if Django is importable
-          ENABLED_PLUGINS=(-p pytest_cov -p pytest_jsonreport -p pytest_html)
+          # Enable ONLY required plugins by their entry-point names
+          ENABLED_PLUGINS=(-p cov -p json-report -p html -p timeout)
+
+          # Add pytest-django only if Django is present
           python - <<'PY'
-          import importlib.util, os
-          if importlib.util.find_spec("django"):
-              with open("ENABLED_DJANGO.txt","w") as f: f.write("1")
+          import importlib.util
+          import pathlib
+          have_django = importlib.util.find_spec("django") is not None
+          if have_django:
+              pathlib.Path("ENABLED_DJANGO.txt").write_text("1")
           PY
           if [[ -f ENABLED_DJANGO.txt ]]; then
             ENABLED_PLUGINS+=(-p django)
@@ -258,9 +258,9 @@ jobs:
           CODE=$?
           set -e
 
-          # Exit code 2 is a Pytest INTERNALERROR — fail immediately with a clear message.
-          if [ "$CODE" -eq 2 ]; then
-            echo "❌ Pytest INTERNALERROR during collection or execution. See reports."
+          # Exit code 2: INTERNALERROR, exit code 4: usage/arg error (e.g., plugin not loaded)
+          if [ "$CODE" -eq 2 ] || [ "$CODE" -eq 4 ]; then
+            echo "❌ Pytest crashed or had usage error (exit $CODE). See reports."
             exit 1
           fi
 
@@ -297,7 +297,6 @@ jobs:
 
           print(f"Summary: total={total}, passed={passed}, failed={failed}, skipped={skipped}, pass%={pct:.2f}, coverage={covp:.2f}%")
 
-          # Fail the job if there were test failures or no tests collected
           if total == 0:
               print("❌ No tests collected. Failing the job.")
               sys.exit(1)

@@ -59,25 +59,38 @@ jobs:
         working-directory: target_repo
         run: |
           if [ -f requirements.txt ]; then
+            # Prefer prebuilt wheel for psycopg2 to avoid build issues
             sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' requirements.txt || true
-            pip install -r requirements.txt   # fail if this fails
+            pip install -r requirements.txt
           fi
           if [ -d requirements ]; then
             for f in requirements/*.txt; do
               sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' "$f" || true
-              pip install -r "$f" || true     # extras best-effort
+              pip install -r "$f" || true   # extras best-effort
             done
           fi
+          # Try to install the project as a package (best-effort)
           pip install -e . || true
           pip check || true
 
-      - name: Write sitecustomize.py (generic test-collection shims)
+      - name: Write sitecustomize.py (generic shims + ensure repo on sys.path)
         working-directory: target_repo
         run: |
           cat > sitecustomize.py << 'EOF'
           """
-          Auto-loaded before tests. Provides compatibility shims to prevent collection errors.
+          Auto-loaded before tests. Compatibility shims + ensure package importability.
           """
+          # --- Ensure repo root and common source dirs are importable ---
+          try:
+              import sys, pathlib, os
+              _root = pathlib.Path(__file__).resolve().parent
+              for _p in (_root, _root / "src", _root / "app"):
+                  _ps = str(_p)
+                  if _p.exists() and _ps not in sys.path:
+                      sys.path.insert(0, _ps)
+          except Exception:
+              pass
+
           # collections.abc re-exports for old code
           try:
               import collections, collections.abc as _abc
@@ -171,6 +184,7 @@ jobs:
         working-directory: target_repo
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          PYTHONPATH: ${{ github.workspace }}/target_repo
         run: |
           mkdir -p ../reports/tests
           echo "== Collect-only probe (no plugins) =="
@@ -179,14 +193,15 @@ jobs:
           CODE=$?
           set -e
           echo "collect_exit_code=$CODE"
-          echo "---- tail collect-only ----"
           tail -n 120 ../reports/tests/collect-only.txt || true
 
       - name: Run tests (existing + generated) with coverage and reports
         working-directory: target_repo
         env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"   # disable autoload; explicitly enable only detected plugins
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"          # disable autoload; enable only detected plugins
+          PYTHONPATH: ${{ github.workspace }}/target_repo
         run: |
+          export PYTHONPATH="$PWD:$PYTHONPATH"
           mkdir -p ../reports/coverage ../reports/tests
 
           # Build test target list only if they exist; otherwise use auto-discovery
@@ -217,28 +232,22 @@ jobs:
 
           echo "Running pytest on: ${PYTEST_TARGETS[*]}"
           echo "Coverage on source dirs: ${SRC_DIRS:-<none detected>}"
-
-          # Confirm sitecustomize loaded
           python - <<'PY' || true
-          try:
-              import sitecustomize, sys
-              print("sitecustomize:", getattr(sitecustomize, "__file__", "<builtin>"))
-              print("sys.path[0]:", sys.path[0])
-          except Exception as e:
-              print("sitecustomize not loaded:", e)
+          import sys, importlib.util, pathlib
+          print("DEBUG PYTHONPATH:", sys.path[:3])
+          spec = importlib.util.find_spec("conduit")
+          print("DEBUG conduit importable:", bool(spec))
+          if spec: print("DEBUG conduit origin:", getattr(spec, "origin", None))
           PY
 
-          # Base plugins always on (installed earlier)
-          ENABLED_PLUGINS=(-p pytest_cov -p pytest_jsonreport)
-
           # Detect optional plugins by module presence
+          ENABLED_PLUGINS=(-p pytest_cov -p pytest_jsonreport)
           python - <<'PY'
           import importlib.util, pathlib
           if importlib.util.find_spec("pytest_html"): pathlib.Path("HAS_HTML").write_text("1")
           if importlib.util.find_spec("pytest_timeout"): pathlib.Path("HAS_TIMEOUT").write_text("1")
           if importlib.util.find_spec("django"): pathlib.Path("HAS_DJANGO").write_text("1")
           PY
-
           [[ -f HAS_HTML ]] && ENABLED_PLUGINS+=(-p pytest_html)
           [[ -f HAS_TIMEOUT ]] && ENABLED_PLUGINS+=(-p pytest_timeout)
           if [[ -f HAS_DJANGO ]]; then
@@ -246,7 +255,7 @@ jobs:
             echo "Enabling pytest-django plugin (Django detected)."
           fi
 
-          # Build args only if the options actually exist with the chosen plugins
+          # Build args only if options exist with the chosen plugins
           HELP_OUT=$(pytest -h "${ENABLED_PLUGINS[@]}" 2>/dev/null || true)
           HTML_ARGS=""
           JSON_ARGS="--json-report --json-report-file=../reports/tests/test-results.json"
@@ -270,19 +279,17 @@ jobs:
           CODE=$?
           set -e
 
-          # 2: INTERNALERROR, 4: usage/arg error (e.g., plugin/options mismatch)
+          # 2: INTERNALERROR, 4: usage/arg error (plugin/options mismatch)
           if [ "$CODE" -eq 2 ] || [ "$CODE" -eq 4 ]; then
             echo "❌ Pytest crashed or had usage error (exit $CODE). See reports."
             exit 1
           fi
 
           echo "pytest_exit_code=$CODE"
-          echo "Reports generated:"
           ls -l ../reports/tests || true
           ls -l ../reports/coverage || true
 
-
-      - name: Summarize, fail on test errors, & enforce coverage threshold
+      - name: Summarize, fail on skipped-only, test errors, & enforce coverage threshold
         run: |
           python - <<'PY'
           import json, pathlib, os, sys
@@ -294,24 +301,28 @@ jobs:
               try: results = json.loads(rep.read_text())
               except Exception: pass
           s = results.get("summary", {})
-          total  = int(s.get("total", 0) or 0)
-          passed = int(s.get("passed", 0) or 0)
-          failed = int(s.get("failed", 0) or 0) + int(s.get("error", 0) or 0)
+          total   = int(s.get("total", 0) or 0)
+          passed  = int(s.get("passed", 0) or 0)
+          failed  = int(s.get("failed", 0) or 0) + int(s.get("error", 0) or 0)
           skipped = int(s.get("skipped", 0) or 0)
           pct = (passed/total*100) if total else 0.0
 
           covp = 0.0
           if cov.exists():
-              try:
-                  covp = float(json.loads(cov.read_text()).get("totals", {}).get("percent_covered", 0.0))
-              except Exception:
-                  pass
+              try: covp = float(json.loads(cov.read_text()).get("totals", {}).get("percent_covered", 0.0))
+              except Exception: pass
 
           print(f"Summary: total={total}, passed={passed}, failed={failed}, skipped={skipped}, pass%={pct:.2f}, coverage={covp:.2f}%")
+
+          # Fail on 'all skipped' (import path not set, missing deps, etc.)
+          if total > 0 and passed == 0 and failed == 0:
+              print('❌ All tests were skipped. This usually means modules were not importable or environment not ready.')
+              sys.exit(1)
 
           if total == 0:
               print("❌ No tests collected. Failing the job.")
               sys.exit(1)
+
           if failed > 0:
               print(f"❌ {failed} test(s) failed. Failing the job.")
               sys.exit(1)

@@ -368,6 +368,16 @@ COMMON_PKG_ALIASES = {
 VERSION_CONSTRAINTS: Dict[str, str] = {}  # no opinionated pins here
 
 VALID_PIP_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+# Add this block above or near DENY_TOPS
+BAD_GENERIC_TOPS = {
+    # common local/generic names that must never be pulled from PyPI
+    "models", "model", "views", "view", "urls", "settings", "config", "configs",
+    "tests", "test", "schemas", "schema", "forms", "admin", "migrations",
+    "apps", "serializers", "permissions", "filters", "routers", "services",
+    "repository", "repositories", "managers", "helpers", "utils"
+}
+
+# Existing DENY_TOPS ... extend it with the bad generics
 DENY_TOPS = {
     "__future__", "__main__", "__builtin__", "builtins",
     "typing", "types", "dataclasses", "importlib", "asyncio", "json", "re", "os", "sys", "pathlib",
@@ -376,7 +386,8 @@ DENY_TOPS = {
     "base64", "csv", "glob", "shutil", "tempfile", "inspect", "traceback", "enum", "textwrap",
     "pprint", "string",
     "ConfigParser", "Queue", "HTMLParser", "StringIO",
-}
+} | BAD_GENERIC_TOPS
+
 
 def _is_stdlib(name: str) -> bool:
     try:

@@ -6,6 +6,7 @@ import hashlib
 
 PROMPT_STYLE = os.getenv("TESTGEN_PROMPT_STYLE", "ultra_bare").strip().lower()
 REPO_ROOT = pathlib.Path(".").resolve()
+STRICT_FAIL = os.getenv("TESTGEN_STRICT_FAIL", "0").lower() in ("1","true","yes")
 
 def _get_any_env(*names: str) -> str:
     for n in names:
@@ -246,14 +247,23 @@ def app():
         app_instance.config['TESTING'] = True
         app_instance.config['WTF_CSRF_ENABLED'] = False
         return app_instance
+    except ImportError as e:
+        pytest.skip(f"Could not create app (ImportError): {e}")
     except Exception as e:
+        # In strict-fail mode, bubble up non-import errors
+        if os.getenv("TESTGEN_STRICT_FAIL","0").lower() in ("1","true","yes"):
+            raise
         pytest.skip(f"Could not create app: {e}")
 
 @pytest.fixture
 def client(app):
     try:
         return app.test_client()
+    except ImportError as e:
+        pytest.skip(f"Could not create test client (ImportError): {e}")
     except Exception as e:
+        if os.getenv("TESTGEN_STRICT_FAIL","0").lower() in ("1","true","yes"):
+            raise
         pytest.skip(f"Could not create test client: {e}")
 '''
     conftest_path = outdir / "conftest.py"
@@ -367,22 +377,17 @@ COMMON_PKG_ALIASES = {
 }
 VERSION_CONSTRAINTS: Dict[str, str] = {}  # no opinionated pins here
 
-# denylist for legacy/problematic PyPI names (overridable via env)
 DENY_INFER: Set[str] = {
     *(p.strip().lower() for p in os.getenv("TESTGEN_DENY_PKGS", "models,relations").split(",") if p.strip())
 }
 
 VALID_PIP_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
-# Add this block above or near DENY_TOPS
 BAD_GENERIC_TOPS = {
-    # common local/generic names that must never be pulled from PyPI
     "models", "model", "views", "view", "urls", "settings", "config", "configs",
     "tests", "test", "schemas", "schema", "forms", "admin", "migrations",
     "apps", "serializers", "permissions", "filters", "routers", "services",
     "repository", "repositories", "managers", "helpers", "utils"
 }
-
-# Existing DENY_TOPS ... extend it with the bad generics
 DENY_TOPS = {
     "__future__", "__main__", "__builtin__", "builtins",
     "typing", "types", "dataclasses", "importlib", "asyncio", "json", "re", "os", "sys", "pathlib",
@@ -392,7 +397,6 @@ DENY_TOPS = {
     "pprint", "string",
     "ConfigParser", "Queue", "HTMLParser", "StringIO",
 } | BAD_GENERIC_TOPS
-
 
 def _is_stdlib(name: str) -> bool:
     try:
@@ -444,22 +448,15 @@ def _infer_required_packages(compact: Dict[str, Any]) -> List[str]:
         pin = VERSION_CONSTRAINTS.get(pkg.lower())
         constrained.append(f"{pkg}{pin}" if pin else pkg)
 
-    # small ecosystem glue (only if not denied)
     pkg_names = {p.lower() for p in needed}
     if "fastapi" in pkg_names:
         for extra in {"starlette", "pydantic"}:
             if extra not in DENY_INFER:
                 constrained.append(extra)
 
-    # unique + sorted
     return sorted(set(constrained), key=str.lower)
 
 def _pip_install(packages: List[str]) -> None:
-    """
-    Install extras **without** upgrading the project's stack.
-    Try packages one-by-one; skip failures.
-    Respects TESTGEN_PIP_CONSTRAINTS or PIP_CONSTRAINT.
-    """
     pkgs = [p for p in (packages or []) if p and p.strip() and p.lower() not in DENY_INFER]
     if not pkgs:
         print("📦 No third-party packages inferred from imports.")
@@ -554,11 +551,80 @@ def _enhanced_universal_bootstrap(compact: Dict[str, Any]) -> str:
             tops.append(top)
     tops = sorted(set(tops))
     tops_lit = repr(tops)
+    include_qt = any(t.startswith(("PyQt", "PySide")) for t in tops)
     py2_alias_map_lit = repr({"ConfigParser":"configparser","Queue":"queue","StringIO":"io","cStringIO":"io","urllib2":"urllib.request"})
+    qt_block = f"""
+for __qt_root in ["PyQt5","PyQt6","PySide2","PySide6"]:
+    if __qt_root not in _THIRD_PARTY_TOPS:
+        continue
+    if _safe_find_spec(__qt_root) is None:
+        _pkg=_ensure_pkg(__qt_root,True); _core=_ensure_pkg(__qt_root+".QtCore",False); _gui=_ensure_pkg(__qt_root+".QtGui",False); _widgets=_ensure_pkg(__qt_root+".QtWidgets",False)
+        class QObject: pass
+        def pyqtSignal(*a, **k): return object()
+        def pyqtSlot(*a, **k):
+            def _decorator(fn): return fn
+            return _decorator
+        class QCoreApplication: 
+            def __init__(self,*a,**k): pass
+            def exec_(self): return 0
+            def exec(self): return 0
+        _core.QObject=QObject; _core.pyqtSignal=pyqtSignal; _core.pyqtSlot=pyqtSlot; _core.QCoreApplication=QCoreApplication
+        class QFont:  # minimal
+            def __init__(self,*a,**k): pass
+        class QDoubleValidator:
+            def __init__(self,*a,**k): pass
+            def setBottom(self,*a,**k): pass
+            def setTop(self,*a,**k): pass
+        class QIcon: 
+            def __init__(self,*a,**k): pass
+        class QPixmap:
+            def __init__(self,*a,**k): pass
+        _gui.QFont=QFont; _gui.QDoubleValidator=QDoubleValidator; _gui.QIcon=QIcon; _gui.QPixmap=QPixmap
+        class QApplication:
+            def __init__(self,*a,**k): pass
+            def exec_(self): return 0
+            def exec(self): return 0
+        class QWidget: 
+            def __init__(self,*a,**k): pass
+        class QLabel(QWidget):
+            def __init__(self,*a,**k): super().__init__(); self._text=""
+            def setText(self,t): self._text=str(t)
+            def text(self): return self._text
+        class QLineEdit(QWidget):
+            def __init__(self,*a,**k): super().__init__(); self._text=""
+            def setText(self,t): self._text=str(t)
+            def text(self): return self._text
+            def clear(self): self._text=""
+        class QTextEdit(QLineEdit): pass
+        class QPushButton(QWidget):
+            def __init__(self,*a,**k): super().__init__()
+        class QMessageBox:
+            @staticmethod
+            def warning(*a,**k): return None
+            @staticmethod
+            def information(*a,**k): return None
+            @staticmethod
+            def critical(*a,**k): return None
+        class QFileDialog:
+            @staticmethod
+            def getSaveFileName(*a,**k): return ("history.txt","")
+            @staticmethod
+            def getOpenFileName(*a,**k): return ("history.txt","")
+        class QFormLayout:
+            def __init__(self,*a,**k): pass
+            def addRow(self,*a,**k): pass
+        class QGridLayout(QFormLayout):
+            def addWidget(self,*a,**k): pass
+        _widgets.QApplication=QApplication; _widgets.QWidget=QWidget; _widgets.QLabel=QLabel; _widgets.QLineEdit=QLineEdit; _widgets.QTextEdit=QTextEdit
+        _widgets.QPushButton=QPushButton; _widgets.QMessageBox=QMessageBox; _widgets.QFileDialog=QFileDialog; _widgets.QFormLayout=QFormLayout; _widgets.QGridLayout=QGridLayout
+        for _name in ("QApplication","QWidget","QLabel","QLineEdit","QTextEdit","QPushButton","QMessageBox","QFileDialog","QFormLayout","QGridLayout"):
+            setattr(_gui,_name,getattr(_widgets,_name))
+""" if include_qt else ""
     return f'''# --- ENHANCED UNIVERSAL BOOTSTRAP ---
 import os, sys, importlib as _importlib, importlib.util as _iu, importlib.machinery as _im, types as _types, pytest as _pytest, builtins as _builtins
 import warnings
 STRICT = os.getenv("TESTGEN_STRICT", "1").lower() in ("1","true","yes")
+STRICT_FAIL = os.getenv("TESTGEN_STRICT_FAIL","0").lower() in ("1","true","yes")
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
 _target = os.environ.get("TARGET_ROOT") or os.environ.get("ANALYZE_ROOT") or "target"
@@ -692,70 +758,8 @@ def _ensure_pkg(name, is_pkg=None):
     m.__spec__ = _im.ModuleSpec(name, loader=None, is_package=is_pkg)
     sys.modules[name] = m
     return m
-for __qt_root in ["PyQt5","PyQt6","PySide2","PySide6"]:
-    if _safe_find_spec(__qt_root) is None:
-        _pkg=_ensure_pkg(__qt_root,True); _core=_ensure_pkg(__qt_root+".QtCore",False); _gui=_ensure_pkg(__qt_root+".QtGui",False); _widgets=_ensure_pkg(__qt_root+".QtWidgets",False)
-        class QObject: pass
-        def pyqtSignal(*a, **k): return object()
-        def pyqtSlot(*a, **k):
-            def _decorator(fn): return fn
-            return _decorator
-        class QCoreApplication: 
-            def __init__(self,*a,**k): pass
-            def exec_(self): return 0
-            def exec(self): return 0
-        _core.QObject=QObject; _core.pyqtSignal=pyqtSignal; _core.pyqtSlot=pyqtSlot; _core.QCoreApplication=QCoreApplication
-        class QFont:  # minimal
-            def __init__(self,*a,**k): pass
-        class QDoubleValidator:
-            def __init__(self,*a,**k): pass
-            def setBottom(self,*a,**k): pass
-            def setTop(self,*a,**k): pass
-        class QIcon: 
-            def __init__(self,*a,**k): pass
-        class QPixmap:
-            def __init__(self,*a,**k): pass
-        _gui.QFont=QFont; _gui.QDoubleValidator=QDoubleValidator; _gui.QIcon=QIcon; _gui.QPixmap=QPixmap
-        class QApplication:
-            def __init__(self,*a,**k): pass
-            def exec_(self): return 0
-            def exec(self): return 0
-        class QWidget: 
-            def __init__(self,*a,**k): pass
-        class QLabel(QWidget):
-            def __init__(self,*a,**k): super().__init__(); self._text=""
-            def setText(self,t): self._text=str(t)
-            def text(self): return self._text
-        class QLineEdit(QWidget):
-            def __init__(self,*a,**k): super().__init__(); self._text=""
-            def setText(self,t): self._text=str(t)
-            def text(self): return self._text
-            def clear(self): self._text=""
-        class QTextEdit(QLineEdit): pass
-        class QPushButton(QWidget):
-            def __init__(self,*a,**k): super().__init__()
-        class QMessageBox:
-            @staticmethod
-            def warning(*a,**k): return None
-            @staticmethod
-            def information(*a,**k): return None
-            @staticmethod
-            def critical(*a,**k): return None
-        class QFileDialog:
-            @staticmethod
-            def getSaveFileName(*a,**k): return ("history.txt","")
-            @staticmethod
-            def getOpenFileName(*a,**k): return ("history.txt","")
-        class QFormLayout:
-            def __init__(self,*a,**k): pass
-            def addRow(self,*a,**k): pass
-        class QGridLayout(QFormLayout):
-            def addWidget(self,*a,**k): pass
-        _widgets.QApplication=QApplication; _widgets.QWidget=QWidget; _widgets.QLabel=QLabel; _widgets.QLineEdit=QLineEdit; _widgets.QTextEdit=QTextEdit
-        _widgets.QPushButton=QPushButton; _widgets.QMessageBox=QMessageBox; _widgets.QFileDialog=QFileDialog; _widgets.QFormLayout=QFormLayout; _widgets.QGridLayout=QGridLayout
-        for _name in ("QApplication","QWidget","QLabel","QLineEdit","QTextEdit","QPushButton","QMessageBox","QFileDialog","QFormLayout","QGridLayout"):
-            setattr(_gui,_name,getattr(_widgets,_name))
 _THIRD_PARTY_TOPS = {tops_lit}
+{qt_block}
 # --- /ENHANCED UNIVERSAL BOOTSTRAP ---
 '''
 
@@ -767,20 +771,21 @@ _SYSTEM_MIN = (
     "Do NOT use custom pytest markers. "
     "Prefer non-GUI modules; if a module imports Qt/PySide, rely on shims and do not start event loops. "
     "For exceptions NEVER assume custom names; always call _exc_lookup('Name', Exception). "
-    "Handle import errors gracefully with pytest.skip."
+    "Handle import errors gracefully with pytest.skip. "
+    "Only skip on ImportError; for TypeError/AttributeError/ValueError or logic errors, LET THE TEST FAIL."
 )
 
 _UNIT_BARE = ("Write concise UNIT tests (3-6). Cover public functions/classes from the focus list. "
               "Instantiate classes explicitly when APIs are class-based. "
               "Assert outputs and error conditions; for exceptions use _exc_lookup('CustomError', Exception). "
               "Use tmp_path; avoid repr-based asserts and custom markers. "
-              "Gracefully skip on ImportError.")
+              "Skip ONLY on ImportError.")
 
 _INTEG_BARE = ("Write INTEGRATION tests (2-5). Exercise interactions across modules. "
-               "Avoid real GUI/event loops. Use monkeypatch. Skip on ImportError.")
+               "Avoid real GUI/event loops. Use monkeypatch. Skip ONLY on ImportError.")
 
 _E2E_BARE = ("Write E2E tests (2-4). Compose a realistic black-box workflow using available APIs. "
-             "Deterministic, self-contained. Skip on ImportError.")
+             "Deterministic, self-contained. Skip ONLY on ImportError.")
 
 def _limit_str(s: str, max_chars: int = 12000) -> str:
     return s if len(s) <= max_chars else s[:max_chars] + "...(truncated)"
@@ -811,7 +816,7 @@ def _build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, to
               "Return ONLY valid Python source code (no Markdown).\n"
               "Rules: import targets inside each test; deterministic I/O; no private pytest internals; "
               "instantiate classes when needed; use _exc_lookup('Name', Exception) for exceptions; "
-              "skip on ImportError.")
+              "skip ONLY on ImportError; let logic/type/attribute errors fail.")
     if kind == "unit":
         user = f"Shard {shard}/{total} • Focus: {focus_label}\nAnalysis:\n{compact_json}\nWrite UNIT tests (4-8)."
     elif kind == "integ":
@@ -831,7 +836,7 @@ def _smoke_from_modules(compact: Dict[str, Any]) -> str:
             "        except ImportError as e:",
             "            pytest.skip(f'cannot import {m}: {e}')",
             "        except Exception as e:",
-            "            pytest.skip(f'error importing {m}: {e}')",
+            "            raise",
             "",
             "def test_python_environment():",
             "    import sys, os",
@@ -845,6 +850,12 @@ _RAISES_BARE = re.compile(r"pytest\.raises\(\s*([A-Za-z_][\w]*)\s*(,|\))")
 _ISINSTANCE_QUAL = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\s*\)")
 _ISINSTANCE_BARE = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)")
 
+# Convert over-broad skips: "except Exception: pytest.skip(...)" -> skip only on ImportError, otherwise fail
+_SKIP_ANY_EXC_RE = re.compile(
+    r"except\s+Exception\s+as\s+e:\s*\n\s*pytest\.skip\((.*?)\)",
+    flags=re.DOTALL
+)
+
 def _massage_generated_code(code: str) -> str:
     def _repl_qual(m): return f'pytest.raises(_exc_lookup("{m.group(1)}", Exception){m.group(2)}'
     def _repl_bare(m): return f'pytest.raises(_exc_lookup("{m.group(1)}", Exception){m.group(2)}'
@@ -854,6 +865,16 @@ def _massage_generated_code(code: str) -> str:
     def _repl_is_b(m): return f'isinstance({m.group(1)}, _exc_lookup("{m.group(2)}", Exception))'
     code = _ISINSTANCE_QUAL.sub(_repl_is_q, code)
     code = _ISINSTANCE_BARE.sub(_repl_is_b, code)
+
+    # Narrow blanket skips
+    code = _SKIP_ANY_EXC_RE.sub(
+        r"except ImportError as e:\n        pytest.skip(\1)\n    except Exception as e:\n        raise",
+        code
+    )
+
+    # Strengthen bare truthiness asserts where trivial: assert bool(x) -> assert bool(x) is True
+    code = re.sub(r"assert\s+bool\((.+?)\)", r"assert bool(\1) is True", code)
+
     lines = code.splitlines()
     out = []
     for line in lines:
@@ -894,6 +915,7 @@ def _update_manifest(outdir: pathlib.Path, created_files: List[str], change_summ
         "ts": datetime.datetime.utcnow().isoformat() + "Z",
         "files_generated": created_files,
         "focus_files": _load_list(os.getenv("FOCUS_FILES_JSON_PATH")) or [],
+        "strict_fail": STRICT_FAIL,
     }
     if change_summary:
         run_info["change_summary"] = change_summary
@@ -975,8 +997,6 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
     filtered_analysis, fallback = _filter_analysis_by_files(analysis, raw_focus if raw_focus else None)
     compact = _compact_analysis(filtered_analysis)
 
-    # Prefer project-declared deps if present (already installed by workflow)
-    # Only infer missing extras if needed, and honor constraints snapshot.
     packages = _infer_required_packages(compact)
     if packages:
         print("📦 Installing inferred packages (constrained, only-if-needed)…")
@@ -1070,7 +1090,7 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
                     return code
                 messages.append({
                     "role": "user",
-                    "content": f"Invalid: {reason}. Regenerate STRICT pytest code (no markdown), import targets inside tests, avoid custom markers, instantiate classes when APIs are class-based, use _exc_lookup for exceptions, and handle import errors with pytest.skip."
+                    "content": f"Invalid: {reason}. Regenerate STRICT pytest code (no markdown), import targets inside tests, avoid custom markers, instantiate classes when APIs are class-based, use _exc_lookup for exceptions, and skip ONLY on ImportError."
                 })
                 break
             except RateLimitError:

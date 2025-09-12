@@ -1,3 +1,4 @@
+# .github/workflows/testgen.yml
 name: AI Test Generation
 
 on:
@@ -15,8 +16,10 @@ on:
         description: "TESTGEN_PROMPT_STYLE (ultra_bare recommended)"
         required: false
         default: "ultra_bare"
-  # push:
-  #   branches: [ test ]
+      coverage_threshold:
+        description: "Fail if coverage below this % (0 to disable)"
+        required: false
+        default: "0"
 
 concurrency:
   group: test-gen-${{ github.workflow }}
@@ -35,6 +38,7 @@ jobs:
       AZURE_OPENAI_DEPLOYMENT:  ${{ secrets.AZURE_OPENAI_DEPLOYMENT  || secrets.OPENAI_DEPLOYMENT }}
 
       TESTGEN_PROMPT_STYLE: ${{ github.event.inputs.prompt_style || 'ultra_bare' }}
+      TESTGEN_STRICT_FAIL: "1"   # ensure generated tests don't mask real bugs
 
       # DB defaults for import-time engines
       DATABASE_URL: "sqlite:///:memory:"
@@ -79,32 +83,21 @@ jobs:
           python-version: "3.10"
           cache: pip
 
-      # ---- repo-agnostic constraints bootstrap (same pattern as validate workflow) ----
+      # ---- repo-agnostic constraints bootstrap ----
       - name: Bootstrap Python constraints (repo-agnostic)
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
-          python ci/py_stack_guard.py | tee /tmp/stack_env
-
-          # Only export constraint vars if they exist (modern mode won't print them)
+          python ci/py_stack_guard.py | tee /tmp/stack_env || true
           if grep -qE '^(PIP_CONSTRAINT|TESTGEN_PIP_CONSTRAINTS)=' /tmp/stack_env; then
             grep -E '^(PIP_CONSTRAINT|TESTGEN_PIP_CONSTRAINTS)=' /tmp/stack_env >> "$GITHUB_ENV"
           fi
-
           MODE="$(cat .stack_mode.txt 2>/dev/null || echo modern)"
           echo "Resolved stack mode: $MODE"
-
-          # Legacy pins only when explicitly detected; skip gracefully if file missing
-          if [ "$MODE" = "legacy_flask" ]; then
-            if [ -f ".constraints.txt" ]; then
-             python -m pip install -U -c .constraints.txt \
-            "Flask<2.3" "Werkzeug<2.3" "Flask-SQLAlchemy<3" "SQLAlchemy<2.0" \
-            "Jinja2<3.1" "itsdangerous<2.1" "click<8.1"
-
-            else
-              echo "Note: .constraints.txt not present; continuing without legacy pins"
-            fi
+          if [ "$MODE" = "legacy_flask" ] && [ -f ".constraints.txt" ]; then
+            python -m pip install -U -c .constraints.txt \
+              "Flask<2.3" "Werkzeug<2.3" "Flask-SQLAlchemy<3" "SQLAlchemy<2.0" \
+              "Jinja2<3.1" "itsdangerous<2.1" "click<8.1"
           fi
-
 
       - name: Install system build tools
         run: |
@@ -117,13 +110,10 @@ jobs:
       - name: Install Python deps (tooling + target libs, constrained)
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
-
-          # --- Tooling (honors PIP_CONSTRAINT when set) ---
           pip install "openai>=1.51.0" pytest pytest-cov httpx requests \
                       "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" "annotated-types>=0.6" \
                       "uvicorn>=0.23" "typing-extensions>=4.8" psycopg2-binary || true
 
-          # --- Target requirements (convert psycopg2 -> psycopg2-binary) ---
           install_requirements_file() {
             local req_file="$1"
             if [ -f "$req_file" ]; then
@@ -132,16 +122,13 @@ jobs:
               pip install -r "$req_file" || echo "Some packages from $req_file failed to install"
             fi
           }
-
           install_requirements_file "target/requirements.txt"
-
           if compgen -G "target/requirements/*.txt" >/dev/null; then
             for f in target/requirements/*.txt; do
               install_requirements_file "$f"
             done
           fi
 
-          # --- Poetry/PDM exports respected; Pipenv intentionally skipped ---
           if [ -f "target/pyproject.toml" ] && grep -q "\[tool.poetry\]" target/pyproject.toml; then
             pip install poetry || true
             (cd target && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req) || true
@@ -157,7 +144,7 @@ jobs:
         run: |
           python - <<'PY'
           import importlib
-          for n in ("flask","werkzeug","flask_sqlalchemy","sqlalchemy","jinja2","itsdangerous","click","marshmallow"):
+          for n in ("flask","werkzeug","flask_sqlalchemy","sqlalchemy","jinja2","itsdangerous","click","marshmallow","django"):
               try:
                   m=importlib.import_module(n); print(f"{n}: {getattr(m,'__version__','?')}")
               except Exception as e:
@@ -179,6 +166,8 @@ jobs:
           outdir = os.environ['OUTDIR']
           if os.environ.get('FORCE', 'false').lower() == 'true':
               os.environ['TESTGEN_FORCE'] = 'true'
+          # enforce strict fail to catch real bugs in CI
+          os.environ['TESTGEN_STRICT_FAIL'] = os.environ.get('TESTGEN_STRICT_FAIL','1')
           g.generate_all(analysis, outdir=outdir, focus_files=None)
           PY
 
@@ -195,6 +184,19 @@ jobs:
           cp -r "${OUTDIR}"/* target/tests/generated/ || true
           echo "Final tests copied into target repo:"
           find target/tests/generated -name "test_*.py" | head -20
+
+      - name: Validate generated tests (must pass)
+        run: |
+          cd target
+          pytest -q --maxfail=5 --disable-warnings --tb=short tests/generated
+
+      - name: Coverage check (optional)
+        if: ${{ inputs.coverage_threshold != '0' && inputs.coverage_threshold != '' }}
+        env:
+          COV_MIN: ${{ inputs.coverage_threshold }}
+        run: |
+          cd target
+          pytest --cov=. --cov-report=term-missing --cov-fail-under="${COV_MIN}"
 
       - name: Commit & push generated tests
         env:

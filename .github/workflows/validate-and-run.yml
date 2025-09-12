@@ -45,6 +45,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+          cache: pip
 
       - name: Install test dependencies
         run: |
@@ -52,7 +53,7 @@ jobs:
           pip install \
             pytest pytest-cov pytest-html pytest-json-report \
             coverage pytest-xdist pytest-timeout pytest-mock \
-            pytest-django typing-extensions || true
+            pytest-django typing-extensions
 
       - name: Install target requirements (if present)
         working-directory: target_repo
@@ -60,14 +61,17 @@ jobs:
           if [ -f requirements.txt ]; then
             # Prefer prebuilt wheel for psycopg2 to avoid build issues
             sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' requirements.txt || true
-            pip install -r requirements.txt || true
+            pip install -r requirements.txt         # <-- fail if this fails
           fi
           if [ -d requirements ]; then
             for f in requirements/*.txt; do
               sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' "$f" || true
-              pip install -r "$f" || true
+              pip install -r "$f" || true           # extras best-effort
             done
           fi
+          # Install the package/module itself if applicable (best-effort)
+          pip install -e . || true
+          pip check || true
 
       - name: Write sitecustomize.py (generic test-collection shims)
         working-directory: target_repo
@@ -196,12 +200,12 @@ jobs:
           PY
           )
 
-                    echo "Running pytest on: ${PYTEST_TARGETS[*]}"
-                    echo "Coverage on source dirs: ${SRC_DIRS:-<none detected>}"
+          echo "Running pytest on: ${PYTEST_TARGETS[*]}"
+          echo "Coverage on source dirs: ${SRC_DIRS:-<none detected>}"
 
           set +e
-          pytest -q "${PYTEST_TARGETS[@]}" \
-            -rA --maxfail=1 --tb=short --timeout=300 \
+          pytest "${PYTEST_TARGETS[@]}" \
+            -rA --tb=short --timeout=300 \
             --json-report --json-report-file=../reports/tests/test-results.json \
             --html=../reports/tests/test-report.html --self-contained-html \
             ${SRC_DIRS:+--cov=${SRC_DIRS}} \
@@ -211,13 +215,13 @@ jobs:
             --cov-report=term-missing
           CODE=$?
           set -e
-          echo "pytest_exit_code=$CODE" >> $GITHUB_OUTPUT
+          echo "pytest_exit_code=$CODE"
 
           echo "Reports generated:"
           ls -l ../reports/tests || true
           ls -l ../reports/coverage || true
 
-      - name: Summarize & enforce coverage threshold
+      - name: Summarize, fail on test errors, & enforce coverage threshold
         run: |
           python - <<'PY'
           import json, pathlib, os, sys
@@ -243,6 +247,14 @@ jobs:
                   pass
 
           print(f"Summary: total={total}, passed={passed}, failed={failed}, skipped={skipped}, pass%={pct:.2f}, coverage={covp:.2f}%")
+
+          # Fail the job if there were test failures or no tests collected
+          if total == 0:
+              print("❌ No tests collected. Failing the job.")
+              sys.exit(1)
+          if failed > 0:
+              print(f"❌ {failed} test(s) failed. Failing the job.")
+              sys.exit(1)
 
           threshold = float(os.environ.get("COVERAGE_THRESHOLD","80"))
           if covp < threshold:

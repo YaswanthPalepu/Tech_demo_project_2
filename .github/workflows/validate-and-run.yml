@@ -185,8 +185,7 @@ jobs:
       - name: Run tests (existing + generated) with coverage and reports
         working-directory: target_repo
         env:
-          # Disable autoload; explicitly enable only the plugins we need
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"   # disable autoload; explicitly enable only detected plugins
         run: |
           mkdir -p ../reports/coverage ../reports/tests
 
@@ -229,45 +228,59 @@ jobs:
               print("sitecustomize not loaded:", e)
           PY
 
-          # Correct plugin module names:
-          ENABLED_PLUGINS=(-p pytest_cov -p pytest_html -p pytest_jsonreport -p pytest_timeout)
+          # Base plugins always on (installed earlier)
+          ENABLED_PLUGINS=(-p pytest_cov -p pytest_jsonreport)
 
-          # Add pytest-django only if Django is importable
+          # Detect optional plugins by module presence
           python - <<'PY'
           import importlib.util, pathlib
-          if importlib.util.find_spec("django"):
-              pathlib.Path("ENABLE_DJANGO.txt").write_text("1")
+          if importlib.util.find_spec("pytest_html"): pathlib.Path("HAS_HTML").write_text("1")
+          if importlib.util.find_spec("pytest_timeout"): pathlib.Path("HAS_TIMEOUT").write_text("1")
+          if importlib.util.find_spec("django"): pathlib.Path("HAS_DJANGO").write_text("1")
           PY
-          if [[ -f ENABLE_DJANGO.txt ]]; then
+
+          [[ -f HAS_HTML ]] && ENABLED_PLUGINS+=(-p pytest_html)
+          [[ -f HAS_TIMEOUT ]] && ENABLED_PLUGINS+=(-p pytest_timeout)
+          if [[ -f HAS_DJANGO ]]; then
             ENABLED_PLUGINS+=(-p pytest_django)
             echo "Enabling pytest-django plugin (Django detected)."
           fi
 
+          # Build args only if the options actually exist with the chosen plugins
+          HELP_OUT=$(pytest -h "${ENABLED_PLUGINS[@]}" 2>/dev/null || true)
+          HTML_ARGS=""
+          JSON_ARGS="--json-report --json-report-file=../reports/tests/test-results.json"
+          TIMEOUT_ARGS=""
+          echo "$HELP_OUT" | grep -q -- '--html='      && HTML_ARGS="--html=../reports/tests/test-report.html --self-contained-html"
+          echo "$HELP_OUT" | grep -q -- '--timeout='   && TIMEOUT_ARGS="--timeout=300"
+
           set +e
           pytest "${PYTEST_TARGETS[@]}" \
             "${ENABLED_PLUGINS[@]}" \
-            -rA --tb=short --timeout=300 --full-trace \
-            --json-report --json-report-file=../reports/tests/test-results.json \
-            --html=../reports/tests/test-report.html --self-contained-html \
+            -rA --tb=short --full-trace \
+            $TIMEOUT_ARGS \
+            $JSON_ARGS \
+            $HTML_ARGS \
             ${SRC_DIRS:+--cov=${SRC_DIRS}} \
             --cov-config=.coveragerc \
             --cov-report=xml:../reports/coverage/coverage.xml \
             --cov-report=json:../reports/coverage/coverage.json \
-            --cov-report=term-missing
+            --cov-report=term-missing \
+            --junitxml=../reports/tests/junit.xml
           CODE=$?
           set -e
 
-          # Exit code 2: INTERNALERROR, exit code 4: usage/arg error
+          # 2: INTERNALERROR, 4: usage/arg error (e.g., plugin/options mismatch)
           if [ "$CODE" -eq 2 ] || [ "$CODE" -eq 4 ]; then
             echo "❌ Pytest crashed or had usage error (exit $CODE). See reports."
             exit 1
           fi
 
           echo "pytest_exit_code=$CODE"
-
           echo "Reports generated:"
           ls -l ../reports/tests || true
           ls -l ../reports/coverage || true
+
 
       - name: Summarize, fail on test errors, & enforce coverage threshold
         run: |

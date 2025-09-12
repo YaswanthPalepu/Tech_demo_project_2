@@ -1,13 +1,11 @@
-# Legacy Flask/SQLAlchemy compatibility pins
+# .constraints.txt
 Flask==2.2.5
 Werkzeug==2.2.3
 Jinja2==3.0.3
 itsdangerous==2.0.1
 click==8.0.4
-MarkupSafe==2.0.1
-
+MarkupSafe==2.1.5
 Flask-SQLAlchemy==2.5.1
 SQLAlchemy==1.4.46
-
-# Marshmallow 4+ changed APIs; many older repos expect 3.x
+# Optional (prevents marshmallow v4 surprises in some codebases)
 marshmallow==3.21.3

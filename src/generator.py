@@ -192,12 +192,31 @@ def _fix_flask_compatibility():
                 flask.escape = escape
             except Exception:
                 pass
+        # Legacy flask_sqlalchemy expects __ident_func__ on context stacks
+        try:
+            import threading
+            from flask import _app_ctx_stack, _request_ctx_stack
+            for _stack in (_app_ctx_stack, _request_ctx_stack):
+                if _stack is not None and not hasattr(_stack, "__ident_func__"):
+                    _stack.__ident_func__ = getattr(threading, "get_ident", None) or (lambda: 0)
+        except Exception:
+            pass
     except ImportError:
+        pass
+
+def _fix_marshmallow_compatibility():
+    # Marshmallow 4 removed __version__; many codebases read it
+    try:
+        import marshmallow as _mm
+        if not hasattr(_mm, "__version__"):
+            _mm.__version__ = "4"
+    except Exception:
         pass
 
 _fix_jinja2_compatibility()
 _fix_collections_compatibility()
 _fix_flask_compatibility()
+_fix_marshmallow_compatibility()
 
 os.environ.setdefault('WTF_CSRF_ENABLED', 'False')
 
@@ -529,6 +548,7 @@ def _exc_lookup(name, default):
     except Exception:
         return default
 def _apply_compatibility_fixes():
+    # Jinja2 / MarkupSafe
     try:
         import jinja2
         if not hasattr(jinja2, 'Markup'):
@@ -541,21 +561,38 @@ def _apply_compatibility_fixes():
                 pass
     except ImportError:
         pass
+    # Flask escape & context __ident_func__
     try:
         import flask
-        if not hasattr(flask, 'escape'):
+        if not hasattr(flask, "escape"):
             try:
                 from markupsafe import escape
                 flask.escape = escape
             except Exception:
                 pass
+        try:
+            import threading
+            from flask import _app_ctx_stack, _request_ctx_stack
+            for _stack in (_app_ctx_stack, _request_ctx_stack):
+                if _stack is not None and not hasattr(_stack, "__ident_func__"):
+                    _stack.__ident_func__ = getattr(threading, "get_ident", None) or (lambda: 0)
+        except Exception:
+            pass
     except ImportError:
         pass
+    # collections.abc re-exports
     try:
         import collections as _collections, collections.abc as _abc
         for _n in ('Mapping','MutableMapping','Sequence','Iterable','Container','MutableSequence','Set','MutableSet'):
             if not hasattr(_collections, _n) and hasattr(_abc, _n):
                 setattr(_collections, _n, getattr(_abc, _n))
+    except Exception:
+        pass
+    # Marshmallow __version__ polyfill
+    try:
+        import marshmallow as _mm
+        if not hasattr(_mm, "__version__"):
+            _mm.__version__ = "4"
     except Exception:
         pass
 _apply_compatibility_fixes()

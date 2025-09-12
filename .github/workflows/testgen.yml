@@ -191,7 +191,6 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [ -n "$GH_PAT3" ]; then
-            # If you're always pushing to the analyzed repo, replace the URL below with $REPO_URL
             git remote set-url origin "https://x-access-token:${GH_PAT3}@github.com/${{ steps.meta.outputs.repo_path }}.git"
           fi
           git add tests/generated || true

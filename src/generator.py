@@ -825,7 +825,7 @@ def _massage_generated_code(code: str) -> str:
     # Make some brittle assertions explicit
     code = re.sub(r"assert\s+bool\((.+?)\)", r"assert bool(\1) is True", code)
 
-    # Lightweight AAA comment (use comment, not docstring, to avoid AST issues)
+    # Lightweight AAA comment (comment to avoid AST issues)
     lines, out = code.splitlines(), []
     for line in lines:
         out.append(line)
@@ -976,7 +976,6 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
             focus_label, _ = _focus_for_shard(compact, kind, i, files_per_kind)
             guard, messages = _build_guard_and_messages(compact, compact_json, kind, focus_label, i + 1, files_per_kind)
             code = _gen_validated(messages, compact=compact)
-            code = _massage_generated_code(code)
             fname = f"test_{kind}_{ts}_{i+1:02d}.py"
             path = out / fname
             final_code = guard + code
@@ -1031,17 +1030,27 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
                 resp = _chat_completion_create(client, deployment, messages)
                 raw = resp.choices[0].message.content or ""
                 cleaned = _extract_python_only(raw)
+
                 ok, reason = _validate_code(cleaned)
                 if ok:
                     code = _skip_brittle_test_functions(cleaned)
                     code = _header_guard_for_banned_imports(code)
-                    return code
+                    code = _massage_generated_code(code)
+
+                    # Re-validate post-massage to ensure no syntax/structural issues
+                    ok2, reason2 = _validate_code(code)
+                    if ok2:
+                        return code
+                    reason = f"post-process validation failed: {reason2}"
+
                 messages.append({
                     "role": "user",
-                    "content": f"Invalid: {reason}. Regenerate strict, developer-style pytest code only. "
-                               "Guard imports, use parametrize and boundaries, tmp_path/monkeypatch/mock; "
-                               "no private pytest internals; use _exc_lookup for exception types; "
-                               "skip ONLY on ImportError."
+                    "content": (
+                        f"Invalid: {reason}. Regenerate strict, developer-style pytest code only. "
+                        "Guard imports (skip on ImportError only), prefer parametrize & boundaries, "
+                        "use tmp_path/monkeypatch/mock, no private pytest internals, "
+                        "use _exc_lookup for exception types."
+                    )
                 })
                 break
             except RateLimitError:

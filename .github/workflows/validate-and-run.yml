@@ -50,11 +50,9 @@ jobs:
       - name: Copy generated tests into cloned repo
         run: |
           mkdir -p target_repo/tests/generated
-          # copy any test files from any artifact subdir
           if compgen -G "_gen_art/**/test_*.py" > /dev/null; then
             find _gen_art -type f -name 'test_*.py' -exec cp -v {} target_repo/tests/generated/ \;
           fi
-          # also allow pre-bundled folder
           if [ -d "_gen_art/gen_artifact" ]; then
             rsync -a _gen_art/gen_artifact/ target_repo/tests/generated/ || true
           fi
@@ -63,6 +61,11 @@ jobs:
 
       - uses: actions/setup-python@v5
         with: {python-version: "3.10", cache: pip}
+
+      - name: Force compatible Django & DRF
+        run: |
+          python -m pip install --upgrade "pip<25" wheel setuptools
+          python -m pip install --upgrade "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
 
       - name: Install test dependencies
         run: |

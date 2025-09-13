@@ -144,6 +144,10 @@ jobs:
             [ -s /tmp/pdm.lock.req ] && pip install -r /tmp/pdm.lock.req || true
           fi
 
+      - name: Force compatible Django & DRF
+        run: |
+          python -m pip install --upgrade "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
+
       - name: Print core versions (debug)
         run: |
           python - <<'PY'

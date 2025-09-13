@@ -600,16 +600,16 @@ for __qt_root in ["PyQt5","PyQt6","PySide2","PySide6"]:
             def __init__(self,*a,**k): super().__init__()
         class QMessageBox:
             @staticmethod
-            def warning(*a,**k): return None
+            def warning(*a, **k): return None
             @staticmethod
-            def information(*a,**k): return None
+            def information(*a, **k): return None
             @staticmethod
-            def critical(*a,**k): return None
+            def critical(*a, **k): return None
         class QFileDialog:
             @staticmethod
-            def getSaveFileName(*a,**k): return ("history.txt","")
+            def getSaveFileName(*a, **k): return ("history.txt","")
             @staticmethod
-            def getOpenFileName(*a,**k): return ("history.txt","")
+            def getOpenFileName(*a, **k): return ("history.txt","")
         class QFormLayout:
             def __init__(self,*a,**k): pass
             def addRow(self,*a,**k): pass
@@ -1105,7 +1105,15 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
     return _smoke_from_modules(compact or {})
 
 if __name__ == "__main__":
-    import analyzer
-    analysis = analyzer.analyze_python_tree(pathlib.Path("."))
+    try:
+        # Prefer src.analyzer if run as a module; fallback to local import
+        try:
+            import src.analyzer as analyzer  # type: ignore
+        except Exception:
+            import analyzer  # type: ignore
+        analysis = analyzer.analyze_python_tree(pathlib.Path("."))
+    except Exception as _e:
+        print(f"Analyzer import failed: {_e}. Generating only smoke tests.")
+        analysis = {"functions": [], "classes": [], "routes": [], "modules": []}
     generate_all(analysis)
     print("✅ Generated tests in tests/generated")

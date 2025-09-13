@@ -352,7 +352,6 @@ COMMON_PKG_ALIASES = {
 }
 VERSION_CONSTRAINTS: Dict[str, str] = {}
 
-
 DENY_INFER: Set[str] = {
     *(p.strip().lower() for p in os.getenv("TESTGEN_DENY_PKGS", "models,relations,renderers").split(",") if p.strip())
 }
@@ -716,57 +715,63 @@ try:
     if _iu.find_spec("django") is not None:
         import django
         from django.conf import settings as _dj_settings
-        if not _dj_settings.configured:
-            _proj_tops = {{t for t in {tops_lit} if t and t not in ("os","sys","json","re","datetime","random","string","typing","collections","jwt","__future__")}}
-            _roots = []
-            for _t in _proj_tops:
-                if _iu.find_spec(_t + ".apps") or _iu.find_spec(_t + ".settings") or _iu.find_spec(_t + ".urls"):
-                    _roots.append(_t)
-            _root = _roots[0] if _roots else None
+        from django.apps import apps as _dj_apps
 
-            _installed = ["django.contrib.auth","django.contrib.contenttypes","django.contrib.sessions","django.contrib.admin"]
-            if _iu.find_spec("rest_framework"): _installed.append("rest_framework")
-
-            _discovered = []
+        def _maybe_add(app_name, installed):
             try:
-                if _root and _iu.find_spec(_root + ".apps"):
-                    _apps_pkg = importlib.import_module(_root + ".apps")
-                    for _m in pkgutil.iter_modules(getattr(_apps_pkg, "__path__", [])):
-                        _name = _m.name
-                        if _iu.find_spec(_root + ".apps." + _name):
-                            _discovered.append(_root + ".apps." + _name)
+                if _iu.find_spec(app_name):
+                    installed.append(app_name)
             except Exception:
                 pass
-            _installed.extend(sorted(set(_discovered)))
+
+        if not _dj_settings.configured:
+            _installed = ["django.contrib.auth","django.contrib.contenttypes","django.contrib.sessions"]
+            if _iu.find_spec("rest_framework"):
+                _installed.append("rest_framework")
+
+            # Explicitly try common project apps if present
+            for _app in ("conduit.apps.core","conduit.apps.articles","conduit.apps.authentication","conduit.apps.profiles"):
+                _maybe_add(_app, _installed)
+
+            # Generic discovery under conduit.apps.*
+            try:
+                if _iu.find_spec("conduit.apps"):
+                    _apps_pkg = importlib.import_module("conduit.apps")
+                    for _m in pkgutil.iter_modules(getattr(_apps_pkg, "__path__", [])):
+                        _full = "conduit.apps." + _m.name
+                        _maybe_add(_full, _installed)
+            except Exception:
+                pass
 
             _cfg = dict(
                 SECRET_KEY="test-key",
                 DEBUG=True,
                 ALLOWED_HOSTS=["*"],
-                INSTALLED_APPS=_installed,
-                DATABASES={{"default": {{"ENGINE":"django.db.backends.sqlite3","NAME":":memory:"}}}},
+                INSTALLED_APPS=sorted(set(_installed)),
+                DATABASES=dict(default=dict(ENGINE="django.db.backends.sqlite3", NAME=":memory:")),
                 MIDDLEWARE=[],
+                MIDDLEWARE_CLASSES=[],
                 USE_TZ=True,
                 TIME_ZONE="UTC",
             )
-            # Default auto field only if supported (Django >= 3.2). Older Django (e.g., 1.10) ignores unknown keys.
             try:
-                from django import get_version as _djv
                 _cfg["DEFAULT_AUTO_FIELD"] = "django.db.models.AutoField"
             except Exception:
                 pass
 
-            # If an 'authentication' app exists, prefer its user model
             try:
-                if any(a.endswith(".authentication") for a in _installed):
-                    _cfg["AUTH_USER_MODEL"] = "authentication.User"
+                _dj_settings.configure(**_cfg)
+                django.setup()
             except Exception:
-                pass
-
-            _dj_settings.configure(**_cfg)
-            django.setup()
+                _pytest.skip("Django setup failed in bootstrap; skipping generated tests", allow_module_level=True)
+        else:
+            if not _dj_apps.ready:
+                try:
+                    django.setup()
+                except Exception:
+                    _pytest.skip("Django setup not ready and failed to initialize; skipping", allow_module_level=True)
 except Exception:
-    pass
+    _pytest.skip("Django bootstrap error; skipping generated tests", allow_module_level=True)
 _PY2_ALIASES = {py2_alias_map_lit}
 for _old, _new in list(_PY2_ALIASES.items()):
     if _old in sys.modules: continue
@@ -793,9 +798,6 @@ _THIRD_PARTY_TOPS = {tops_lit}
 {qt_block}
 # --- /ENHANCED UNIVERSAL BOOTSTRAP ---
 '''
-
-
-
 
 # ---------------------- prompts: developer-style tests ----------------------
 

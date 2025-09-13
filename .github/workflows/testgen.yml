@@ -20,6 +20,8 @@ on:
         description: "Fail if coverage below this % (0 to disable)"
         required: false
         default: "0"
+  push:
+    branches: [ "test" ]
 
 concurrency:
   group: test-gen-${{ github.workflow }}
@@ -31,17 +33,20 @@ jobs:
     permissions:
       contents: write
     env:
+      # ---- Azure OpenAI (or OpenAI) ----
       AZURE_OPENAI_KEY:         ${{ secrets.AZURE_OPENAI_KEY         || secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT    || secrets.AZURE_OPENAI_API_ENDPOINT }}
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION || secrets.OPENAI_API_VERSION }}
       AZURE_OPENAI_DEPLOYMENT:  ${{ secrets.AZURE_OPENAI_DEPLOYMENT  || secrets.OPENAI_DEPLOYMENT }}
 
       TESTGEN_PROMPT_STYLE: ${{ github.event.inputs.prompt_style || 'ultra_bare' }}
-      TESTGEN_STRICT_FAIL: "1"
+      TESTGEN_STRICT_FAIL: "1"   # fail hard on real code errors found by tests
 
+      # DB defaults for import-time engines
       DATABASE_URL: "sqlite:///:memory:"
       DB_URL: "sqlite:///:memory:"
       SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
+      PYTHONUTF8: "1"
 
     steps:
       - name: Checkout pipeline repo
@@ -49,6 +54,13 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Preflight – verify required secrets
+        run: |
+          : "${AZURE_OPENAI_KEY:?Missing AZURE_OPENAI_KEY or AZURE_OPENAI_API_KEY}"
+          : "${AZURE_OPENAI_ENDPOINT:?Missing AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_API_ENDPOINT}"
+          : "${AZURE_OPENAI_API_VERSION:?Missing AZURE_OPENAI_API_VERSION or OPENAI_API_VERSION}"
+          : "${AZURE_OPENAI_DEPLOYMENT:?Missing AZURE_OPENAI_DEPLOYMENT or OPENAI_DEPLOYMENT}"
 
       - name: Clone target repository
         run: |
@@ -66,14 +78,16 @@ jobs:
           mkdir -p "$OUTDIR"
           DEFAULT_BRANCH="$(git -C target remote show origin | sed -n '/HEAD branch/s/.*: //p')"
           [ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"
-          echo "REPO_SLUG=$REPO_SLUG"       >> $GITHUB_ENV
-          echo "OUTDIR=$OUTDIR"             >> $GITHUB_ENV
-          echo "REPO_PATH=$REPO_PATH"       >> $GITHUB_ENV
-          echo "DEFAULT_BRANCH=$DEFAULT_BRANCH" >> $GITHUB_ENV
-          echo "repo_slug=$REPO_SLUG"       >> $GITHUB_OUTPUT
-          echo "outdir=$OUTDIR"             >> $GITHUB_OUTPUT
-          echo "repo_path=$REPO_PATH"       >> $GITHUB_OUTPUT
-          echo "default_branch=$DEFAULT_BRANCH" >> $GITHUB_OUTPUT
+          {
+            echo "REPO_SLUG=$REPO_SLUG"
+            echo "OUTDIR=$OUTDIR"
+            echo "REPO_PATH=$REPO_PATH"
+            echo "DEFAULT_BRANCH=$DEFAULT_BRANCH"
+          } >> "$GITHUB_ENV"
+          echo "repo_slug=$REPO_SLUG"            >> "$GITHUB_OUTPUT"
+          echo "outdir=$OUTDIR"                  >> "$GITHUB_OUTPUT"
+          echo "repo_path=$REPO_PATH"            >> "$GITHUB_OUTPUT"
+          echo "default_branch=$DEFAULT_BRANCH"  >> "$GITHUB_OUTPUT"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -81,6 +95,7 @@ jobs:
           python-version: "3.10"
           cache: pip
 
+      # ---- repo-agnostic constraints bootstrap ----
       - name: Bootstrap Python constraints (repo-agnostic)
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
@@ -163,6 +178,7 @@ jobs:
           outdir = os.environ['OUTDIR']
           if os.environ.get('FORCE', 'false').lower() == 'true':
               os.environ['TESTGEN_FORCE'] = 'true'
+          # ensure strict failing so logic/type bugs are exposed later
           os.environ['TESTGEN_STRICT_FAIL'] = os.environ.get('TESTGEN_STRICT_FAIL','1')
           g.generate_all(analysis, outdir=outdir, focus_files=None)
           PY
@@ -181,7 +197,7 @@ jobs:
           echo "Final tests copied into target repo:"
           find target/tests/generated -name "test_*.py" | head -20
 
-      # Only sanity-check collection so real bugs fail in the second pipeline
+      # Only sanity-check collection so real bugs fail in the validation workflow
       - name: Sanity check generated tests (collect-only)
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"

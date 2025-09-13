@@ -8,6 +8,8 @@ PROMPT_STYLE = os.getenv("TESTGEN_PROMPT_STYLE", "ultra_bare").strip().lower()
 REPO_ROOT = pathlib.Path(".").resolve()
 STRICT_FAIL = os.getenv("TESTGEN_STRICT_FAIL", "0").lower() in ("1","true","yes")
 
+# ---------------------- Azure OpenAI wiring ----------------------
+
 def _get_any_env(*names: str) -> str:
     for n in names:
         v = os.getenv(n)
@@ -27,6 +29,8 @@ def _deployment_name() -> str:
 
 def _chat_completion_create(client: AzureOpenAI, deployment: str, messages: list):
     return client.chat.completions.create(model=deployment, messages=messages)
+
+# ---------------------- helpers: paths, hashing, change detect ----------------------
 
 def _norm_rel(p: str) -> str:
     try:
@@ -123,6 +127,8 @@ def _detect_detailed_changes(target_root: pathlib.Path, manifest_path: pathlib.P
     _save_current_state(manifest_path, current_state)
     return added_or_modified, deleted, unchanged
 
+# ---------------------- manage generated tests vs changes ----------------------
+
 def _find_related_test_files(outdir: pathlib.Path, source_file: str) -> List[pathlib.Path]:
     related_tests = []
     source_path = pathlib.Path(source_file)
@@ -146,6 +152,8 @@ def _cleanup_deleted_tests(outdir: pathlib.Path, deleted_files: Set[str]):
                 test_file.unlink()
             except Exception as e:
                 print(f"Warning: Could not remove {test_file}: {e}")
+
+# ---------------------- conftest: compat shims ----------------------
 
 def _create_enhanced_conftest(outdir: pathlib.Path) -> str:
     conftest_content = '''import pytest
@@ -206,7 +214,6 @@ def _fix_flask_compatibility():
         pass
 
 def _fix_marshmallow_compatibility():
-    # Marshmallow 4 removed __version__; many codebases read it
     try:
         import marshmallow as _mm
         if not hasattr(_mm, "__version__"):
@@ -220,56 +227,13 @@ _fix_flask_compatibility()
 _fix_marshmallow_compatibility()
 
 os.environ.setdefault('WTF_CSRF_ENABLED', 'False')
-
-@pytest.fixture
-def app():
-    try:
-        candidates = [
-            ('conduit.app', 'create_app'),
-            ('app', 'create_app'),
-            ('application', 'create_app'),
-            ('src.app', 'create_app'),
-            ('conduit.app', 'app'),
-            ('app', 'app'),
-        ]
-        app_instance = None
-        for module_name, attr_name in candidates:
-            try:
-                module = __import__(module_name, fromlist=[attr_name])
-                attr = getattr(module, attr_name, None)
-                if attr:
-                    app_instance = attr() if callable(attr) else attr
-                    break
-            except Exception:
-                continue
-        if not app_instance:
-            pytest.skip("No app factory found")
-        app_instance.config['TESTING'] = True
-        app_instance.config['WTF_CSRF_ENABLED'] = False
-        return app_instance
-    except ImportError as e:
-        pytest.skip(f"Could not create app (ImportError): {e}")
-    except Exception as e:
-        # In strict-fail mode, bubble up non-import errors
-        if os.getenv("TESTGEN_STRICT_FAIL","0").lower() in ("1","true","yes"):
-            raise
-        pytest.skip(f"Could not create app: {e}")
-
-@pytest.fixture
-def client(app):
-    try:
-        return app.test_client()
-    except ImportError as e:
-        pytest.skip(f"Could not create test client (ImportError): {e}")
-    except Exception as e:
-        if os.getenv("TESTGEN_STRICT_FAIL","0").lower() in ("1","true","yes"):
-            raise
-        pytest.skip(f"Could not create test client: {e}")
 '''
     conftest_path = outdir / "conftest.py"
     conftest_path.parent.mkdir(parents=True, exist_ok=True)
     conftest_path.write_text(conftest_content, encoding="utf-8")
     return str(conftest_path)
+
+# ---------------------- output validation and hardening ----------------------
 
 def _extract_python_only(text: str) -> str:
     if "```" in text:
@@ -300,6 +264,11 @@ def _ensure_pytest_import(text: str) -> str:
     if "@pytest.mark.skip" in text and not re.search(r"^\s*import\s+pytest\b", text, re.MULTILINE):
         return "import pytest\n" + text
     return text
+
+def _ensure_pytest_import_top(code: str) -> str:
+    if not re.search(r'^\s*import\s+pytest\b', code, re.MULTILINE):
+        code = "import pytest\n" + code
+    return code
 
 def _skip_brittle_test_functions(code: str) -> str:
     lines = code.splitlines()
@@ -340,6 +309,8 @@ def _header_guard_for_banned_imports(code: str) -> str:
         ) + code
     return code
 
+# ---------------------- analysis compaction ----------------------
+
 def _dedupe_keep(items: List[Dict[str, str]], key: str, limit: int = None) -> List[Dict[str, str]]:
     seen, out = set(), []
     for it in items or []:
@@ -365,6 +336,8 @@ def _compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
         "modules": sorted(set(analysis.get("modules", []))),
     }
 
+# ---------------------- package inference ----------------------
+
 COMMON_PKG_ALIASES = {
     "bs4": "beautifulsoup4", "yaml": "PyYAML", "cv2": "opencv-python", "sklearn": "scikit-learn",
     "PIL": "Pillow", "Crypto": "pycryptodome", "MySQLdb": "mysqlclient", "mysql": "mysqlclient",
@@ -375,7 +348,7 @@ COMMON_PKG_ALIASES = {
     "ujson": "ujson", "orjson": "orjson", "pymongo": "pymongo", "redis": "redis", "pytest": "pytest",
     "jwt": "PyJWT", "markupsafe": "MarkupSafe",
 }
-VERSION_CONSTRAINTS: Dict[str, str] = {}  # no opinionated pins here
+VERSION_CONSTRAINTS: Dict[str, str] = {}
 
 DENY_INFER: Set[str] = {
     *(p.strip().lower() for p in os.getenv("TESTGEN_DENY_PKGS", "models,relations").split(",") if p.strip())
@@ -478,6 +451,8 @@ def _pip_install(packages: List[str]) -> None:
             print(f"  ⚠️ Skipping {pkg} (pip exit {e.returncode})")
             continue
 
+# ---------------------- sharding and focus ----------------------
+
 def _partition(lst: List[Dict[str, str]], n_parts: int) -> List[List[Dict[str, str]]]:
     if not lst:
         return [[] for _ in range(n_parts)]
@@ -543,6 +518,8 @@ def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Se
         return analysis, True
     return filt, False
 
+# ---------------------- bootstrap injected into every test file ----------------------
+
 def _enhanced_universal_bootstrap(compact: Dict[str, Any]) -> str:
     tops: List[str] = []
     for m in compact.get("modules") or []:
@@ -569,7 +546,7 @@ for __qt_root in ["PyQt5","PyQt6","PySide2","PySide6"]:
             def exec_(self): return 0
             def exec(self): return 0
         _core.QObject=QObject; _core.pyqtSignal=pyqtSignal; _core.pyqtSlot=pyqtSlot; _core.QCoreApplication=QCoreApplication
-        class QFont:  # minimal
+        class QFont:
             def __init__(self,*a,**k): pass
         class QDoubleValidator:
             def __init__(self,*a,**k): pass
@@ -643,7 +620,6 @@ def _exc_lookup(name, default):
     except Exception:
         return default
 def _apply_compatibility_fixes():
-    # Jinja2 / MarkupSafe
     try:
         import jinja2
         if not hasattr(jinja2, 'Markup'):
@@ -656,7 +632,6 @@ def _apply_compatibility_fixes():
                 pass
     except ImportError:
         pass
-    # Flask escape & context __ident_func__
     try:
         import flask
         if not hasattr(flask, "escape"):
@@ -675,7 +650,6 @@ def _apply_compatibility_fixes():
             pass
     except ImportError:
         pass
-    # collections.abc re-exports
     try:
         import collections as _collections, collections.abc as _abc
         for _n in ('Mapping','MutableMapping','Sequence','Iterable','Container','MutableSequence','Set','MutableSet'):
@@ -683,7 +657,6 @@ def _apply_compatibility_fixes():
                 setattr(_collections, _n, getattr(_abc, _n))
     except Exception:
         pass
-    # Marshmallow __version__ polyfill
     try:
         import marshmallow as _mm
         if not hasattr(_mm, "__version__"):
@@ -763,29 +736,36 @@ _THIRD_PARTY_TOPS = {tops_lit}
 # --- /ENHANCED UNIVERSAL BOOTSTRAP ---
 '''
 
+# ---------------------- prompts: developer-style tests ----------------------
+
 _SYSTEM_MIN = (
-    "Return ONLY valid Python test code for pytest. No Markdown, no explanations. "
-    "Import target modules INSIDE each test function. "
-    "Deterministic I/O; no network; mock file/db/http/UI as needed (monkeypatch/tmp_path). "
-    "Do NOT use private pytest internals. "
-    "Do NOT use custom pytest markers. "
-    "Prefer non-GUI modules; if a module imports Qt/PySide, rely on shims and do not start event loops. "
-    "For exceptions NEVER assume custom names; always call _exc_lookup('Name', Exception). "
-    "Handle import errors gracefully with pytest.skip. "
-    "Only skip on ImportError; for TypeError/AttributeError/ValueError or logic errors, LET THE TEST FAIL."
+    "Return ONLY valid Python pytest tests. No Markdown, no explanations. "
+    "Prefer module-level imports guarded by try/except ImportError: on ImportError call pytest.skip at module level. "
+    "Use Arrange-Act-Assert structure with clear variable names. "
+    "Use pytest.mark.parametrize for normal + edge cases; include boundary values and error paths. "
+    "Use tmp_path/monkeypatch/unittest.mock for I/O, environment, and collaborators. "
+    "No network, no external services, no private pytest internals, no custom markers. "
+    "Assert concrete outputs, types, and state changes. "
+    "For exceptions never assume custom names; use _exc_lookup('Name', Exception) when checking types. "
+    "Skip ONLY on ImportError. Let logic/type/attribute/value errors FAIL to expose bugs."
 )
 
-_UNIT_BARE = ("Write concise UNIT tests (3-6). Cover public functions/classes from the focus list. "
-              "Instantiate classes explicitly when APIs are class-based. "
-              "Assert outputs and error conditions; for exceptions use _exc_lookup('CustomError', Exception). "
-              "Use tmp_path; avoid repr-based asserts and custom markers. "
-              "Skip ONLY on ImportError.")
+_UNIT_DEV = (
+    "Write UNIT tests (3-6) like a senior developer would. "
+    "Focus on public functions/classes in the focus list. "
+    "Cover happy path, boundary conditions, invalid inputs, and stateful methods. "
+    "Prefer @pytest.mark.parametrize, AAA comments optional but keep structure clear."
+)
 
-_INTEG_BARE = ("Write INTEGRATION tests (2-5). Exercise interactions across modules. "
-               "Avoid real GUI/event loops. Use monkeypatch. Skip ONLY on ImportError.")
+_INTEG_DEV = (
+    "Write INTEGRATION tests (2-5) crossing module boundaries where natural. "
+    "Use monkeypatch/mocks to isolate external calls; test realistic flows and data seams."
+)
 
-_E2E_BARE = ("Write E2E tests (2-4). Compose a realistic black-box workflow using available APIs. "
-             "Deterministic, self-contained. Skip ONLY on ImportError.")
+_E2E_DEV = (
+    "Write E2E-style black-box tests (2-4) composed from the public API only. "
+    "Deterministic, self-contained, avoid GUI/event loops."
+)
 
 def _limit_str(s: str, max_chars: int = 12000) -> str:
     return s if len(s) <= max_chars else s[:max_chars] + "...(truncated)"
@@ -797,33 +777,22 @@ def _sample_targets(names: List[str], k: int) -> List[str]:
     return sorted(random.sample(names, k))
 
 def _build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int, compact: Dict[str, Any]) -> List[Dict[str, str]]:
-    if PROMPT_STYLE == "ultra_bare":
-        sys_msg = _SYSTEM_MIN
-        fnames = [f.get("name") for f in (compact.get("functions") or []) if f.get("name")]
-        cnames = [c.get("name") for c in (compact.get("classes") or []) if c.get("name")]
-        rnames = [r.get("handler") for r in (compact.get("routes") or []) if r.get("handler")]
-        pick = _sample_targets(fnames + cnames + rnames, 16)
-        context = {"focus": focus_label or "(none)", "suggested_targets": pick}
-        brief = json.dumps(context, ensure_ascii=False)
-        if kind == "unit":
-            user = f"[UNIT shard {shard}/{total}] {_UNIT_BARE}\nContext: {brief}\nAnalysis: {_limit_str(compact_json)}"
-        elif kind == "integ":
-            user = f"[INTEG shard {shard}/{total}] {_INTEG_BARE}\nContext: {brief}\nAnalysis: {_limit_str(compact_json)}"
-        else:
-            user = f"[E2E shard {shard}/{total}] {_E2E_BARE}\nContext: {brief}\nAnalysis: {_limit_str(compact_json)}"
-        return [{"role": "system", "content": sys_msg}, {"role": "user", "content": user}]
-    SYSTEM = ("You are an expert Python test engineer.\n"
-              "Return ONLY valid Python source code (no Markdown).\n"
-              "Rules: import targets inside each test; deterministic I/O; no private pytest internals; "
-              "instantiate classes when needed; use _exc_lookup('Name', Exception) for exceptions; "
-              "skip ONLY on ImportError; let logic/type/attribute errors fail.")
+    sys_msg = _SYSTEM_MIN
+    fnames = [f.get("name") for f in (compact.get("functions") or []) if f.get("name")]
+    cnames = [c.get("name") for c in (compact.get("classes") or []) if c.get("name")]
+    rnames = [r.get("handler") for r in (compact.get("routes") or []) if r.get("handler")]
+    pick = _sample_targets(fnames + cnames + rnames, 16)
+    context = {"focus": focus_label or "(none)", "suggested_targets": pick}
+    brief = json.dumps(context, ensure_ascii=False)
     if kind == "unit":
-        user = f"Shard {shard}/{total} • Focus: {focus_label}\nAnalysis:\n{compact_json}\nWrite UNIT tests (4-8)."
+        user = f"[UNIT shard {shard}/{total}] {_UNIT_DEV}\nContext: {brief}\nAnalysis: {_limit_str(compact_json)}"
     elif kind == "integ":
-        user = f"Shard {shard}/{total} • Focus: {focus_label}\nAnalysis:\n{compact_json}\nWrite INTEGRATION tests (3-6)."
+        user = f"[INTEG shard {shard}/{total}] {_INTEG_DEV}\nContext: {brief}\nAnalysis: {_limit_str(compact_json)}"
     else:
-        user = f"Shard {shard}/{total} • Focus: {focus_label}\nAnalysis:\n{compact_json}\nWrite E2E tests (2-4)."
-    return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
+        user = f"[E2E shard {shard}/{total}] {_E2E_DEV}\nContext: {brief}\nAnalysis: {_limit_str(compact_json)}"
+    return [{"role": "system", "content": sys_msg}, {"role": "user", "content": user}]
+
+# ---------------------- smoke fallback ----------------------
 
 def _smoke_from_modules(compact: Dict[str, Any]) -> str:
     mods = sorted(set([m for m in compact.get("modules") or [] if m and (m[0].isalpha() or m[0] == "_")]))
@@ -845,12 +814,13 @@ def _smoke_from_modules(compact: Dict[str, Any]) -> str:
             ""]
     return "\n".join(body)
 
+# ---------------------- harden generated code ----------------------
+
 _RAISES_QUAL = re.compile(r"pytest\.raises\(\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\s*(,|\))")
 _RAISES_BARE = re.compile(r"pytest\.raises\(\s*([A-Za-z_][\w]*)\s*(,|\))")
 _ISINSTANCE_QUAL = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\s*\)")
 _ISINSTANCE_BARE = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)")
 
-# Convert over-broad skips: "except Exception: pytest.skip(...)" -> skip only on ImportError, otherwise fail
 _SKIP_ANY_EXC_RE = re.compile(
     r"except\s+Exception\s+as\s+e:\s*\n\s*pytest\.skip\((.*?)\)",
     flags=re.DOTALL
@@ -866,22 +836,30 @@ def _massage_generated_code(code: str) -> str:
     code = _ISINSTANCE_QUAL.sub(_repl_is_q, code)
     code = _ISINSTANCE_BARE.sub(_repl_is_b, code)
 
-    # Narrow blanket skips
     code = _SKIP_ANY_EXC_RE.sub(
         r"except ImportError as e:\n        pytest.skip(\1)\n    except Exception as e:\n        raise",
         code
     )
 
-    # Strengthen bare truthiness asserts where trivial: assert bool(x) -> assert bool(x) is True
     code = re.sub(r"assert\s+bool\((.+?)\)", r"assert bool(\1) is True", code)
 
+    # Inject brief provenance + encourage AAA structure
     lines = code.splitlines()
     out = []
-    for line in lines:
+    inserted_module_guard = False
+    for i, line in enumerate(lines):
         out.append(line)
+        if not inserted_module_guard and re.match(r'^\s*import\s+\w', line):
+            inserted_module_guard = True
+            out.append("# If a target import fails, skip the whole module rather than passing silently.")
+            out.append("try:\n    pass\nexcept ImportError as _e:\n    import pytest as _pytest; _pytest.skip(str(_e), allow_module_level=True)")
         if re.match(r'\s*def test_', line):
-            out.append('    """Generated by ai-testgen with strict imports and safe shims."""')
-    return "\n".join(out) + ("\n" if not code.endswith("\n") else "")
+            out.append('    """Arrange-Act-Assert: generated by ai-testgen for developer-style correctness checks."""')
+    code = "\n".join(out)
+    code = _ensure_pytest_import_top(code)
+    return code if code.endswith("\n") else code + "\n"
+
+# ---------------------- IO ----------------------
 
 def write(path: pathlib.Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -943,6 +921,8 @@ def _smart_cleanup_outdir(outdir: pathlib.Path, deleted_files: Set[str], added_o
                 next(d.rglob("*"))
             except StopIteration:
                 shutil.rmtree(d, ignore_errors=True)
+
+# ---------------------- generation core ----------------------
 
 def _build_guard_and_messages(compact: Dict[str, Any], compact_json: str, kind: str, focus_label: str, shard: int, total: int):
     guard = _runtime_guard_for(compact)
@@ -1057,6 +1037,8 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
     else:
         print("ℹ️ No tests generated")
 
+# ---------------------- runtime guard per file ----------------------
+
 def _runtime_guard_for(compact: Dict[str, Any]) -> str:
     critical = {"fastapi", "flask", "django", "sqlalchemy", "starlette", "pydantic"}
     mods = {m.split(".")[0].lower() for m in (compact.get("modules") or [])}
@@ -1068,6 +1050,8 @@ def _runtime_guard_for(compact: Dict[str, Any]) -> str:
         ) + "\n"
     bootstrap = _enhanced_universal_bootstrap(compact)
     return ("import importlib.util, pytest\n" + checks + "\n" + bootstrap + "\n")
+
+# ---------------------- LLM loop ----------------------
 
 def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, backoff_seq=(3, 7, 15), compact: Optional[Dict[str, Any]] = None) -> str:
     client = _client()
@@ -1090,7 +1074,10 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
                     return code
                 messages.append({
                     "role": "user",
-                    "content": f"Invalid: {reason}. Regenerate STRICT pytest code (no markdown), import targets inside tests, avoid custom markers, instantiate classes when APIs are class-based, use _exc_lookup for exceptions, and skip ONLY on ImportError."
+                    "content": "Invalid: %s. Regenerate strict, developer-style pytest code only. "
+                               "Prefer module-level guarded imports; use parametrize; cover boundaries; "
+                               "use tmp_path/monkeypatch/mock; no private pytest internals; "
+                               "use _exc_lookup for exception types; skip ONLY on ImportError." % (reason,)
                 })
                 break
             except RateLimitError:
@@ -1104,9 +1091,10 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
     print(f"⚠️ LLM generation failed after {attempts} attempts, using smoke test fallback")
     return _smoke_from_modules(compact or {})
 
+# ---------------------- entrypoint ----------------------
+
 if __name__ == "__main__":
     try:
-        # Prefer src.analyzer if run as a module; fallback to local import
         try:
             import src.analyzer as analyzer  # type: ignore
         except Exception:

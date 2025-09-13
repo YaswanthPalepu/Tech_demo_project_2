@@ -1,5 +1,6 @@
 # .github/workflows/testgen.yml
 name: AI Test Generation
+
 on:
   workflow_dispatch:
     inputs:
@@ -12,13 +13,13 @@ on:
         required: false
         default: "false"
       prompt_style:
-        description: "Prompt style for test generation"
         required: false
         default: "ultra_bare"
+        description: "Prompt style to use (ultra_bare, bare, detailed, ultra_detailed)"
       coverage_threshold:
-        description: "Coverage threshold for test generation"
         required: false
         default: "0"
+        description: "Minimum coverage % to achieve (0-100), 0=skip coverage check"
   push:
     branches: ["test"]
 
@@ -31,7 +32,6 @@ jobs:
     runs-on: self-hosted
     permissions:
       contents: write
-      actions: write
     env:
       AZURE_OPENAI_KEY:         ${{ secrets.AZURE_OPENAI_KEY         || secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT    || secrets.AZURE_OPENAI_API_ENDPOINT }}
@@ -46,7 +46,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0, persist-credentials: false}
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Preflight – verify required secrets
         run: |
@@ -83,7 +85,9 @@ jobs:
           echo "default_branch=$DEFAULT_BRANCH"  >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@v5
-        with: {python-version: "3.10", cache: pip}
+        with:
+          python-version: "3.10"
+          cache: pip
 
       - name: Bootstrap Python constraints (repo-agnostic)
         run: |
@@ -184,6 +188,22 @@ jobs:
           cp -r "${OUTDIR}"/* target/tests/generated/ || true
           echo "Final tests copied into target repo:"
           find target/tests/generated -name "test_*.py" | head -20
+
+      - name: Quarantine syntactically invalid generated tests
+        working-directory: target
+        run: |
+          python - <<'PY'
+          import ast, pathlib
+          import_text = "import pytest as _pytest\n_pytest.skip('quarantined invalid generated test', allow_module_level=True)\n"
+          base = pathlib.Path("tests/generated")
+          if base.exists():
+              for p in base.rglob("test_*.py"):
+                  try:
+                      ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
+                  except SyntaxError:
+                      p.write_text(import_text + "\n\"\"\"\n" + p.read_text(encoding="utf-8") + "\n\"\"\"\n", encoding="utf-8")
+                      print(f"Quarantined: {p}")
+          PY
 
       - name: Upload generated tests artifact
         uses: actions/upload-artifact@v4

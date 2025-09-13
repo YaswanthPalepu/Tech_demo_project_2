@@ -40,7 +40,6 @@ jobs:
           rm -rf target_repo
           git clone --depth=1 "$REPO_URL" target_repo
 
-      # ⬇️ FIX: download artifact from the triggering run
       - name: Download generated tests artifact from previous workflow
         uses: dawidd6/action-download-artifact@v2
         with:
@@ -87,77 +86,21 @@ jobs:
           pip install -e . || true
           pip check || true
 
-      - name: Write sitecustomize.py (compat shims)
+      - name: Quarantine syntactically invalid generated tests
         working-directory: target_repo
         run: |
-          cat > sitecustomize.py << 'EOF'
-          """
-          Auto-loaded before tests. Compatibility shims + ensure package importability.
-          """
-          try:
-              import sys, pathlib, os
-              _root = pathlib.Path(__file__).resolve().parent
-              for _p in (_root, _root / "src", _root / "app"):
-                  _ps = str(_p)
-                  if _p.exists() and _ps not in sys.path:
-                      sys.path.insert(0, _ps)
-          except Exception:
-              pass
-          try:
-              import collections, collections.abc as _abc
-              for _name in ('Mapping','MutableMapping','Sequence','MutableSequence','Set',
-                            'MutableSet','Iterable','Iterator','Generator','Container',
-                            'Callable','Hashable'):
-                  if not hasattr(collections, _name) and hasattr(_abc, _name):
-                      setattr(collections, _name, getattr(_abc, _name))
-          except Exception:
-              pass
-          try:
-              import flask
-              if not hasattr(flask, "escape"):
-                  from markupsafe import escape
-                  flask.escape = escape
-          except Exception:
-              pass
-          try:
-              import jinja2
-              if not hasattr(jinja2, "Markup"):
-                  from markupsafe import Markup, escape
-                  jinja2.Markup = Markup
-                  jinja2.escape = escape
-          except Exception:
-              pass
-          try:
-              import marshmallow as _mm
-              if not hasattr(_mm, "__version__"):
-                  _mm.__version__ = "4"
-          except Exception:
-              pass
-          try:
-              import os, django
-              from django.conf import settings
-              if not settings.configured:
-                  os.environ.setdefault("DJANGO_SETTINGS_MODULE", "test_settings")
-                  if not os.path.exists("test_settings.py"):
-                      with open("test_settings.py","w") as f:
-                          f.write("SECRET_KEY='x'\nDEBUG=True\nINSTALLED_APPS=[]\n"
-                                  "DATABASES={'default':{'ENGINE':'django.db.backends.sqlite3','NAME':':memory:'}}\n")
-                  django.setup()
-          except Exception:
-              pass
-          try:
-              import importlib, inspect
-              dtu = importlib.import_module("django.test.utils")
-              sig = inspect.signature(dtu.setup_test_environment)
-              if "debug" not in sig.parameters:
-                  _orig = dtu.setup_test_environment
-                  def _shim(*a, **kw):
-                      kw.pop("debug", None)
-                      return _orig(*a, **kw)
-                  dtu.setup_test_environment = _shim
-          except Exception:
-              pass
-          EOF
+          python - <<'PY'
+          import ast, pathlib
+          import_text = "import pytest as _pytest\n_pytest.skip('quarantined invalid generated test', allow_module_level=True)\n"
+          base = pathlib.Path("tests/generated")
+          if base.exists():
+              for p in base.rglob("test_*.py"):
+                  try:
+                      ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
+                  except SyntaxError:
+                      p.write_text(import_text + "\n\"\"\"\n" + p.read_text(encoding="utf-8") + "\n\"\"\"\n", encoding="utf-8")
+                      print(f"Quarantined: {p}")
+          PY
 
       - name: Create coverage config
         working-directory: target_repo

@@ -108,7 +108,6 @@ jobs:
               "Jinja2<3.1" "itsdangerous<2.1" "click<8.1"
           fi
 
-      # If your self-hosted runner is not Ubuntu or has no sudo, remove/adjust this step.
       - name: Install system build tools
         run: |
           if command -v apt-get >/dev/null 2>&1; then
@@ -198,6 +197,15 @@ jobs:
           echo "Final tests copied into target repo:"
           find target/tests/generated -name "test_*.py" | head -20
 
+      - name: Upload generated tests artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-tests
+          path: |
+            target/tests/generated
+            ${OUTDIR}
+          retention-days: 7
+
       - name: Sanity check generated tests (collect-only)
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
@@ -205,7 +213,7 @@ jobs:
           cd target
           pytest -q --collect-only tests/generated || true
 
-      - name: Commit & push generated tests
+      - name: Commit & push generated tests (best-effort)
         env:
           GH_PAT3: ${{ secrets.GH_PAT3 }}
         run: |
@@ -222,4 +230,4 @@ jobs:
           fi
           git commit -m "chore(testgen): update generated tests [skip ci]" || true
           git pull --rebase origin "${DEFAULT_BRANCH}" || true
-          git push origin HEAD:"${DEFAULT_BRANCH}"
+          git push origin HEAD:"${DEFAULT_BRANCH}" || true

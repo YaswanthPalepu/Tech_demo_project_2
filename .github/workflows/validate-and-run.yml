@@ -43,6 +43,25 @@ jobs:
           git clone --depth=1 "$REPO_URL" target_repo
           echo "Cloned $REPO_URL into ./target_repo"
 
+      - name: Download generated tests artifact from previous workflow
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-tests
+          path: _gen_art
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Copy generated tests into cloned repo
+        run: |
+          mkdir -p target_repo/tests/generated
+          if [ -d "_gen_art/target/tests/generated" ]; then
+            cp -r _gen_art/target/tests/generated/* target_repo/tests/generated/ || true
+          fi
+          if compgen -G "_gen_art/test_*.py" > /dev/null; then
+            cp -r _gen_art/* target_repo/tests/generated/ || true
+          fi
+          echo "Discovered tests:"
+          find target_repo/tests -type f -name 'test_*.py' | sed 's/^/ - /' || true
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -73,7 +92,7 @@ jobs:
           pip install -e . || true
           pip check || true
 
-      - name: Write sitecustomize.py (generic shims + ensure repo on sys.path)
+      - name: Write sitecustomize.py (compat shims)
         working-directory: target_repo
         run: |
           cat > sitecustomize.py << 'EOF'

@@ -1,6 +1,5 @@
 # .github/workflows/testgen.yml
 name: AI Test Generation
-
 on:
   workflow_dispatch:
     inputs:
@@ -9,15 +8,15 @@ on:
         required: true
         default: "https://github.com/DeviPrasad372002/django-test-app.git"
       force_gen:
-        description: "Force generation even if no code changes detected"
+        description: "Force test generation"
         required: false
         default: "false"
       prompt_style:
-        description: "TESTGEN_PROMPT_STYLE (ultra_bare recommended)"
+        description: "Prompt style for test generation"
         required: false
         default: "ultra_bare"
       coverage_threshold:
-        description: "Fail if coverage below this % (0 to disable)"
+        description: "Coverage threshold for test generation"
         required: false
         default: "0"
   push:
@@ -32,26 +31,22 @@ jobs:
     runs-on: self-hosted
     permissions:
       contents: write
+      actions: write
     env:
       AZURE_OPENAI_KEY:         ${{ secrets.AZURE_OPENAI_KEY         || secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT    || secrets.AZURE_OPENAI_API_ENDPOINT }}
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION || secrets.OPENAI_API_VERSION }}
       AZURE_OPENAI_DEPLOYMENT:  ${{ secrets.AZURE_OPENAI_DEPLOYMENT  || secrets.OPENAI_DEPLOYMENT }}
-
       TESTGEN_PROMPT_STYLE: ${{ github.event.inputs.prompt_style || 'ultra_bare' }}
       TESTGEN_STRICT_FAIL: "1"
-
       DATABASE_URL: "sqlite:///:memory:"
       DB_URL: "sqlite:///:memory:"
       SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
       PYTHONUTF8: "1"
 
     steps:
-      - name: Checkout pipeline repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, persist-credentials: false}
 
       - name: Preflight – verify required secrets
         run: |
@@ -87,11 +82,8 @@ jobs:
           echo "repo_path=$REPO_PATH"            >> "$GITHUB_OUTPUT"
           echo "default_branch=$DEFAULT_BRANCH"  >> "$GITHUB_OUTPUT"
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-          cache: pip
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.10", cache: pip}
 
       - name: Bootstrap Python constraints (repo-agnostic)
         run: |
@@ -126,7 +118,6 @@ jobs:
           pip install "openai>=1.51.0" pytest pytest-cov httpx requests \
                       "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" "annotated-types>=0.6" \
                       "uvicorn>=0.23" "typing-extensions>=4.8" psycopg2-binary || true
-
           install_requirements_file() {
             local req_file="$1"
             if [ -f "$req_file" ]; then
@@ -137,11 +128,8 @@ jobs:
           }
           install_requirements_file "target/requirements.txt"
           if compgen -G "target/requirements/*.txt" >/dev/null; then
-            for f in target/requirements/*.txt; do
-              install_requirements_file "$f"
-            done
+            for f in target/requirements/*.txt; do install_requirements_file "$f"; done
           fi
-
           if [ -f "target/pyproject.toml" ] && grep -q "\[tool.poetry\]" target/pyproject.toml; then
             pip install poetry || true
             (cd target && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req) || true
@@ -224,10 +212,7 @@ jobs:
             git remote set-url origin "https://x-access-token:${GH_PAT3}@github.com/${{ steps.meta.outputs.repo_path }}.git"
           fi
           git add tests/generated || true
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
+          if git diff --staged --quiet; then exit 0; fi
           git commit -m "chore(testgen): update generated tests [skip ci]" || true
           git pull --rebase origin "${DEFAULT_BRANCH}" || true
           git push origin HEAD:"${DEFAULT_BRANCH}" || true

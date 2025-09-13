@@ -5,7 +5,6 @@ on:
   workflow_run:
     workflows: ["AI Test Generation"]
     types: [completed]
-
   workflow_dispatch:
     inputs:
       repo_url:
@@ -26,29 +25,29 @@ jobs:
     runs-on: self-hosted
     permissions:
       contents: read
+      actions: read
       checks: write
     env:
       COVERAGE_THRESHOLD: ${{ github.event.inputs.coverage_threshold || '80' }}
 
     steps:
-      - name: Checkout pipeline repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
 
       - name: Clone target repository to ./target_repo
         run: |
           REPO_URL="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
           rm -rf target_repo
           git clone --depth=1 "$REPO_URL" target_repo
-          echo "Cloned $REPO_URL into ./target_repo"
 
+      # ⬇️ FIX: download artifact from the triggering run
       - name: Download generated tests artifact from previous workflow
-        uses: actions/download-artifact@v4
+        uses: dawidd6/action-download-artifact@v2
         with:
+          run_id: ${{ github.event.workflow_run.id }}
           name: generated-tests
           path: _gen_art
-          run-id: ${{ github.event.workflow_run.id }}
+          repo: ${{ github.repository }}
 
       - name: Copy generated tests into cloned repo
         run: |
@@ -62,19 +61,15 @@ jobs:
           echo "Discovered tests:"
           find target_repo/tests -type f -name 'test_*.py' | sed 's/^/ - /' || true
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-          cache: pip
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.10", cache: pip}
 
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
-          pip install \
-            pytest pytest-cov pytest-html pytest-json-report \
-            coverage pytest-xdist pytest-timeout pytest-mock \
-            pytest-django typing-extensions
+          pip install pytest pytest-cov pytest-html pytest-json-report \
+                     coverage pytest-xdist pytest-timeout pytest-mock \
+                     pytest-django typing-extensions
 
       - name: Install target requirements (if present)
         working-directory: target_repo

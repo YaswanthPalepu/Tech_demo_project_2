@@ -186,7 +186,10 @@ def _fix_collections_compatibility():
     try:
         import collections
         import collections.abc as abc
-        for name in ['Mapping', 'MutableMapping', 'Sequence', 'Iterable', 'Container', 'MutableSequence', 'Set', 'MutableSet']:
+        for name in [
+            'Mapping','MutableMapping','Sequence','Iterable','Container','MutableSequence',
+            'Set','MutableSet','Iterator','Generator','Callable','Collection'
+        ]:
             if not hasattr(collections, name) and hasattr(abc, name):
                 setattr(collections, name, getattr(abc, name))
     except ImportError:
@@ -652,7 +655,7 @@ def _apply_compatibility_fixes():
         pass
     try:
         import collections as _collections, collections.abc as _abc
-        for _n in ('Mapping','MutableMapping','Sequence','Iterable','Container','MutableSequence','Set','MutableSet'):
+        for _n in ('Mapping','MutableMapping','Sequence','Iterable','Container','MutableSequence','Set','MutableSet','Iterator','Generator','Callable','Collection'):
             if not hasattr(_collections, _n) and hasattr(_abc, _n):
                 setattr(_collections, _n, getattr(_abc, _n))
     except Exception:
@@ -747,7 +750,8 @@ _SYSTEM_MIN = (
     "No network, no external services, no private pytest internals, no custom markers. "
     "Assert concrete outputs, types, and state changes. "
     "For exceptions never assume custom names; use _exc_lookup('Name', Exception) when checking types. "
-    "Skip ONLY on ImportError. Let logic/type/attribute/value errors FAIL to expose bugs."
+    "Skip ONLY on ImportError. Let logic/type/attribute/value errors FAIL to expose bugs. "
+    "Never import modules via 'from pkg import __init__'; import the package/module directly."
 )
 
 _UNIT_DEV = (
@@ -805,7 +809,7 @@ _SKIP_ANY_EXC_RE = re.compile(
 )
 
 def _massage_generated_code(code: str) -> str:
-    # Normalize exception references to be robust across projects
+    # Normalize exception references
     def _repl_qual(m): return f'pytest.raises(_exc_lookup("{m.group(1)}", Exception){m.group(2)}'
     def _repl_bare(m): return f'pytest.raises(_exc_lookup("{m.group(1)}", Exception){m.group(2)}'
     code = _RAISES_QUAL.sub(_repl_qual, code)
@@ -816,16 +820,31 @@ def _massage_generated_code(code: str) -> str:
     code = _ISINSTANCE_QUAL.sub(_repl_is_q, code)
     code = _ISINSTANCE_BARE.sub(_repl_is_b, code)
 
-    # Only skip on ImportError; do not hide logic bugs
+    # ImportError-only skipping
     code = _SKIP_ANY_EXC_RE.sub(
         r"except ImportError as e:\n        pytest.skip(\1)\n    except Exception:\n        raise",
         code
     )
 
-    # Make some brittle assertions explicit
+    # Fix bad pattern: "from pkg.subpkg import __init__ as alias" -> "import pkg.subpkg as alias"
+    code = re.sub(
+        r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s+as\s+([A-Za-z_]\w*)\s*$',
+        r'import \1 as \2',
+        code,
+        flags=re.MULTILINE,
+    )
+    # Fix "from pkg.subpkg import __init__"
+    code = re.sub(
+        r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s*$',
+        r'import \1',
+        code,
+        flags=re.MULTILINE,
+    )
+
+    # Tidy boolean asserts
     code = re.sub(r"assert\s+bool\((.+?)\)", r"assert bool(\1) is True", code)
 
-    # Lightweight AAA comment (comment to avoid AST issues)
+    # Lightweight AAA hint
     lines, out = code.splitlines(), []
     for line in lines:
         out.append(line)
@@ -979,7 +998,6 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
             fname = f"test_{kind}_{ts}_{i+1:02d}.py"
             path = out / fname
             final_code = guard + code
-            # Hard fail if the final code is not valid Python
             try:
                 ast.parse(final_code, filename=fname)
             except SyntaxError as e:
@@ -1037,7 +1055,6 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
                     code = _header_guard_for_banned_imports(code)
                     code = _massage_generated_code(code)
 
-                    # Re-validate post-massage to ensure no syntax/structural issues
                     ok2, reason2 = _validate_code(code)
                     if ok2:
                         return code
@@ -1049,7 +1066,7 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
                         f"Invalid: {reason}. Regenerate strict, developer-style pytest code only. "
                         "Guard imports (skip on ImportError only), prefer parametrize & boundaries, "
                         "use tmp_path/monkeypatch/mock, no private pytest internals, "
-                        "use _exc_lookup for exception types."
+                        "use _exc_lookup for exception types. Never import via 'from pkg import __init__'."
                     )
                 })
                 break
@@ -1073,7 +1090,6 @@ if __name__ == "__main__":
             import analyzer  # type: ignore
         analysis = analyzer.analyze_python_tree(pathlib.Path("."))
     except Exception as _e:
-        # Fail fast: analyzer is required to find targets
         raise RuntimeError(f"Analyzer import/run failed: {_e}") from _e
     generate_all(analysis)
     print("✅ Generated tests in tests/generated")

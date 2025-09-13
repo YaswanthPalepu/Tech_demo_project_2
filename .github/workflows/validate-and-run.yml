@@ -1,4 +1,4 @@
-## .github/workflows/validate-and-run.yml
+# .github/workflows/validate-and-run.yml
 name: Test Validation & Quality Analysis
 
 on:
@@ -40,22 +40,23 @@ jobs:
           rm -rf target_repo
           git clone --depth=1 "$REPO_URL" target_repo
 
-      - name: Download generated tests artifact from previous workflow
+      - name: Download artifacts from previous run (all)
         uses: dawidd6/action-download-artifact@v2
         with:
           run_id: ${{ github.event.workflow_run.id }}
-          name: generated-tests
           path: _gen_art
           repo: ${{ github.repository }}
 
       - name: Copy generated tests into cloned repo
         run: |
           mkdir -p target_repo/tests/generated
-          if [ -d "_gen_art/target/tests/generated" ]; then
-            cp -r _gen_art/target/tests/generated/* target_repo/tests/generated/ || true
+          # copy any test files from any artifact subdir
+          if compgen -G "_gen_art/**/test_*.py" > /dev/null; then
+            find _gen_art -type f -name 'test_*.py' -exec cp -v {} target_repo/tests/generated/ \;
           fi
-          if compgen -G "_gen_art/test_*.py" > /dev/null; then
-            cp -r _gen_art/* target_repo/tests/generated/ || true
+          # also allow pre-bundled folder
+          if [ -d "_gen_art/gen_artifact" ]; then
+            rsync -a _gen_art/gen_artifact/ target_repo/tests/generated/ || true
           fi
           echo "Discovered tests:"
           find target_repo/tests -type f -name 'test_*.py' | sed 's/^/ - /' || true

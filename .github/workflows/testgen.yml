@@ -9,17 +9,17 @@ on:
         required: true
         default: "https://github.com/DeviPrasad372002/django-test-app.git"
       force_gen:
-        description: "Force test generation"
         required: false
         default: "false"
+        description: "Force regeneration of all tests (overwrites existing)"
       prompt_style:
         required: false
         default: "ultra_bare"
-        description: "Prompt style to use (ultra_bare, bare, detailed, ultra_detailed)"
+        description: "Prompt style to use (ultra_bare, bare, normal, detailed, ultra_detailed)"
       coverage_threshold:
         required: false
         default: "0"
-        description: "Minimum coverage % to achieve (0-100), 0=skip coverage check"
+        description: "Minimum coverage threshold (%)"
   push:
     branches: ["test"]
 
@@ -205,13 +205,22 @@ jobs:
                       print(f"Quarantined: {p}")
           PY
 
+      - name: Package artifact (always produce something)
+        run: |
+          mkdir -p gen_artifact
+          if [ -d target/tests/generated ]; then rsync -a target/tests/generated/ gen_artifact/; fi
+          if [ -d "${OUTDIR}" ]; then rsync -a "${OUTDIR}"/ gen_artifact/; fi
+          # ensure non-empty so upload-artifact doesn't fail
+          find gen_artifact -type f -name 'test_*.py' | wc -l > gen_artifact/_count.txt
+          [ -s gen_artifact/_count.txt ] || echo "0" > gen_artifact/_count.txt
+          [ -f gen_artifact/README.txt ] || echo "Generated tests artifact bundle" > gen_artifact/README.txt
+          echo "Bundled files:"; find gen_artifact | sed 's/^/ - /'
+
       - name: Upload generated tests artifact
         uses: actions/upload-artifact@v4
         with:
           name: generated-tests
-          path: |
-            target/tests/generated
-            ${OUTDIR}
+          path: gen_artifact
           retention-days: 7
 
       - name: Sanity check generated tests (collect-only)

@@ -21,7 +21,7 @@ on:
         required: false
         default: "0"
   push:
-    branches: [ "test" ]
+    branches: ["test"]
 
 concurrency:
   group: test-gen-${{ github.workflow }}
@@ -29,20 +29,18 @@ concurrency:
 
 jobs:
   generate:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: write
     env:
-      # ---- Azure OpenAI (or OpenAI) ----
       AZURE_OPENAI_KEY:         ${{ secrets.AZURE_OPENAI_KEY         || secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT    || secrets.AZURE_OPENAI_API_ENDPOINT }}
       AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION || secrets.OPENAI_API_VERSION }}
       AZURE_OPENAI_DEPLOYMENT:  ${{ secrets.AZURE_OPENAI_DEPLOYMENT  || secrets.OPENAI_DEPLOYMENT }}
 
       TESTGEN_PROMPT_STYLE: ${{ github.event.inputs.prompt_style || 'ultra_bare' }}
-      TESTGEN_STRICT_FAIL: "1"   # fail hard on real code errors found by tests
+      TESTGEN_STRICT_FAIL: "1"
 
-      # DB defaults for import-time engines
       DATABASE_URL: "sqlite:///:memory:"
       DB_URL: "sqlite:///:memory:"
       SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
@@ -95,7 +93,6 @@ jobs:
           python-version: "3.10"
           cache: pip
 
-      # ---- repo-agnostic constraints bootstrap ----
       - name: Bootstrap Python constraints (repo-agnostic)
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
@@ -111,13 +108,18 @@ jobs:
               "Jinja2<3.1" "itsdangerous<2.1" "click<8.1"
           fi
 
+      # If your self-hosted runner is not Ubuntu or has no sudo, remove/adjust this step.
       - name: Install system build tools
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends \
-            build-essential python3-dev libpq-dev default-libmysqlclient-dev \
-            libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
-            libxml2-dev libxslt1-dev curl
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y --no-install-recommends \
+              build-essential python3-dev libpq-dev default-libmysqlclient-dev \
+              libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
+              libxml2-dev libxslt1-dev curl
+          else
+            echo "Skipping apt-get setup on this self-hosted runner."
+          fi
 
       - name: Install Python deps (tooling + target libs, constrained)
         run: |
@@ -178,7 +180,6 @@ jobs:
           outdir = os.environ['OUTDIR']
           if os.environ.get('FORCE', 'false').lower() == 'true':
               os.environ['TESTGEN_FORCE'] = 'true'
-          # ensure strict failing so logic/type bugs are exposed later
           os.environ['TESTGEN_STRICT_FAIL'] = os.environ.get('TESTGEN_STRICT_FAIL','1')
           g.generate_all(analysis, outdir=outdir, focus_files=None)
           PY
@@ -197,7 +198,6 @@ jobs:
           echo "Final tests copied into target repo:"
           find target/tests/generated -name "test_*.py" | head -20
 
-      # Only sanity-check collection so real bugs fail in the validation workflow
       - name: Sanity check generated tests (collect-only)
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"

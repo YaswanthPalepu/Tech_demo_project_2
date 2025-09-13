@@ -3,9 +3,8 @@ name: Test Validation & Quality Analysis
 
 on:
   workflow_run:
-    workflows: ["AI Test Generation"]  # Replace with your prior workflow’s name *exactly*
-    types:
-      - completed
+    workflows: ["AI Test Generation"]
+    types: [completed]
 
   workflow_dispatch:
     inputs:
@@ -17,8 +16,6 @@ on:
         description: "Minimum coverage threshold (%)"
         required: false
         default: "80"
-  # push:
-  #   branches: [ test ]
 
 concurrency:
   group: test-validation-${{ github.workflow }}
@@ -64,17 +61,15 @@ jobs:
         working-directory: target_repo
         run: |
           if [ -f requirements.txt ]; then
-            # Prefer prebuilt wheel for psycopg2 to avoid build issues
             sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' requirements.txt || true
             pip install -r requirements.txt
           fi
           if [ -d requirements ]; then
             for f in requirements/*.txt; do
               sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' "$f" || true
-              pip install -r "$f" || true   # extras best-effort
+              pip install -r "$f" || true
             done
           fi
-          # Try to install the project as a package (best-effort)
           pip install -e . || true
           pip check || true
 
@@ -85,7 +80,6 @@ jobs:
           """
           Auto-loaded before tests. Compatibility shims + ensure package importability.
           """
-          # --- Ensure repo root and common source dirs are importable ---
           try:
               import sys, pathlib, os
               _root = pathlib.Path(__file__).resolve().parent
@@ -95,8 +89,6 @@ jobs:
                       sys.path.insert(0, _ps)
           except Exception:
               pass
-
-          # collections.abc re-exports for old code
           try:
               import collections, collections.abc as _abc
               for _name in ('Mapping','MutableMapping','Sequence','MutableSequence','Set',
@@ -106,8 +98,6 @@ jobs:
                       setattr(collections, _name, getattr(_abc, _name))
           except Exception:
               pass
-
-          # Flask / Jinja2 shims
           try:
               import flask
               if not hasattr(flask, "escape"):
@@ -123,16 +113,12 @@ jobs:
                   jinja2.escape = escape
           except Exception:
               pass
-
-          # Marshmallow shim
           try:
               import marshmallow as _mm
               if not hasattr(_mm, "__version__"):
                   _mm.__version__ = "4"
           except Exception:
               pass
-
-          # Minimal Django bootstrap if project uses Django without settings wired
           try:
               import os, django
               from django.conf import settings
@@ -145,8 +131,6 @@ jobs:
                   django.setup()
           except Exception:
               pass
-
-          # pytest-django shim for older signatures
           try:
               import importlib, inspect
               dtu = importlib.import_module("django.test.utils")
@@ -185,14 +169,13 @@ jobs:
               if __name__ == .__main__.:
           EOF
 
-      - name: Probe collection (no plugins) to pinpoint collection issues
+      - name: Probe collection (no plugins)
         working-directory: target_repo
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
           PYTHONPATH: ${{ github.workspace }}/target_repo
         run: |
           mkdir -p ../reports/tests
-          echo "== Collect-only probe (no plugins) =="
           set +e
           pytest --collect-only -q --maxfail=1 --full-trace > ../reports/tests/collect-only.txt 2>&1
           CODE=$?
@@ -200,16 +183,14 @@ jobs:
           echo "collect_exit_code=$CODE"
           tail -n 120 ../reports/tests/collect-only.txt || true
 
-      - name: Run tests (existing + generated) with coverage and reports
+      - name: Run tests with coverage and reports
         working-directory: target_repo
         env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"          # disable autoload; enable only detected plugins
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
           PYTHONPATH: ${{ github.workspace }}/target_repo
         run: |
           export PYTHONPATH="$PWD:$PYTHONPATH"
           mkdir -p ../reports/coverage ../reports/tests
-
-          # Build test target list only if they exist; otherwise use auto-discovery
           TEST_DIRS=()
           [[ -d tests ]] && TEST_DIRS+=(tests)
           [[ -d tests/generated ]] && TEST_DIRS+=(tests/generated)
@@ -219,8 +200,6 @@ jobs:
           else
             PYTEST_TARGETS=("${TEST_DIRS[@]}")
           fi
-
-          # Compute source directories for --cov (exclude common non-source dirs)
           SRC_DIRS=$(python - <<'PY'
           import os
           skip={'tests','tests_generated','tests-generated','.git','.github','venv','.venv','env',
@@ -234,18 +213,8 @@ jobs:
           print(' '.join(sorted(set(c))))
           PY
           )
-
           echo "Running pytest on: ${PYTEST_TARGETS[*]}"
           echo "Coverage on source dirs: ${SRC_DIRS:-<none detected>}"
-          python - <<'PY' || true
-          import sys, importlib.util, pathlib
-          print("DEBUG PYTHONPATH:", sys.path[:3])
-          spec = importlib.util.find_spec("conduit")
-          print("DEBUG conduit importable:", bool(spec))
-          if spec: print("DEBUG conduit origin:", getattr(spec, "origin", None))
-          PY
-
-          # Detect optional plugins by module presence
           ENABLED_PLUGINS=(-p pytest_cov -p pytest_jsonreport)
           python - <<'PY'
           import importlib.util, pathlib
@@ -259,15 +228,12 @@ jobs:
             ENABLED_PLUGINS+=(-p pytest_django)
             echo "Enabling pytest-django plugin (Django detected)."
           fi
-
-          # Build args only if options exist with the chosen plugins
           HELP_OUT=$(pytest -h "${ENABLED_PLUGINS[@]}" 2>/dev/null || true)
           HTML_ARGS=""
           JSON_ARGS="--json-report --json-report-file=../reports/tests/test-results.json"
           TIMEOUT_ARGS=""
-          echo "$HELP_OUT" | grep -q -- '--html='      && HTML_ARGS="--html=../reports/tests/test-report.html --self-contained-html"
-          echo "$HELP_OUT" | grep -q -- '--timeout='   && TIMEOUT_ARGS="--timeout=300"
-
+          echo "$HELP_OUT" | grep -q -- '--html='    && HTML_ARGS="--html=../reports/tests/test-report.html --self-contained-html"
+          echo "$HELP_OUT" | grep -q -- '--timeout=' && TIMEOUT_ARGS="--timeout=300"
           set +e
           pytest "${PYTEST_TARGETS[@]}" \
             "${ENABLED_PLUGINS[@]}" \
@@ -283,24 +249,20 @@ jobs:
             --junitxml=../reports/tests/junit.xml
           CODE=$?
           set -e
-
-          # 2: INTERNALERROR, 4: usage/arg error (plugin/options mismatch)
           if [ "$CODE" -eq 2 ] || [ "$CODE" -eq 4 ]; then
             echo "❌ Pytest crashed or had usage error (exit $CODE). See reports."
             exit 1
           fi
-
           echo "pytest_exit_code=$CODE"
           ls -l ../reports/tests || true
           ls -l ../reports/coverage || true
 
-      - name: Summarize, fail on skipped-only, test errors, & enforce coverage threshold
+      - name: Summarize & enforce coverage threshold
         run: |
           python - <<'PY'
           import json, pathlib, os, sys
           rep = pathlib.Path("reports/tests/test-results.json")
           cov = pathlib.Path("reports/coverage/coverage.json")
-
           results = {"summary": {"total": 0, "passed": 0, "failed": 0, "error": 0, "skipped": 0}}
           if rep.exists():
               try: results = json.loads(rep.read_text())
@@ -310,28 +272,20 @@ jobs:
           passed  = int(s.get("passed", 0) or 0)
           failed  = int(s.get("failed", 0) or 0) + int(s.get("error", 0) or 0)
           skipped = int(s.get("skipped", 0) or 0)
-          pct = (passed/total*100) if total else 0.0
-
           covp = 0.0
           if cov.exists():
               try: covp = float(json.loads(cov.read_text()).get("totals", {}).get("percent_covered", 0.0))
               except Exception: pass
-
-          print(f"Summary: total={total}, passed={passed}, failed={failed}, skipped={skipped}, pass%={pct:.2f}, coverage={covp:.2f}%")
-
-          # Fail on 'all skipped' (import path not set, missing deps, etc.)
+          print(f"Summary: total={total}, passed={passed}, failed={failed}, skipped={skipped}, coverage={covp:.2f}%")
           if total > 0 and passed == 0 and failed == 0:
-              print('❌ All tests were skipped. This usually means modules were not importable or environment not ready.')
+              print('❌ All tests were skipped. Failing.')
               sys.exit(1)
-
           if total == 0:
-              print("❌ No tests collected. Failing the job.")
+              print("❌ No tests collected. Failing.")
               sys.exit(1)
-
           if failed > 0:
-              print(f"❌ {failed} test(s) failed. Failing the job.")
+              print(f"❌ {failed} test(s) failed. Failing.")
               sys.exit(1)
-
           threshold = float(os.environ.get("COVERAGE_THRESHOLD","80"))
           if covp < threshold:
               print(f"❌ Coverage {covp:.2f}% is below threshold {threshold}%")

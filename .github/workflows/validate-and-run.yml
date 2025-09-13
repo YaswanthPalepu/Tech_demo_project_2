@@ -3,7 +3,7 @@ name: Test Validation & Quality Analysis
 
 on:
   workflow_run:
-    workflows: ["First Workflow Name"]  # Replace with your prior workflow’s name *exactly*
+    workflows: ["AI Test Generation"]  # Replace with your prior workflow’s name *exactly*
     types:
       - completed
 
@@ -17,8 +17,8 @@ on:
         description: "Minimum coverage threshold (%)"
         required: false
         default: "80"
-  push:
-    branches: [ test ]
+  # push:
+  #   branches: [ test ]
 
 concurrency:
   group: test-validation-${{ github.workflow }}

@@ -531,6 +531,7 @@ def _enhanced_universal_bootstrap(compact: Dict[str, Any]) -> str:
             tops.append(top)
     tops = sorted(set(tops))
     tops_lit = repr(tops)
+    modules_lit = repr(compact.get("modules", []) or [])
     include_qt = any(t.startswith(("PyQt", "PySide")) for t in tops)
     py2_alias_map_lit = repr({"ConfigParser":"configparser","Queue":"queue","StringIO":"io","cStringIO":"io","urllib2":"urllib.request"})
     qt_block = f"""
@@ -613,6 +614,7 @@ if _target and os.path.exists(_target):
     try: os.chdir(_target)
     except Exception: pass
 _TARGET_ABS = os.path.abspath(_target)
+_ALL_MODULES = {modules_lit}
 def _exc_lookup(name, default):
     try:
         mod_name, _, cls_name = str(name).rpartition(".")
@@ -689,7 +691,9 @@ def _attach_module_getattr(_m):
         _m.__getattr__ = __getattr__; _ADAPTED_MODULES.add(_m.__name__)
     except Exception:
         pass
-if not STRICT:
+# Disable the adapter around Django to avoid metaclass/__classcell__ issues.
+_DJ_PRESENT = _iu.find_spec("django") is not None
+if not STRICT and not _DJ_PRESENT:
     _orig_import = _builtins.__import__
     def _import_with_adapter(name, globals=None, locals=None, fromlist=(), level=0):
         mod = _orig_import(name, globals, locals, fromlist, level)
@@ -704,14 +708,40 @@ if not STRICT:
         except Exception: pass
         return mod
     _builtins.__import__ = _import_with_adapter
+# Minimal Django setup with detected apps
 try:
-    if _iu.find_spec("django") is not None:
+    if _DJ_PRESENT:
         import django
         from django.conf import settings as _dj_settings
         if not _dj_settings.configured:
-            _dj_settings.configure(SECRET_KEY="test-key", DEBUG=True, ALLOWED_HOSTS=["*"], INSTALLED_APPS=[], DATABASES={{"default": {{"ENGINE":"django.db.backends.sqlite3","NAME":":memory:"}}}})
+            _dj_apps = set()
+            for m in list(_ALL_MODULES):
+                if m.startswith("conduit.apps."):
+                    parts = m.split(".")
+                    if len(parts) >= 3:
+                        _dj_apps.add(".".join(parts[:3]))  # conduit.apps.<app>
+            _installed = ["django.contrib.auth","django.contrib.contenttypes"]
+            if "rest_framework" in _ALL_MODULES:
+                _installed.append("rest_framework")
+            _installed += sorted(_dj_apps)
+            _cfg = dict(
+                SECRET_KEY="test-key",
+                DEBUG=True,
+                ALLOWED_HOSTS=["*"],
+                INSTALLED_APPS=_installed,
+                DATABASES={{"default": {{"ENGINE":"django.db.backends.sqlite3","NAME":":memory:"}}}},
+                MIDDLEWARE=[],
+                USE_TZ=True,
+                TIME_ZONE="UTC",
+                DEFAULT_AUTO_FIELD="django.db.models.AutoField",
+            )
+            # If a custom auth app exists, set AUTH_USER_MODEL
+            if any(a.endswith(".authentication") for a in _installed):
+                _cfg["AUTH_USER_MODEL"] = "authentication.User"
+            _dj_settings.configure(**_cfg)
             django.setup()
-except Exception: pass
+except Exception as _dj_e:
+    pass
 _PY2_ALIASES = {py2_alias_map_lit}
 for _old, _new in list(_PY2_ALIASES.items()):
     if _old in sys.modules: continue
@@ -751,7 +781,7 @@ _SYSTEM_MIN = (
     "Assert concrete outputs, types, and state changes. "
     "For exceptions never assume custom names; use _exc_lookup('Name', Exception) when checking types. "
     "Skip ONLY on ImportError. Let logic/type/attribute/value errors FAIL to expose bugs. "
-    "Never import modules via 'from pkg import __init__'; import the package/module directly."
+    "Never import packages via 'from pkg import __init__'; import the package/module directly."
 )
 
 _UNIT_DEV = (
@@ -844,7 +874,7 @@ def _massage_generated_code(code: str) -> str:
     # Tidy boolean asserts
     code = re.sub(r"assert\s+bool\((.+?)\)", r"assert bool(\1) is True", code)
 
-    # Lightweight AAA hint
+    # AAA hint
     lines, out = code.splitlines(), []
     for line in lines:
         out.append(line)

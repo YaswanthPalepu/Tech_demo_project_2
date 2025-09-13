@@ -348,11 +348,13 @@ COMMON_PKG_ALIASES = {
     "flask": "flask", "django": "Django", "click": "click", "typer": "typer", "jinja2": "Jinja2",
     "ujson": "ujson", "orjson": "orjson", "pymongo": "pymongo", "redis": "redis", "pytest": "pytest",
     "jwt": "PyJWT", "markupsafe": "MarkupSafe",
+    "rest_framework": "djangorestframework",
 }
 VERSION_CONSTRAINTS: Dict[str, str] = {}
 
+
 DENY_INFER: Set[str] = {
-    *(p.strip().lower() for p in os.getenv("TESTGEN_DENY_PKGS", "models,relations").split(",") if p.strip())
+    *(p.strip().lower() for p in os.getenv("TESTGEN_DENY_PKGS", "models,relations,renderers").split(",") if p.strip())
 }
 
 VALID_PIP_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
@@ -656,8 +658,8 @@ def _apply_compatibility_fixes():
         pass
     try:
         import collections as _collections, collections.abc as _abc
-        for _n in ('Mapping','MutableMapping','Sequence','Iterable','Container','MutableSequence',
-                   'Set','MutableSet','Iterator','Generator','Callable','Collection'):
+        for _n in ('Mapping','MutableMapping','Sequence','Iterable','Container',
+                   'MutableSequence','Set','MutableSet','Iterator','Generator','Callable','Collection'):
             if not hasattr(_collections, _n) and hasattr(_abc, _n):
                 setattr(_collections, _n, getattr(_abc, _n))
     except Exception:
@@ -711,26 +713,28 @@ if not STRICT and not _DJ_PRESENT:
 # --- Minimal Django auto-config (before any app/model import) ---
 try:
     import importlib, pkgutil
-if _iu.find_spec("django") is not None:
-    import django
-    from django.conf import settings as _dj_settings
-    if not _dj_settings.configured:
-        _proj_tops = {{t for t in tops_lit if t and t not in ("os","sys","json","re","datetime","random","string","typing","collections","jwt","__future__")}}
-        _roots = [t for t in _proj_tops if _iu.find_spec(f"{t}.apps") or _iu.find_spec(f"{t}.settings") or _iu.find_spec(f"{t}.urls")]
-        _root = _roots[0] if _roots else None
-
+    if _iu.find_spec("django") is not None:
+        import django
+        from django.conf import settings as _dj_settings
+        if not _dj_settings.configured:
+            _proj_tops = {{t for t in {tops_lit} if t and t not in ("os","sys","json","re","datetime","random","string","typing","collections","jwt","__future__")}}
+            _roots = []
+            for _t in _proj_tops:
+                if _iu.find_spec(_t + ".apps") or _iu.find_spec(_t + ".settings") or _iu.find_spec(_t + ".urls"):
+                    _roots.append(_t)
+            _root = _roots[0] if _roots else None
 
             _installed = ["django.contrib.auth","django.contrib.contenttypes","django.contrib.sessions","django.contrib.admin"]
             if _iu.find_spec("rest_framework"): _installed.append("rest_framework")
 
             _discovered = []
             try:
-                if _root and _iu.find_spec(f"{_root}.apps"):
-                    _apps_pkg = importlib.import_module(f"{_root}.apps")
+                if _root and _iu.find_spec(_root + ".apps"):
+                    _apps_pkg = importlib.import_module(_root + ".apps")
                     for _m in pkgutil.iter_modules(getattr(_apps_pkg, "__path__", [])):
                         _name = _m.name
-                        if _iu.find_spec(f"{_root}.apps.{_name}"):
-                            _discovered.append(f"{_root}.apps.{_name}")
+                        if _iu.find_spec(_root + ".apps." + _name):
+                            _discovered.append(_root + ".apps." + _name)
             except Exception:
                 pass
             _installed.extend(sorted(set(_discovered)))
@@ -744,8 +748,15 @@ if _iu.find_spec("django") is not None:
                 MIDDLEWARE=[],
                 USE_TZ=True,
                 TIME_ZONE="UTC",
-                DEFAULT_AUTO_FIELD="django.db.models.AutoField",
             )
+            # Default auto field only if supported (Django >= 3.2). Older Django (e.g., 1.10) ignores unknown keys.
+            try:
+                from django import get_version as _djv
+                _cfg["DEFAULT_AUTO_FIELD"] = "django.db.models.AutoField"
+            except Exception:
+                pass
+
+            # If an 'authentication' app exists, prefer its user model
             try:
                 if any(a.endswith(".authentication") for a in _installed):
                     _cfg["AUTH_USER_MODEL"] = "authentication.User"
@@ -782,6 +793,7 @@ _THIRD_PARTY_TOPS = {tops_lit}
 {qt_block}
 # --- /ENHANCED UNIVERSAL BOOTSTRAP ---
 '''
+
 
 
 

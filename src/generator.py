@@ -186,10 +186,8 @@ def _fix_collections_compatibility():
     try:
         import collections
         import collections.abc as abc
-        for name in [
-            'Mapping','MutableMapping','Sequence','Iterable','Container','MutableSequence',
-            'Set','MutableSet','Iterator','Generator','Callable','Collection'
-        ]:
+        for name in ['Mapping','MutableMapping','Sequence','Iterable','Container',
+                     'MutableSequence','Set','MutableSet','Iterator','Generator','Callable','Collection']:
             if not hasattr(collections, name) and hasattr(abc, name):
                 setattr(collections, name, getattr(abc, name))
     except ImportError:
@@ -204,7 +202,6 @@ def _fix_flask_compatibility():
                 flask.escape = escape
             except Exception:
                 pass
-        # Legacy flask_sqlalchemy expects __ident_func__ on context stacks
         try:
             import threading
             from flask import _app_ctx_stack, _request_ctx_stack
@@ -235,6 +232,7 @@ os.environ.setdefault('WTF_CSRF_ENABLED', 'False')
     conftest_path.parent.mkdir(parents=True, exist_ok=True)
     conftest_path.write_text(conftest_content, encoding="utf-8")
     return str(conftest_path)
+
 
 # ---------------------- output validation and hardening ----------------------
 
@@ -531,9 +529,11 @@ def _enhanced_universal_bootstrap(compact: Dict[str, Any]) -> str:
             tops.append(top)
     tops = sorted(set(tops))
     tops_lit = repr(tops)
-    modules_lit = repr(compact.get("modules", []) or [])
     include_qt = any(t.startswith(("PyQt", "PySide")) for t in tops)
-    py2_alias_map_lit = repr({"ConfigParser":"configparser","Queue":"queue","StringIO":"io","cStringIO":"io","urllib2":"urllib.request"})
+    py2_alias_map_lit = repr({
+        "ConfigParser":"configparser","Queue":"queue","StringIO":"io",
+        "cStringIO":"io","urllib2":"urllib.request"
+    })
     qt_block = f"""
 for __qt_root in ["PyQt5","PyQt6","PySide2","PySide6"]:
     if __qt_root not in _THIRD_PARTY_TOPS:
@@ -545,18 +545,18 @@ for __qt_root in ["PyQt5","PyQt6","PySide2","PySide6"]:
         def pyqtSlot(*a, **k):
             def _decorator(fn): return fn
             return _decorator
-        class QCoreApplication: 
+        class QCoreApplication:
             def __init__(self,*a,**k): pass
             def exec_(self): return 0
             def exec(self): return 0
         _core.QObject=QObject; _core.pyqtSignal=pyqtSignal; _core.pyqtSlot=pyqtSlot; _core.QCoreApplication=QCoreApplication
-        class QFont:
+        class QFont:  # minimal stubs
             def __init__(self,*a,**k): pass
         class QDoubleValidator:
             def __init__(self,*a,**k): pass
             def setBottom(self,*a,**k): pass
             def setTop(self,*a,**k): pass
-        class QIcon: 
+        class QIcon:  # minimal
             def __init__(self,*a,**k): pass
         class QPixmap:
             def __init__(self,*a,**k): pass
@@ -565,7 +565,7 @@ for __qt_root in ["PyQt5","PyQt6","PySide2","PySide6"]:
             def __init__(self,*a,**k): pass
             def exec_(self): return 0
             def exec(self): return 0
-        class QWidget: 
+        class QWidget:
             def __init__(self,*a,**k): pass
         class QLabel(QWidget):
             def __init__(self,*a,**k): super().__init__(); self._text=""
@@ -614,7 +614,6 @@ if _target and os.path.exists(_target):
     try: os.chdir(_target)
     except Exception: pass
 _TARGET_ABS = os.path.abspath(_target)
-_ALL_MODULES = {modules_lit}
 def _exc_lookup(name, default):
     try:
         mod_name, _, cls_name = str(name).rpartition(".")
@@ -657,7 +656,8 @@ def _apply_compatibility_fixes():
         pass
     try:
         import collections as _collections, collections.abc as _abc
-        for _n in ('Mapping','MutableMapping','Sequence','Iterable','Container','MutableSequence','Set','MutableSet','Iterator','Generator','Callable','Collection'):
+        for _n in ('Mapping','MutableMapping','Sequence','Iterable','Container','MutableSequence',
+                   'Set','MutableSet','Iterator','Generator','Callable','Collection'):
             if not hasattr(_collections, _n) and hasattr(_abc, _n):
                 setattr(_collections, _n, getattr(_abc, _n))
     except Exception:
@@ -691,7 +691,7 @@ def _attach_module_getattr(_m):
         _m.__getattr__ = __getattr__; _ADAPTED_MODULES.add(_m.__name__)
     except Exception:
         pass
-# Disable the adapter around Django to avoid metaclass/__classcell__ issues.
+# Disable import adapter entirely if Django is present to avoid metaclass issues.
 _DJ_PRESENT = _iu.find_spec("django") is not None
 if not STRICT and not _DJ_PRESENT:
     _orig_import = _builtins.__import__
@@ -708,22 +708,33 @@ if not STRICT and not _DJ_PRESENT:
         except Exception: pass
         return mod
     _builtins.__import__ = _import_with_adapter
-# Minimal Django setup with detected apps
+# --- Minimal Django auto-config (before any app/model import) ---
 try:
-    if _DJ_PRESENT:
-        import django
-        from django.conf import settings as _dj_settings
-        if not _dj_settings.configured:
-            _dj_apps = set()
-            for m in list(_ALL_MODULES):
-                if m.startswith("conduit.apps."):
-                    parts = m.split(".")
-                    if len(parts) >= 3:
-                        _dj_apps.add(".".join(parts[:3]))  # conduit.apps.<app>
-            _installed = ["django.contrib.auth","django.contrib.contenttypes"]
-            if "rest_framework" in _ALL_MODULES:
-                _installed.append("rest_framework")
-            _installed += sorted(_dj_apps)
+    import importlib, pkgutil
+if _iu.find_spec("django") is not None:
+    import django
+    from django.conf import settings as _dj_settings
+    if not _dj_settings.configured:
+        _proj_tops = {{t for t in tops_lit if t and t not in ("os","sys","json","re","datetime","random","string","typing","collections","jwt","__future__")}}
+        _roots = [t for t in _proj_tops if _iu.find_spec(f"{t}.apps") or _iu.find_spec(f"{t}.settings") or _iu.find_spec(f"{t}.urls")]
+        _root = _roots[0] if _roots else None
+
+
+            _installed = ["django.contrib.auth","django.contrib.contenttypes","django.contrib.sessions","django.contrib.admin"]
+            if _iu.find_spec("rest_framework"): _installed.append("rest_framework")
+
+            _discovered = []
+            try:
+                if _root and _iu.find_spec(f"{_root}.apps"):
+                    _apps_pkg = importlib.import_module(f"{_root}.apps")
+                    for _m in pkgutil.iter_modules(getattr(_apps_pkg, "__path__", [])):
+                        _name = _m.name
+                        if _iu.find_spec(f"{_root}.apps.{_name}"):
+                            _discovered.append(f"{_root}.apps.{_name}")
+            except Exception:
+                pass
+            _installed.extend(sorted(set(_discovered)))
+
             _cfg = dict(
                 SECRET_KEY="test-key",
                 DEBUG=True,
@@ -735,12 +746,15 @@ try:
                 TIME_ZONE="UTC",
                 DEFAULT_AUTO_FIELD="django.db.models.AutoField",
             )
-            # If a custom auth app exists, set AUTH_USER_MODEL
-            if any(a.endswith(".authentication") for a in _installed):
-                _cfg["AUTH_USER_MODEL"] = "authentication.User"
+            try:
+                if any(a.endswith(".authentication") for a in _installed):
+                    _cfg["AUTH_USER_MODEL"] = "authentication.User"
+            except Exception:
+                pass
+
             _dj_settings.configure(**_cfg)
             django.setup()
-except Exception as _dj_e:
+except Exception:
     pass
 _PY2_ALIASES = {py2_alias_map_lit}
 for _old, _new in list(_PY2_ALIASES.items()):
@@ -768,6 +782,8 @@ _THIRD_PARTY_TOPS = {tops_lit}
 {qt_block}
 # --- /ENHANCED UNIVERSAL BOOTSTRAP ---
 '''
+
+
 
 # ---------------------- prompts: developer-style tests ----------------------
 

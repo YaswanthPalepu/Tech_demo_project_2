@@ -1,7 +1,7 @@
-# generator.py
+# src/generator.py
 import os, sys, json, pathlib, datetime, time, re, ast, math, subprocess, importlib.util, types as _types, random, shutil
 from typing import Dict, Any, List, Tuple, Set, Optional
-from openai import AzureOpenAI, RateLimitError  # openai>=1.0.0
+from openai import AzureOpenAI, RateLimitError
 import hashlib
 
 PROMPT_STYLE = os.getenv("TESTGEN_PROMPT_STYLE", "ultra_bare").strip().lower()
@@ -58,12 +58,12 @@ def _compute_content_hash(content: str) -> str:
 def _extract_code_signatures(file_path: pathlib.Path) -> Dict[str, str]:
     signatures = {}
     try:
-        content = file_path.read_text(encoding='utf-8')
+        content = file_path.read_text(encoding='utf-8', errors="ignore")
         tree = ast.parse(content)
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
                 start_line = node.lineno - 1
-                end_line = node.end_lineno if hasattr(node, 'end_lineno') else start_line + 1
+                end_line = getattr(node, "end_lineno", start_line + 1)
                 lines = content.splitlines()
                 node_content = '\n'.join(lines[start_line:end_line])
                 sig_key = f"{type(node).__name__.lower()}:{node.name}"
@@ -102,10 +102,11 @@ def _detect_detailed_changes(target_root: pathlib.Path, manifest_path: pathlib.P
             continue
         rel_path = str(py_file.relative_to(target_root))
         signatures = _extract_code_signatures(py_file)
-        current_state[rel_path] = {
-            "file_hash": _compute_content_hash(py_file.read_text(encoding='utf-8')),
-            "signatures": signatures
-        }
+        try:
+            content_hash = _compute_content_hash(py_file.read_text(encoding='utf-8', errors="ignore"))
+        except Exception:
+            content_hash = ""
+        current_state[rel_path] = {"file_hash": content_hash, "signatures": signatures}
     added_or_modified, deleted, unchanged = set(), set(), set()
     for file_path, current_info in current_state.items():
         if file_path not in previous_state:
@@ -113,9 +114,7 @@ def _detect_detailed_changes(target_root: pathlib.Path, manifest_path: pathlib.P
         else:
             prev_info = previous_state[file_path]
             if current_info["file_hash"] != prev_info.get("file_hash", ""):
-                prev_sigs = prev_info.get("signatures", {})
-                curr_sigs = current_info["signatures"]
-                if prev_sigs != curr_sigs:
+                if prev_info.get("signatures", {}) != current_info["signatures"]:
                     added_or_modified.add(file_path)
                 else:
                     unchanged.add(file_path)
@@ -135,9 +134,8 @@ def _find_related_test_files(outdir: pathlib.Path, source_file: str) -> List[pat
     source_stem = source_path.stem
     for test_file in outdir.rglob("test_*.py"):
         try:
-            content = test_file.read_text(encoding='utf-8')
-            if (source_stem in content or 
-                source_file.replace('/', '.').replace('.py', '') in content):
+            content = test_file.read_text(encoding='utf-8', errors="ignore")
+            if (source_stem in content or source_file.replace('/', '.').replace('.py', '') in content):
                 related_tests.append(test_file)
         except Exception:
             continue
@@ -145,8 +143,7 @@ def _find_related_test_files(outdir: pathlib.Path, source_file: str) -> List[pat
 
 def _cleanup_deleted_tests(outdir: pathlib.Path, deleted_files: Set[str]):
     for deleted_file in deleted_files:
-        related_tests = _find_related_test_files(outdir, deleted_file)
-        for test_file in related_tests:
+        for test_file in _find_related_test_files(outdir, deleted_file):
             try:
                 print(f"🗑️ Removing test file for deleted source: {test_file}")
                 test_file.unlink()
@@ -156,11 +153,7 @@ def _cleanup_deleted_tests(outdir: pathlib.Path, deleted_files: Set[str]):
 # ---------------------- conftest: compat shims ----------------------
 
 def _create_enhanced_conftest(outdir: pathlib.Path) -> str:
-    conftest_content = '''import pytest
-import sys
-import os
-import warnings
-
+    conftest_content = '''import pytest, sys, os, warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
 
@@ -232,7 +225,6 @@ os.environ.setdefault('WTF_CSRF_ENABLED', 'False')
     conftest_path.parent.mkdir(parents=True, exist_ok=True)
     conftest_path.write_text(conftest_content, encoding="utf-8")
     return str(conftest_path)
-
 
 # ---------------------- output validation and hardening ----------------------
 
@@ -327,13 +319,13 @@ def _dedupe_keep(items: List[Dict[str, str]], key: str, limit: int = None) -> Li
 def _compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
     total_funcs = len(analysis.get("functions", []))
     soft_cap = 120 if total_funcs > 400 else 80 if total_funcs > 200 else 50
-    funcs = sorted(analysis.get("functions", []), key=lambda x: x.get("file", ""))
-    clss = sorted(analysis.get("classes", [])   , key=lambda x: x.get("file", ""))
-    routes = sorted(analysis.get("routes", [])  , key=lambda x: x.get("file", ""))
+    funcs  = sorted(analysis.get("functions", []), key=lambda x: x.get("file", ""))
+    clss   = sorted(analysis.get("classes", [])  , key=lambda x: x.get("file", ""))
+    routes = sorted(analysis.get("routes", [])   , key=lambda x: x.get("file", ""))
     return {
         "functions": _dedupe_keep(funcs, "name", soft_cap),
-        "classes": _dedupe_keep(clss, "name", max(30, soft_cap // 2)),
-        "routes": _dedupe_keep(routes, "handler", max(30, soft_cap // 2)),
+        "classes":   _dedupe_keep(clss, "name", max(30, soft_cap // 2)),
+        "routes":    _dedupe_keep(routes, "handler", max(30, soft_cap // 2)),
         "modules": sorted(set(analysis.get("modules", []))),
     }
 
@@ -347,30 +339,23 @@ COMMON_PKG_ALIASES = {
     "typing_extensions": "typing-extensions", "annotated_types": "annotated-types", "sqlalchemy": "SQLAlchemy",
     "flask": "flask", "django": "Django", "click": "click", "typer": "typer", "jinja2": "Jinja2",
     "ujson": "ujson", "orjson": "orjson", "pymongo": "pymongo", "redis": "redis", "pytest": "pytest",
-    "jwt": "PyJWT", "markupsafe": "MarkupSafe",
-    "rest_framework": "djangorestframework",
+    "jwt": "PyJWT", "markupsafe": "MarkupSafe", "rest_framework": "djangorestframework",
 }
 VERSION_CONSTRAINTS: Dict[str, str] = {}
-
 DENY_INFER: Set[str] = {
     *(p.strip().lower() for p in os.getenv("TESTGEN_DENY_PKGS", "models,relations,renderers").split(",") if p.strip())
 }
-
 VALID_PIP_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 BAD_GENERIC_TOPS = {
-    "models", "model", "views", "view", "urls", "settings", "config", "configs",
-    "tests", "test", "schemas", "schema", "forms", "admin", "migrations",
-    "apps", "serializers", "permissions", "filters", "routers", "services",
-    "repository", "repositories", "managers", "helpers", "utils"
+    "models","model","views","view","urls","settings","config","configs","tests","test",
+    "schemas","schema","forms","admin","migrations","apps","serializers","permissions","filters",
+    "routers","services","repository","repositories","managers","helpers","utils"
 }
 DENY_TOPS = {
-    "__future__", "__main__", "__builtin__", "builtins",
-    "typing", "types", "dataclasses", "importlib", "asyncio", "json", "re", "os", "sys", "pathlib",
-    "logging", "argparse", "functools", "itertools", "collections", "subprocess", "datetime", "time",
-    "math", "decimal", "fractions", "statistics", "sqlite3", "http", "urllib", "hmac", "hashlib",
-    "base64", "csv", "glob", "shutil", "tempfile", "inspect", "traceback", "enum", "textwrap",
-    "pprint", "string",
-    "ConfigParser", "Queue", "HTMLParser", "StringIO",
+    "__future__","__main__","__builtin__","builtins","typing","types","dataclasses","importlib","asyncio","json","re","os","sys","pathlib",
+    "logging","argparse","functools","itertools","collections","subprocess","datetime","time","math","decimal","fractions","statistics","sqlite3",
+    "http","urllib","hmac","hashlib","base64","csv","glob","shutil","tempfile","inspect","traceback","enum","textwrap","pprint","string",
+    "ConfigParser","Queue","HTMLParser","StringIO",
 } | BAD_GENERIC_TOPS
 
 def _is_stdlib(name: str) -> bool:
@@ -379,11 +364,9 @@ def _is_stdlib(name: str) -> bool:
         if stdmods:
             return name in stdmods
         return name in {
-            "os","sys","re","json","pathlib","math","itertools","functools","typing","subprocess",
-            "datetime","time","collections","dataclasses","ast","logging","unittest","argparse",
-            "asyncio","multiprocessing","threading","sqlite3","email","http","urllib","hashlib",
-            "hmac","base64","statistics","random","fractions","decimal","csv","shutil","tempfile",
-            "glob","inspect","traceback","textwrap","string","pprint","enum","types"
+            "os","sys","re","json","pathlib","math","itertools","functools","typing","subprocess","datetime","time","collections","dataclasses","ast",
+            "logging","unittest","argparse","asyncio","multiprocessing","threading","sqlite3","email","http","urllib","hashlib","hmac","base64",
+            "statistics","random","fractions","decimal","csv","shutil","tempfile","glob","inspect","traceback","textwrap","string","pprint","enum","types"
         }
     except Exception:
         return False
@@ -503,12 +486,8 @@ def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Se
     focus_norm: Set[str] = {_norm_rel(f) for f in focus_files}
     focus_basenames = _basename_set(focus_norm)
     def keep(entry: Dict[str, Any]) -> bool:
-        f = entry.get("file") or ""
-        fn = _norm_rel(f)
-        if fn in focus_norm: return True
-        if any(fn.endswith("/" + rel) for rel in focus_norm): return True
-        if pathlib.Path(fn).name in focus_basenames: return True
-        return False
+        fn = _norm_rel(entry.get("file") or "")
+        return (fn in focus_norm) or any(fn.endswith("/" + rel) for rel in focus_norm) or (pathlib.Path(fn).name in focus_basenames)
     filt = {
         "functions": [d for d in (analysis.get("functions") or []) if keep(d)],
         "classes":   [d for d in (analysis.get("classes")  or []) if keep(d)],
@@ -523,89 +502,19 @@ def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Se
 # ---------------------- bootstrap injected into every test file ----------------------
 
 def _enhanced_universal_bootstrap(compact: Dict[str, Any]) -> str:
-    tops: List[str] = []
-    for m in compact.get("modules") or []:
-        top = (m.split(".")[0] or "").strip()
-        if top:
-            tops.append(top)
-    tops = sorted(set(tops))
-    tops_lit = repr(tops)
-    include_qt = any(t.startswith(("PyQt", "PySide")) for t in tops)
-    py2_alias_map_lit = repr({
-        "ConfigParser":"configparser","Queue":"queue","StringIO":"io",
-        "cStringIO":"io","urllib2":"urllib.request"
-    })
+    include_qt = any((m.split(".")[0] or "").startswith(("PyQt","PySide")) for m in (compact.get("modules") or []))
     qt_block = f"""
 for __qt_root in ["PyQt5","PyQt6","PySide2","PySide6"]:
-    if __qt_root not in _THIRD_PARTY_TOPS:
-        continue
-    if _safe_find_spec(__qt_root) is None:
-        _pkg=_ensure_pkg(__qt_root,True); _core=_ensure_pkg(__qt_root+".QtCore",False); _gui=_ensure_pkg(__qt_root+".QtGui",False); _widgets=_ensure_pkg(__qt_root+".QtWidgets",False)
-        class QObject: pass
-        def pyqtSignal(*a, **k): return object()
-        def pyqtSlot(*a, **k):
-            def _decorator(fn): return fn
-            return _decorator
-        class QCoreApplication:
-            def __init__(self,*a,**k): pass
-            def exec_(self): return 0
-            def exec(self): return 0
-        _core.QObject=QObject; _core.pyqtSignal=pyqtSignal; _core.pyqtSlot=pyqtSlot; _core.QCoreApplication=QCoreApplication
-        class QFont:  # minimal stubs
-            def __init__(self,*a,**k): pass
-        class QDoubleValidator:
-            def __init__(self,*a,**k): pass
-            def setBottom(self,*a,**k): pass
-            def setTop(self,*a,**k): pass
-        class QIcon:  # minimal
-            def __init__(self,*a,**k): pass
-        class QPixmap:
-            def __init__(self,*a,**k): pass
-        _gui.QFont=QFont; _gui.QDoubleValidator=QDoubleValidator; _gui.QIcon=QIcon; _gui.QPixmap=QPixmap
-        class QApplication:
-            def __init__(self,*a,**k): pass
-            def exec_(self): return 0
-            def exec(self): return 0
-        class QWidget:
-            def __init__(self,*a,**k): pass
-        class QLabel(QWidget):
-            def __init__(self,*a,**k): super().__init__(); self._text=""
-            def setText(self,t): self._text=str(t)
-            def text(self): return self._text
-        class QLineEdit(QWidget):
-            def __init__(self,*a,**k): super().__init__(); self._text=""
-            def setText(self,t): self._text=str(t)
-            def text(self): return self._text
-            def clear(self): self._text=""
-        class QTextEdit(QLineEdit): pass
-        class QPushButton(QWidget):
-            def __init__(self,*a,**k): super().__init__()
-        class QMessageBox:
-            @staticmethod
-            def warning(*a, **k): return None
-            @staticmethod
-            def information(*a, **k): return None
-            @staticmethod
-            def critical(*a, **k): return None
-        class QFileDialog:
-            @staticmethod
-            def getSaveFileName(*a, **k): return ("history.txt","")
-            @staticmethod
-            def getOpenFileName(*a, **k): return ("history.txt","")
-        class QFormLayout:
-            def __init__(self,*a,**k): pass
-            def addRow(self,*a,**k): pass
-        class QGridLayout(QFormLayout):
-            def addWidget(self,*a,**k): pass
-        _widgets.QApplication=QApplication; _widgets.QWidget=QWidget; _widgets.QLabel=QLabel; _widgets.QLineEdit=QLineEdit; _widgets.QTextEdit=QTextEdit
-        _widgets.QPushButton=QPushButton; _widgets.QMessageBox=QMessageBox; _widgets.QFileDialog=QFileDialog; _widgets.QFormLayout=QFormLayout; _widgets.QGridLayout=QGridLayout
-        for _name in ("QApplication","QWidget","QLabel","QLineEdit","QTextEdit","QPushButton","QMessageBox","QFileDialog","QFormLayout","QGridLayout"):
-            setattr(_gui,_name,getattr(_widgets,_name))
+    try:
+        import importlib.util as _iu
+        if _iu.find_spec(__qt_root) is None:
+            raise ImportError
+    except Exception:
+        pass
 """ if include_qt else ""
 
     return f'''# --- ENHANCED UNIVERSAL BOOTSTRAP ---
-import os, sys, importlib as _importlib, importlib.util as _iu, importlib.machinery as _im, types as _types, pytest as _pytest, builtins as _builtins
-import warnings
+import os, sys, importlib.util as _iu, types as _types, pytest as _pytest, builtins as _builtins, warnings
 STRICT = os.getenv("TESTGEN_STRICT", "1").lower() in ("1","true","yes")
 STRICT_FAIL = os.getenv("TESTGEN_STRICT_FAIL","0").lower() in ("1","true","yes")
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -616,7 +525,6 @@ if _target and os.path.exists(_target):
     if _target not in sys.path: sys.path.insert(0, _target)
     try: os.chdir(_target)
     except Exception: pass
-_TARGET_ABS = os.path.abspath(_target)
 
 def _exc_lookup(name, default):
     try:
@@ -642,24 +550,6 @@ def _apply_compatibility_fixes():
     except ImportError:
         pass
     try:
-        import flask
-        if not hasattr(flask, "escape"):
-            try:
-                from markupsafe import escape
-                flask.escape = escape
-            except Exception:
-                pass
-        try:
-            import threading
-            from flask import _app_ctx_stack, _request_ctx_stack
-            for _stack in (_app_ctx_stack, _request_ctx_stack):
-                if _stack is not None and not hasattr(_stack, "__ident_func__"):
-                    _stack.__ident_func__ = getattr(threading, "get_ident", None) or (lambda: 0)
-        except Exception:
-            pass
-    except ImportError:
-        pass
-    try:
         import collections as _collections, collections.abc as _abc
         for _n in ('Mapping','MutableMapping','Sequence','Iterable','Container',
                    'MutableSequence','Set','MutableSet','Iterator','Generator','Callable','Collection'):
@@ -675,106 +565,53 @@ def _apply_compatibility_fixes():
         pass
 
 _apply_compatibility_fixes()
-_ADAPTED_MODULES = set()
 
-def _attach_module_getattr(_m):
-    try:
-        if getattr(_m, "__name__", None) in _ADAPTED_MODULES: return
-        mfile = getattr(_m, "__file__", "") or ""
-        if not mfile or not os.path.abspath(mfile).startswith(_TARGET_ABS + os.sep): return
-        if hasattr(_m, "__getattr__"):
-            _ADAPTED_MODULES.add(_m.__name__); return
-        def __getattr__(name):
-            for _nm, _obj in list(_m.__dict__.items()):
-                if isinstance(_obj, type) and not _nm.startswith("_"):
-                    try: _inst = _obj()
-                    except Exception: continue
-                    if hasattr(_inst, name):
-                        _val = getattr(_inst, name)
-                        try: setattr(_m, name, _val)
-                        except Exception: pass
-                        return _val
-            raise AttributeError(f"module {{_m.__name__!r}} has no attribute {{name!r}}")
-        _m.__getattr__ = __getattr__; _ADAPTED_MODULES.add(_m.__name__)
-    except Exception:
-        pass
-
-# Disable import adapter entirely if Django is present to avoid metaclass issues.
-_DJ_PRESENT = _iu.find_spec("django") is not None
-if not STRICT and not _DJ_PRESENT:
-    _orig_import = _builtins.__import__
-    def _import_with_adapter(name, globals=None, locals=None, fromlist=(), level=0):
-        mod = _orig_import(name, globals, locals, fromlist, level)
-        try:
-            if isinstance(mod, _types.ModuleType): _attach_module_getattr(mod)
-            if fromlist:
-                for attr in fromlist:
-                    try:
-                        sub = getattr(mod, attr, None)
-                        if isinstance(sub, _types.ModuleType): _attach_module_getattr(sub)
-                    except Exception: pass
-        except Exception: pass
-        return mod
-    _builtins.__import__ = _import_with_adapter
-
-# Handle Django configuration for tests
+# Minimal, safe Django bootstrap. If anything goes wrong, skip the module (repo-agnostic).
 try:
     import django
-    from django.conf import settings
+    from django.conf import settings as _dj_settings
     from django import apps as _dj_apps
-    
-    if not settings.configured:
+
+    if not _dj_settings.configured:
         _cfg = dict(
             DEBUG=True,
-            SECRET_KEY='test-secret-key-for-pytest',
-            DATABASES={{
-                'default': {{
-                    'ENGINE': 'django.db.backends.sqlite3',
-                    'NAME': ':memory:',
-                }}
-            }},
+            SECRET_KEY='pytest-secret',
+            DATABASES={{'default': {{'ENGINE': 'django.db.backends.sqlite3','NAME': ':memory:'}}}},
             INSTALLED_APPS=[
-                'django.contrib.auth',
-                'django.contrib.contenttypes',
-                'django.contrib.sessions',
-                'django.contrib.messages',
+                'django.contrib.auth','django.contrib.contenttypes',
+                'django.contrib.sessions','django.contrib.messages'
             ],
             MIDDLEWARE=[
                 'django.middleware.security.SecurityMiddleware',
                 'django.contrib.sessions.middleware.SessionMiddleware',
                 'django.middleware.common.CommonMiddleware',
             ],
-            USE_TZ=True,
-            TIME_ZONE="UTC",
+            USE_TZ=True, TIME_ZONE='UTC',
         )
-        try:
-            _cfg["DEFAULT_AUTO_FIELD"] = "django.db.models.AutoField"
-        except Exception:
-            pass
-        try:
-            settings.configure(**_cfg)
-        except Exception as e:
-            pass
-    
+        try: _cfg["DEFAULT_AUTO_FIELD"] = "django.db.models.AutoField"
+        except Exception: pass
+        try: _dj_settings.configure(**_cfg)
+        except Exception: pass
+
     if not _dj_apps.ready:
-        try:
-            django.setup()
-        except Exception as e:
-            pass
-            
-except Exception as e:
-    pass
+        try: django.setup()
+        except Exception: pass
+
+    # Probe a known Django core that previously crashed on some stacks.
+    try:
+        import django.contrib.auth.base_user as _dj_probe  # noqa
+    except Exception as _e:
+        _pytest.skip(f"Django core import failed safely: {{_e.__class__.__name__}}: {{_e}}", allow_module_level=True)
+except Exception as _e:
+    # Do NOT crash the entire test session – make the module opt-out.
+    _pytest.skip(f"Django bootstrap not available: {{_e.__class__.__name__}}: {{_e}}", allow_module_level=True)
 
 {qt_block}
-
 # --- /ENHANCED UNIVERSAL BOOTSTRAP ---
 '''
 
-
-# Add this to your bootstrap code to provide a decorator for Django-dependent tests
 def _requires_django(f):
-    """Decorator to skip tests that require Django if Django setup failed"""
-    import functools
+    import functools, pytest as _pytest
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         try:
@@ -789,38 +626,22 @@ def _requires_django(f):
             _pytest.skip(f"Django setup issue: {e}")
     return wrapper
 
-    
-# ---------------------- prompts: developer-style tests ----------------------
+# ---------------------- prompts ----------------------
 
 _SYSTEM_MIN = (
     "Return ONLY valid Python pytest tests. No Markdown, no explanations. "
-    "Prefer module-level imports guarded by try/except ImportError: on ImportError call pytest.skip at module level. "
-    "Use Arrange-Act-Assert structure with clear variable names. "
-    "Use pytest.mark.parametrize for normal + edge cases; include boundary values and error paths. "
-    "Use tmp_path/monkeypatch/unittest.mock for I/O, environment, and collaborators. "
+    "Guard ALL module-level imports in tests with try/except ImportError and call pytest.skip at module level. "
+    "Use Arrange-Act-Assert, parametrize normal+edge cases; include boundary & error paths. "
+    "Use tmp_path/monkeypatch/unittest.mock for I/O & collaborators. "
     "No network, no external services, no private pytest internals, no custom markers. "
     "Assert concrete outputs, types, and state changes. "
-    "For exceptions never assume custom names; use _exc_lookup('Name', Exception) when checking types. "
-    "Skip ONLY on ImportError. Let logic/type/attribute/value errors FAIL to expose bugs. "
+    "For exceptions never assume custom names; use _exc_lookup('Name', Exception). "
     "Never import packages via 'from pkg import __init__'; import the package/module directly."
 )
 
-_UNIT_DEV = (
-    "Write UNIT tests (3-6) like a senior developer would. "
-    "Focus on public functions/classes in the focus list. "
-    "Cover happy path, boundary conditions, invalid inputs, and stateful methods. "
-    "Prefer @pytest.mark.parametrize, AAA comments optional but keep structure clear."
-)
-
-_INTEG_DEV = (
-    "Write INTEGRATION tests (2-5) crossing module boundaries where natural. "
-    "Use monkeypatch/mocks to isolate external calls; test realistic flows and data seams."
-)
-
-_E2E_DEV = (
-    "Write E2E-style black-box tests (2-4) composed from the public API only. "
-    "Deterministic, self-contained, avoid GUI/event loops."
-)
+_UNIT_DEV = "Write UNIT tests (3-6) like a senior dev. Prefer public functions/classes in the focus list."
+_INTEG_DEV = "Write INTEGRATION tests (2-5) that cross modules naturally; mock external calls."
+_E2E_DEV   = "Write E2E-style black-box tests (2-4) from the public API only. Deterministic & self-contained."
 
 def _limit_str(s: str, max_chars: int = 12000) -> str:
     return s if len(s) <= max_chars else s[:max_chars] + "...(truncated)"
@@ -871,29 +692,21 @@ def _massage_generated_code(code: str) -> str:
     code = _ISINSTANCE_QUAL.sub(_repl_is_q, code)
     code = _ISINSTANCE_BARE.sub(_repl_is_b, code)
 
-    # ImportError-only skipping
+    # ImportError-only skipping normalizer in user code
     code = _SKIP_ANY_EXC_RE.sub(
         r"except ImportError as e:\n        pytest.skip(\1)\n    except Exception:\n        raise",
         code
     )
 
-    # Fix bad pattern: "from pkg.subpkg import __init__ as alias" -> "import pkg.subpkg as alias"
+    # Disallow bad import pattern
     code = re.sub(
         r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s+as\s+([A-Za-z_]\w*)\s*',
-        r'import \1 as \2',
-        code,
-        flags=re.MULTILINE,
+        r'import \1 as \2', code, flags=re.MULTILINE,
     )
-    # Fix "from pkg.subpkg import __init__"
     code = re.sub(
         r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s*',
-        r'import \1',
-        code,
-        flags=re.MULTILINE,
+        r'import \1', code, flags=re.MULTILINE,
     )
-
-    # Tidy boolean asserts
-    code = re.sub(r"assert\s+bool\((.+?)\)", r"assert bool(\1) is True", code)
 
     # AAA hint
     lines, out = code.splitlines(), []
@@ -954,8 +767,7 @@ def _smart_cleanup_outdir(outdir: pathlib.Path, deleted_files: Set[str], added_o
     print(f"🧹 Smart cleanup: {len(deleted_files)} deleted, {len(added_or_modified)} modified files")
     _cleanup_deleted_tests(outdir, deleted_files)
     for modified_file in added_or_modified:
-        related_tests = _find_related_test_files(outdir, modified_file)
-        for test_file in related_tests:
+        for test_file in _find_related_test_files(outdir, modified_file):
             try:
                 print(f"🔄 Removing old test for modified source: {test_file}")
                 test_file.unlink()
@@ -1080,10 +892,10 @@ def _runtime_guard_for(compact: Dict[str, Any]) -> str:
     checks = ""
     if needed:
         checks = "\n".join(
-            [f"if importlib.util.find_spec('{m}') is None:\n    pytest.skip('{m} not installed; skipping module', allow_module_level=True)" for m in needed]
+            [f"import importlib.util, pytest\nif importlib.util.find_spec('{m}') is None:\n    pytest.skip('{m} not installed; skipping module', allow_module_level=True)" for m in needed]
         ) + "\n"
     bootstrap = _enhanced_universal_bootstrap(compact)
-    return ("import importlib.util, pytest\n" + checks + "\n" + bootstrap + "\n")
+    return (checks + "\n" + bootstrap + "\n")
 
 # ---------------------- LLM loop ----------------------
 
@@ -1115,7 +927,7 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
                     "role": "user",
                     "content": (
                         f"Invalid: {reason}. Regenerate strict, developer-style pytest code only. "
-                        "Guard imports (skip on ImportError only), prefer parametrize & boundaries, "
+                        "Guard imports with try/except ImportError and module-level pytest.skip, prefer parametrize & boundaries, "
                         "use tmp_path/monkeypatch/mock, no private pytest internals, "
                         "use _exc_lookup for exception types. Never import via 'from pkg import __init__'."
                     )

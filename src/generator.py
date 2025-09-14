@@ -965,14 +965,14 @@ def _massage_generated_code(code: str) -> str:
 
     # Fix bad pattern: "from pkg.subpkg import __init__ as alias" -> "import pkg.subpkg as alias"
     code = re.sub(
-        r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s+as\s+([A-Za-z_]\w*)\s*,
+        r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s+as\s+([A-Za-z_]\w*)\s*',
         r'import \1 as \2',
         code,
         flags=re.MULTILINE,
     )
     # Fix "from pkg.subpkg import __init__"
     code = re.sub(
-        r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s*,
+        r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s*',
         r'import \1',
         code,
         flags=re.MULTILINE,

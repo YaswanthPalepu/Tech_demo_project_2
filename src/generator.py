@@ -176,56 +176,58 @@ def _fix_django_metaclass_compatibility():
             import builtins
             import types
             
-            # Store the original __build_class__ function
-            if not hasattr(builtins, '_original_build_class'):
-                builtins._original_build_class = builtins.__build_class__
-            
-            original_build_class = builtins._original_build_class
+            # Only patch if we haven't already
+            if hasattr(builtins, '_django_patched'):
+                return
+                
+            # Store the original safely
+            original_build_class = builtins.__build_class__
             
             def patched_build_class(func, name, *bases, metaclass=None, **kwargs):
+                # Only apply Django-specific fixes for Django classes
+                is_django_class = (
+                    'django' in str(func.__globals__.get('__name__', '')) or
+                    'AbstractBaseUser' in name or 
+                    'BaseUserManager' in name or
+                    any('django' in str(base) for base in bases)
+                )
+                
+                if not is_django_class:
+                    # Use original function for non-Django classes
+                    return original_build_class(func, name, *bases, metaclass=metaclass, **kwargs)
+                
                 try:
                     return original_build_class(func, name, *bases, metaclass=metaclass, **kwargs)
                 except RuntimeError as e:
                     error_msg = str(e)
                     if '__classcell__' in error_msg and ('not set' in error_msg or 'propagated' in error_msg):
-                        # Django 1.10.5 metaclass compatibility fix
                         try:
-                            # Create a simple wrapper that bypasses the __classcell__ issue
-                            def new_func():
-                                # Get the class namespace by calling the original function
+                            # For Django classes, try creating without __classcell__
+                            def clean_func():
                                 namespace = func()
-                                # Remove any __classcell__ entries that cause problems
-                                if '__classcell__' in namespace:
+                                if isinstance(namespace, dict) and '__classcell__' in namespace:
+                                    namespace = namespace.copy()
                                     del namespace['__classcell__']
                                 return namespace
                             
-                            # Try with the modified function
-                            return original_build_class(new_func, name, *bases, metaclass=metaclass, **kwargs)
+                            return original_build_class(clean_func, name, *bases, metaclass=metaclass, **kwargs)
                         except Exception:
-                            # If that fails, try without metaclass
+                            # Final fallback for Django classes
                             try:
-                                def simple_func():
-                                    namespace = func()
-                                    if '__classcell__' in namespace:
-                                        del namespace['__classcell__']
-                                    return namespace
-                                return original_build_class(simple_func, name, *bases, **kwargs)
+                                namespace = func() if callable(func) else {}
+                                if isinstance(namespace, dict) and '__classcell__' in namespace:
+                                    namespace = namespace.copy()
+                                    del namespace['__classcell__']
+                                return type(name, bases, namespace)
                             except Exception:
-                                # Final fallback: create a simple class
-                                return type(name, bases, func())
+                                return type(name, bases, {})
                     raise
-                except Exception as e:
-                    # Last resort fallback
-                    if 'AbstractBaseUser' in name or 'BaseUserManager' in name:
-                        # For Django auth classes, create a minimal working version
-                        try:
-                            namespace = func() if callable(func) else {}
-                            return type(name, bases, namespace)
-                        except Exception:
-                            return type(name, bases, {})
-                    raise
+                except Exception:
+                    # For other Django-related errors, fall back to original
+                    return original_build_class(func, name, *bases, **kwargs)
             
             builtins.__build_class__ = patched_build_class
+            builtins._django_patched = True
     except Exception:
         pass
 

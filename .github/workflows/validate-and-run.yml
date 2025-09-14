@@ -40,6 +40,14 @@ jobs:
           rm -rf target_repo
           git clone --depth=1 "$REPO_URL" target_repo
 
+      - name: Create repo-agnostic compatibility constraints
+        run: |
+          cat > /tmp/compat-constraints.txt << 'EOF'
+          Django>=3.2,<4.3
+          djangorestframework>=3.12,<3.15
+          EOF
+          echo "PIP_CONSTRAINT=/tmp/compat-constraints.txt" >> "$GITHUB_ENV"
+
       - name: Download artifacts from previous run (all)
         uses: dawidd6/action-download-artifact@v2
         with:
@@ -65,12 +73,12 @@ jobs:
       - name: Force compatible Django & DRF
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
-          python -m pip install --upgrade "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
+          python -m pip install --upgrade -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
 
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
-          pip install pytest pytest-cov pytest-html pytest-json-report \
+          pip install -c "$PIP_CONSTRAINT" pytest pytest-cov pytest-html pytest-json-report \
                      coverage pytest-xdist pytest-timeout pytest-mock \
                      pytest-django typing-extensions
 
@@ -79,15 +87,37 @@ jobs:
         run: |
           if [ -f requirements.txt ]; then
             sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' requirements.txt || true
-            pip install -r requirements.txt
+            grep -viE '^[[:space:]]*(django|djangorestframework)\b' requirements.txt > /tmp/req.filtered.txt || true
+            pip install -c "$PIP_CONSTRAINT" -r /tmp/req.filtered.txt || true
           fi
           if [ -d requirements ]; then
             for f in requirements/*.txt; do
               sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' "$f" || true
-              pip install -r "$f" || true
+              grep -viE '^[[:space:]]*(django|djangorestframework)\b' "$f" > /tmp/req.filtered.txt || true
+              pip install -c "$PIP_CONSTRAINT" -r /tmp/req.filtered.txt || true
             done
           fi
-          pip install -e . || true
+          if [ -f "pyproject.toml" ]; then
+            # try poetry export
+            if grep -q "\[tool.poetry\]" pyproject.toml; then
+              pip install -c "$PIP_CONSTRAINT" poetry || true
+              poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req || true
+              if [ -s /tmp/poetry.lock.req ]; then
+                grep -viE '^[[:space:]]*(django|djangorestframework)\b' /tmp/poetry.lock.req > /tmp/poetry.lock.filtered
+                pip install -c "$PIP_CONSTRAINT" -r /tmp/poetry.lock.filtered || true
+              fi
+            fi
+            # try pdm export
+            if grep -q "\[tool.pdm\]" pyproject.toml; then
+              pip install -c "$PIP_CONSTRAINT" pdm || true
+              pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
+              if [ -s /tmp/pdm.lock.req ]; then
+                grep -viE '^[[:space:]]*(django|djangorestframework)\b' /tmp/pdm.lock.req > /tmp/pdm.lock.filtered
+                pip install -c "$PIP_CONSTRAINT" -r /tmp/pdm.lock.filtered || true
+              fi
+            fi
+          fi
+          pip install -c "$PIP_CONSTRAINT" -e . || true
           pip check || true
 
       - name: Quarantine syntactically invalid generated tests

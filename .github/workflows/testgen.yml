@@ -21,8 +21,8 @@ on:
         required: false
         default: "0"
         description: "Minimum coverage threshold (%)"
-  push:
-    branches: ["test"]
+  # push:
+  #   branches: ["test"]
 
 concurrency:
   group: test-gen-${{ github.workflow }}

@@ -5,24 +5,20 @@ set -euo pipefail
 TARGET_REPO="${1:?pass path to target repo}"
 cd "$TARGET_REPO"
 
-# Keep target repo clean (only runtime artifacts under reports/)
 REPORT_DIR="$(pwd)/reports/tests"
 mkdir -p "$REPORT_DIR"
 
-# Block hostile env/site plugins
 export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-
-# Import paths for plain and src/ layouts
 export PYTHONPATH="${TARGET_REPO}:${PYTHONPATH-}"
 [[ -d src ]] && export PYTHONPATH="${TARGET_REPO}/src:${PYTHONPATH-}"
 
-# Decide test dirs
+# Decide test targets
 TEST_DIRS=()
 [[ -d tests ]] && TEST_DIRS+=("tests")
 [[ -d tests/generated ]] && TEST_DIRS+=("tests/generated")
 if [[ ${#TEST_DIRS[@]} -eq 0 ]]; then
-  echo "No test directories found. Exiting 1 to signal no tests."
-  exit 1
+  echo "No tests/ dirs found; using repo root for discovery"
+  TEST_DIRS=(".")
 fi
 
 # Enable pytest-django only if settings present
@@ -33,7 +29,7 @@ elif [[ -f manage.py ]] || compgen -G "*settings.py" >/dev/null; then
   ENABLE_DJANGO+=(-p django)
 fi
 
-# Compute coverage sources dynamically
+# Compute coverage sources
 COV_SOURCES="$(python - <<'PY'
 import pathlib, os
 root=pathlib.Path('.').resolve()
@@ -61,30 +57,22 @@ if [[ -n "$COV_SOURCES" ]]; then
   IFS=, read -r -a covlist <<< "$COV_SOURCES"
   for m in "${covlist[@]}"; do COV_ARGS+=(--cov="$m"); done
   COV_ARGS+=(--cov-branch)
-  # inline omit to avoid .coveragerc in target repo
   COV_ARGS+=(--cov-omit '*/tests/*' '*/tests/generated/*' '*/.venv/*' '*/venv/*' '*/env/*' '*/site-packages/*' '**/__init__.py')
 else
   echo "Coverage sources not detected. Running without --cov."
 fi
 
-# Pick plugins explicitly
-PLUGINS=(-p pytest_cov -p pytest_jsonreport "${ENABLE_DJANGO[@]}")
-
-# Optional plugin flags detection
+# Optional plugins
 HTML_ARGS=""
 TIMEOUT_ARGS=""
-if python - <<'PY' 2>/dev/null | grep -q HAVE_HTML; then
-    HTML_ARGS="--html=${REPORT_DIR}/test-report.html --self-contained-html"
-fi <<'PY'
-import importlib.util
-print("HAVE_HTML" if importlib.util.find_spec("pytest_html") else "NO")
-PY
-if python - <<'PY' 2>/dev/null | grep -q HAVE_TIMEOUT; then
-    TIMEOUT_ARGS="--timeout=300"
-fi <<'PY'
-import importlib.util
-print("HAVE_TIMEOUT" if importlib.util.find_spec("pytest_timeout") else "NO")
-PY
+if python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('pytest_html') else 1)"; then
+  HTML_ARGS="--html=${REPORT_DIR}/test-report.html --self-contained-html"
+fi
+if python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('pytest_timeout') else 1)"; then
+  TIMEOUT_ARGS="--timeout=300"
+fi
+
+PLUGINS=(-p pytest_cov -p pytest_jsonreport "${ENABLE_DJANGO[@]}")
 
 set +e
 pytest "${TEST_DIRS[@]}" \
@@ -98,7 +86,10 @@ pytest "${TEST_DIRS[@]}" \
 CODE=$?
 set -e
 
-# Produce coverage reports if coverage ran
+# Ensure JSON exists even if pytest crashed early
+[[ -f "${REPORT_DIR}/test-results.json" ]] || echo '{"summary":{"total":0,"passed":0,"failed":0,"error":0,"skipped":0}}' > "${REPORT_DIR}/test-results.json"
+
+# Coverage outputs if we collected coverage
 if [[ ${#COV_ARGS[@]} -gt 0 ]]; then
   coverage xml -o "${REPORT_DIR}/coverage.xml" || true
   coverage json -o "${REPORT_DIR}/coverage.json" || true

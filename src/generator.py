@@ -709,22 +709,16 @@ if not STRICT and not _DJ_PRESENT:
         except Exception: pass
         return mod
     _builtins.__import__ = _import_with_adapter
-# --- Minimal Django auto-config (before any app/model import) ---
-# Replace the Django bootstrap section in _enhanced_universal_bootstrap function
-# --- Minimal Django auto-config (before any app/model import) ---
-# Replace the Django bootstrap section - CORRECTED VERSION
+
+    
+# Replace the Django bootstrap section with this simplified version
 # --- Minimal Django auto-config (before any app/model import) ---
 try:
     import importlib, pkgutil
     if _iu.find_spec("django") is not None:
-        import django  # <- Import FIRST
-        print("DEBUG: Django found, attempting setup...")  # <- Then debug prints
+        import django
         from django.conf import settings as _dj_settings
         from django.apps import apps as _dj_apps
-
-        print(f"DEBUG: Django version: {django.VERSION}")
-        print(f"DEBUG: Settings configured: {_dj_settings.configured}")
-        print(f"DEBUG: Apps ready: {_dj_apps.ready}")
 
         def _maybe_add(app_name, installed):
             try:
@@ -736,7 +730,6 @@ try:
             return False
 
         if not _dj_settings.configured:
-            print("DEBUG: Configuring Django settings...")
             _installed = [
                 "django.contrib.auth",
                 "django.contrib.contenttypes", 
@@ -746,19 +739,9 @@ try:
             if _iu.find_spec("rest_framework"):
                 _installed.append("rest_framework")
 
-            # Explicitly try common project apps if present
+            # Try to add conduit apps
             for _app in ("conduit.apps.core", "conduit.apps.articles", "conduit.apps.authentication", "conduit.apps.profiles"):
                 _maybe_add(_app, _installed)
-
-            # Generic discovery under conduit.apps.*
-            try:
-                if _iu.find_spec("conduit.apps"):
-                    _apps_pkg = importlib.import_module("conduit.apps")
-                    for _m in pkgutil.iter_modules(getattr(_apps_pkg, "__path__", [])):
-                        _full = "conduit.apps." + _m.name
-                        _maybe_add(_full, _installed)
-            except Exception:
-                pass
 
             _cfg = dict(
                 SECRET_KEY="test-key",
@@ -766,52 +749,37 @@ try:
                 ALLOWED_HOSTS=["*"],
                 INSTALLED_APPS=sorted(set(_installed)),
                 DATABASES=dict(default=dict(ENGINE="django.db.backends.sqlite3", NAME=":memory:")),
-                MIDDLEWARE=[],
-                MIDDLEWARE_CLASSES=[],
+                MIDDLEWARE=[
+                    'django.middleware.security.SecurityMiddleware',
+                    'django.contrib.sessions.middleware.SessionMiddleware',
+                    'django.middleware.common.CommonMiddleware',
+                ],
                 USE_TZ=True,
                 TIME_ZONE="UTC",
             )
+            
             try:
                 _cfg["DEFAULT_AUTO_FIELD"] = "django.db.models.AutoField"
             except Exception:
                 pass
 
-            print(f"DEBUG: Attempting to configure with apps: {_cfg['INSTALLED_APPS']}")
-            
             try:
                 _dj_settings.configure(**_cfg)
-                print("DEBUG: Settings configured successfully")
             except Exception as e:
-                print(f"DEBUG: Settings configuration failed: {type(e).__name__}: {e}")
-                import traceback
-                traceback.print_exc()
-                raise
+                # Don't skip module-level, just continue
+                pass
 
         if not _dj_apps.ready:
-            print("DEBUG: Calling django.setup()...")
             try:
                 django.setup()
-                print("DEBUG: Django setup successful")
             except Exception as e:
-                print(f"DEBUG: Django setup failed: {type(e).__name__}: {e}")
-                import traceback
-                traceback.print_exc()
-                raise
-    else:
-        print("DEBUG: Django not found via find_spec")
+                # Don't skip module-level, just continue
+                pass
 
-except ImportError:
-    print("DEBUG: Django not available - ImportError")
 except Exception as e:
-    print(f"DEBUG: Overall Django bootstrap failed: {type(e).__name__}: {e}")
-    import traceback
-    traceback.print_exc()
-    # Decide whether to skip or continue
-    if "ImproperlyConfigured" in str(type(e)) or "AppRegistryNotReady" in str(type(e)):
-        print("DEBUG: Django configuration issue - will skip module")
-        _pytest.skip(f"Django setup failed: {e}", allow_module_level=True)
-    else:
-        print("DEBUG: Non-critical error - continuing without Django")
+    # Don't skip at module level - let individual tests handle Django issues
+    pass
+
 # --- /ENHANCED UNIVERSAL BOOTSTRAP ---
 '''
 

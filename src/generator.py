@@ -712,11 +712,13 @@ if not STRICT and not _DJ_PRESENT:
 # --- Minimal Django auto-config (before any app/model import) ---
 # Replace the Django bootstrap section in _enhanced_universal_bootstrap function
 # --- Minimal Django auto-config (before any app/model import) ---
+# Replace the Django bootstrap section - CORRECTED VERSION
+# --- Minimal Django auto-config (before any app/model import) ---
 try:
     import importlib, pkgutil
     if _iu.find_spec("django") is not None:
-        print("DEBUG: Django found, attempting setup...")
-        import django
+        import django  # <- Import FIRST
+        print("DEBUG: Django found, attempting setup...")  # <- Then debug prints
         from django.conf import settings as _dj_settings
         from django.apps import apps as _dj_apps
 
@@ -795,9 +797,11 @@ try:
                 import traceback
                 traceback.print_exc()
                 raise
+    else:
+        print("DEBUG: Django not found via find_spec")
 
 except ImportError:
-    print("DEBUG: Django not available")
+    print("DEBUG: Django not available - ImportError")
 except Exception as e:
     print(f"DEBUG: Overall Django bootstrap failed: {type(e).__name__}: {e}")
     import traceback

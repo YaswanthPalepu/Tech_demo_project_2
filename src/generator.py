@@ -168,6 +168,45 @@ project_root = os.path.dirname(os.path.abspath(__file__))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+def _fix_django_metaclass_compatibility():
+    """Fix Django 1.10.5 metaclass compatibility with Python 3.10+"""
+    try:
+        import sys
+        if sys.version_info >= (3, 8):
+            import builtins
+            original_build_class = builtins.__build_class__
+            
+            def patched_build_class(func, name, *bases, metaclass=None, **kwargs):
+                try:
+                    return original_build_class(func, name, *bases, metaclass=metaclass, **kwargs)
+                except RuntimeError as e:
+                    if '__classcell__' in str(e) and 'not set' in str(e):
+                        # Create a new function without problematic cell variables
+                        import types
+                        code = func.__code__
+                        if code.co_freevars:
+                            # Remove free variables that cause issues
+                            new_code = code.replace(
+                                co_freevars=(),
+                                co_names=code.co_names + code.co_freevars
+                            )
+                            new_func = types.FunctionType(
+                                new_code,
+                                func.__globals__,
+                                func.__name__,
+                                func.__defaults__,
+                                None  # No closure
+                            )
+                            return original_build_class(new_func, name, *bases, metaclass=metaclass, **kwargs)
+                    raise
+                except Exception:
+                    # Fallback for other metaclass issues
+                    return original_build_class(func, name, *bases, **kwargs)
+            
+            builtins.__build_class__ = patched_build_class
+    except Exception:
+        pass
+
 def _fix_jinja2_compatibility():
     try:
         import jinja2
@@ -221,6 +260,8 @@ def _fix_marshmallow_compatibility():
     except Exception:
         pass
 
+# Apply fixes in order - Django metaclass fix must come first
+_fix_django_metaclass_compatibility()
 _fix_jinja2_compatibility()
 _fix_collections_compatibility()
 _fix_flask_compatibility()
@@ -602,6 +643,7 @@ for __qt_root in ["PyQt5","PyQt6","PySide2","PySide6"]:
         for _name in ("QApplication","QWidget","QLabel","QLineEdit","QTextEdit","QPushButton","QMessageBox","QFileDialog","QFormLayout","QGridLayout"):
             setattr(_gui,_name,getattr(_widgets,_name))
 """ if include_qt else ""
+
     return f'''# --- ENHANCED UNIVERSAL BOOTSTRAP ---
 import os, sys, importlib as _importlib, importlib.util as _iu, importlib.machinery as _im, types as _types, pytest as _pytest, builtins as _builtins
 import warnings
@@ -609,12 +651,56 @@ STRICT = os.getenv("TESTGEN_STRICT", "1").lower() in ("1","true","yes")
 STRICT_FAIL = os.getenv("TESTGEN_STRICT_FAIL","0").lower() in ("1","true","yes")
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
+
+def _fix_django_metaclass_compatibility():
+    """Fix Django 1.10.5 metaclass compatibility with Python 3.10+"""
+    try:
+        import sys
+        if sys.version_info >= (3, 8):
+            import builtins
+            original_build_class = builtins.__build_class__
+            
+            def patched_build_class(func, name, *bases, metaclass=None, **kwargs):
+                try:
+                    return original_build_class(func, name, *bases, metaclass=metaclass, **kwargs)
+                except RuntimeError as e:
+                    if '__classcell__' in str(e) and 'not set' in str(e):
+                        # Create a new function without problematic cell variables
+                        import types
+                        code = func.__code__
+                        if code.co_freevars:
+                            # Remove free variables that cause issues
+                            new_code = code.replace(
+                                co_freevars=(),
+                                co_names=code.co_names + code.co_freevars
+                            )
+                            new_func = types.FunctionType(
+                                new_code,
+                                func.__globals__,
+                                func.__name__,
+                                func.__defaults__,
+                                None  # No closure
+                            )
+                            return original_build_class(new_func, name, *bases, metaclass=metaclass, **kwargs)
+                    raise
+                except Exception:
+                    # Fallback for other metaclass issues
+                    return original_build_class(func, name, *bases, **kwargs)
+            
+            builtins.__build_class__ = patched_build_class
+    except Exception:
+        pass
+
+# Apply Django metaclass fix early
+_fix_django_metaclass_compatibility()
+
 _target = os.environ.get("TARGET_ROOT") or os.environ.get("ANALYZE_ROOT") or "target"
 if _target and os.path.exists(_target):
     if _target not in sys.path: sys.path.insert(0, _target)
     try: os.chdir(_target)
     except Exception: pass
 _TARGET_ABS = os.path.abspath(_target)
+
 def _exc_lookup(name, default):
     try:
         mod_name, _, cls_name = str(name).rpartition(".")
@@ -624,6 +710,7 @@ def _exc_lookup(name, default):
         return getattr(sys.modules.get("builtins"), str(name), default)
     except Exception:
         return default
+
 def _apply_compatibility_fixes():
     try:
         import jinja2
@@ -669,8 +756,10 @@ def _apply_compatibility_fixes():
             _mm.__version__ = "4"
     except Exception:
         pass
+
 _apply_compatibility_fixes()
 _ADAPTED_MODULES = set()
+
 def _attach_module_getattr(_m):
     try:
         if getattr(_m, "__name__", None) in _ADAPTED_MODULES: return
@@ -692,6 +781,7 @@ def _attach_module_getattr(_m):
         _m.__getattr__ = __getattr__; _ADAPTED_MODULES.add(_m.__name__)
     except Exception:
         pass
+
 # Disable import adapter entirely if Django is present to avoid metaclass issues.
 _DJ_PRESENT = _iu.find_spec("django") is not None
 if not STRICT and not _DJ_PRESENT:
@@ -710,75 +800,58 @@ if not STRICT and not _DJ_PRESENT:
         return mod
     _builtins.__import__ = _import_with_adapter
 
-    
-# Replace the Django bootstrap section with this simplified version
-# --- Minimal Django auto-config (before any app/model import) ---
+# Handle Django configuration for tests
 try:
-    import importlib, pkgutil
-    if _iu.find_spec("django") is not None:
-        import django
-        from django.conf import settings as _dj_settings
-        from django.apps import apps as _dj_apps
-
-        def _maybe_add(app_name, installed):
-            try:
-                if _iu.find_spec(app_name):
-                    installed.append(app_name)
-                    return True
-            except Exception:
-                pass
-            return False
-
-        if not _dj_settings.configured:
-            _installed = [
-                "django.contrib.auth",
-                "django.contrib.contenttypes", 
-                "django.contrib.sessions"
-            ]
+    import django
+    from django.conf import settings
+    from django import apps as _dj_apps
+    
+    if not settings.configured:
+        _cfg = dict(
+            DEBUG=True,
+            SECRET_KEY='test-secret-key-for-pytest',
+            DATABASES={{
+                'default': {{
+                    'ENGINE': 'django.db.backends.sqlite3',
+                    'NAME': ':memory:',
+                }}
+            }},
+            INSTALLED_APPS=[
+                'django.contrib.auth',
+                'django.contrib.contenttypes',
+                'django.contrib.sessions',
+                'django.contrib.messages',
+            ],
+            MIDDLEWARE=[
+                'django.middleware.security.SecurityMiddleware',
+                'django.contrib.sessions.middleware.SessionMiddleware',
+                'django.middleware.common.CommonMiddleware',
+            ],
+            USE_TZ=True,
+            TIME_ZONE="UTC",
+        )
+        try:
+            _cfg["DEFAULT_AUTO_FIELD"] = "django.db.models.AutoField"
+        except Exception:
+            pass
+        try:
+            settings.configure(**_cfg)
+        except Exception as e:
+            # Don't skip module-level, just continue
+            pass
+    
+    if not _dj_apps.ready:
+        try:
+            django.setup()
+        except Exception as e:
+            # Don't skip module-level, just continue
+            pass
             
-            if _iu.find_spec("rest_framework"):
-                _installed.append("rest_framework")
-
-            # Try to add conduit apps
-            for _app in ("conduit.apps.core", "conduit.apps.articles", "conduit.apps.authentication", "conduit.apps.profiles"):
-                _maybe_add(_app, _installed)
-
-            _cfg = dict(
-                SECRET_KEY="test-key",
-                DEBUG=True,
-                ALLOWED_HOSTS=["*"],
-                INSTALLED_APPS=sorted(set(_installed)),
-                DATABASES=dict(default=dict(ENGINE="django.db.backends.sqlite3", NAME=":memory:")),
-                MIDDLEWARE=[
-                    'django.middleware.security.SecurityMiddleware',
-                    'django.contrib.sessions.middleware.SessionMiddleware',
-                    'django.middleware.common.CommonMiddleware',
-                ],
-                USE_TZ=True,
-                TIME_ZONE="UTC",
-            )
-            
-            try:
-                _cfg["DEFAULT_AUTO_FIELD"] = "django.db.models.AutoField"
-            except Exception:
-                pass
-
-            try:
-                _dj_settings.configure(**_cfg)
-            except Exception as e:
-                # Don't skip module-level, just continue
-                pass
-
-        if not _dj_apps.ready:
-            try:
-                django.setup()
-            except Exception as e:
-                # Don't skip module-level, just continue
-                pass
-
 except Exception as e:
     # Don't skip at module level - let individual tests handle Django issues
     pass
+
+{qt_block}
 
 # --- /ENHANCED UNIVERSAL BOOTSTRAP ---
 '''
@@ -892,14 +965,14 @@ def _massage_generated_code(code: str) -> str:
 
     # Fix bad pattern: "from pkg.subpkg import __init__ as alias" -> "import pkg.subpkg as alias"
     code = re.sub(
-        r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s+as\s+([A-Za-z_]\w*)\s*$',
+        r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s+as\s+([A-Za-z_]\w*)\s*,
         r'import \1 as \2',
         code,
         flags=re.MULTILINE,
     )
     # Fix "from pkg.subpkg import __init__"
     code = re.sub(
-        r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s*$',
+        r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s*,
         r'import \1',
         code,
         flags=re.MULTILINE,

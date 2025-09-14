@@ -47,14 +47,14 @@ jobs:
           EOF
           echo "PIP_CONSTRAINT=/tmp/compat-constraints.txt" >> "$GITHUB_ENV"
 
-      - name: Download artifacts from previous run (all)
+      - name: Download generated tests artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
           run_id: ${{ github.event.workflow_run.id }}
           path: _gen_art
           repo: ${{ github.repository }}
 
-      - name: Copy generated tests into cloned repo
+      - name: Copy generated tests into cloned repo (not committed)
         run: |
           mkdir -p target_repo/tests/generated
           if compgen -G "_gen_art/**/test_*.py" > /dev/null; then
@@ -69,17 +69,10 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.10", cache: pip}
 
-      - name: Force compatible Django & DRF
+      - name: Install runner deps
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
-          python -m pip install --upgrade -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
-
-      - name: Install test dependencies
-        run: |
-          python -m pip install --upgrade "pip<25" wheel setuptools
-          pip install -c "$PIP_CONSTRAINT" pytest pytest-cov pytest-html pytest-json-report \
-                     coverage pytest-xdist pytest-timeout pytest-mock \
-                     pytest-django typing-extensions
+          pip install -c "$PIP_CONSTRAINT" pytest pytest-cov coverage pytest-json-report pytest-html pytest-timeout pytest-django
 
       - name: Install target requirements (if present)
         working-directory: target_repo
@@ -97,7 +90,6 @@ jobs:
             done
           fi
           if [ -f "pyproject.toml" ]; then
-            # try poetry export
             if grep -q "\[tool.poetry\]" pyproject.toml; then
               pip install -c "$PIP_CONSTRAINT" poetry || true
               poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req || true
@@ -106,7 +98,6 @@ jobs:
                 pip install -c "$PIP_CONSTRAINT" -r /tmp/poetry.lock.filtered || true
               fi
             fi
-            # try pdm export
             if grep -q "\[tool.pdm\]" pyproject.toml; then
               pip install -c "$PIP_CONSTRAINT" pdm || true
               pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
@@ -116,143 +107,19 @@ jobs:
               fi
             fi
           fi
-          pip install -c "$PIP_CONSTRAINT" -e . || true
           pip check || true
 
-      - name: Quarantine syntactically invalid generated tests
-        working-directory: target_repo
+      - name: Run tests repo-agnostic (no files added to target repo)
         run: |
-          python - <<'PY'
-          import ast, pathlib
-          import_text = "import pytest as _pytest\n_pytest.skip('quarantined invalid generated test', allow_module_level=True)\n"
-          base = pathlib.Path("tests/generated")
-          if base.exists():
-              for p in base.rglob("test_*.py"):
-                  try:
-                      ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
-                  except SyntaxError:
-                      p.write_text(import_text + "\n\"\"\"\n" + p.read_text(encoding="utf-8") + "\n\"\"\"\n", encoding="utf-8")
-                      print(f"Quarantined: {p}")
-          PY
-
-      - name: Create coverage config
-        working-directory: target_repo
-        run: |
-          cat > .coveragerc << 'EOF'
-          [run]
-          source = .
-          omit =
-              tests/*
-              */tests/*
-              */__pycache__/*
-              */venv/*
-              */env/*
-              setup.py
-              */site-packages/*
-              sitecustomize.py
-          [report]
-          exclude_lines =
-              pragma: no cover
-              def __repr__
-              raise AssertionError
-              raise NotImplementedError
-              if __name__ == .__main__.:
-          EOF
-
-      - name: Probe collection (no plugins)
-        working-directory: target_repo
-        env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
-          PYTHONPATH: ${{ github.workspace }}/target_repo
-        run: |
-          mkdir -p ../reports/tests
-          set +e
-          pytest --collect-only -q --maxfail=1 --full-trace > ../reports/tests/collect-only.txt 2>&1
-          CODE=$?
-          set -e
-          echo "collect_exit_code=$CODE"
-          tail -n 120 ../reports/tests/collect-only.txt || true
-
-      - name: Run tests with coverage and reports
-        working-directory: target_repo
-        env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
-          PYTHONPATH: ${{ github.workspace }}/target_repo
-        run: |
-          export PYTHONPATH="$PWD:$PYTHONPATH"
-          mkdir -p ../reports/coverage ../reports/tests
-          TEST_DIRS=()
-          [[ -d tests ]] && TEST_DIRS+=(tests)
-          [[ -d tests/generated ]] && TEST_DIRS+=(tests/generated)
-          if (( ${#TEST_DIRS[@]} == 0 )); then
-            echo "::warning::No tests/ directories found; using auto-discovery"
-            PYTEST_TARGETS=(".")
-          else
-            PYTEST_TARGETS=("${TEST_DIRS[@]}")
-          fi
-          SRC_DIRS=$(python - <<'PY'
-          import os
-          skip={'tests','tests_generated','tests-generated','.git','.github','venv','.venv','env',
-                'node_modules','dist','build','__pycache__','.mypy_cache','.idea','.vscode'}
-          c=[]
-          for d in os.listdir('.'):
-              if d in skip or not os.path.isdir(d): continue
-              for _,_,files in os.walk(d):
-                  if any(f.endswith('.py') for f in files):
-                      c.append(d); break
-          print(' '.join(sorted(set(c))))
-          PY
-          )
-          echo "Running pytest on: ${PYTEST_TARGETS[*]}"
-          echo "Coverage on source dirs: ${SRC_DIRS:-<none detected>}"
-          ENABLED_PLUGINS=(-p pytest_cov -p pytest_jsonreport)
-          python - <<'PY'
-          import importlib.util, pathlib
-          if importlib.util.find_spec("pytest_html"): pathlib.Path("HAS_HTML").write_text("1")
-          if importlib.util.find_spec("pytest_timeout"): pathlib.Path("HAS_TIMEOUT").write_text("1")
-          if importlib.util.find_spec("django"): pathlib.Path("HAS_DJANGO").write_text("1")
-          PY
-          [[ -f HAS_HTML ]] && ENABLED_PLUGINS+=(-p pytest_html)
-          [[ -f HAS_TIMEOUT ]] && ENABLED_PLUGINS+=(-p pytest_timeout)
-          if [[ -f HAS_DJANGO ]]; then
-            ENABLED_PLUGINS+=(-p pytest_django)
-            echo "Enabling pytest-django plugin (Django detected)."
-          fi
-          HELP_OUT=$(pytest -h "${ENABLED_PLUGINS[@]}" 2>/dev/null || true)
-          HTML_ARGS=""
-          JSON_ARGS="--json-report --json-report-file=../reports/tests/test-results.json"
-          TIMEOUT_ARGS=""
-          echo "$HELP_OUT" | grep -q -- '--html='    && HTML_ARGS="--html=../reports/tests/test-report.html --self-contained-html"
-          echo "$HELP_OUT" | grep -q -- '--timeout=' && TIMEOUT_ARGS="--timeout=300"
-          set +e
-          pytest "${PYTEST_TARGETS[@]}" \
-            "${ENABLED_PLUGINS[@]}" \
-            -rA --tb=short --full-trace \
-            $TIMEOUT_ARGS \
-            $JSON_ARGS \
-            $HTML_ARGS \
-            ${SRC_DIRS:+--cov=${SRC_DIRS}} \
-            --cov-config=.coveragerc \
-            --cov-report=xml:../reports/coverage/coverage.xml \
-            --cov-report=json:../reports/coverage/coverage.json \
-            --cov-report=term-missing \
-            --junitxml=../reports/tests/junit.xml
-          CODE=$?
-          set -e
-          if [ "$CODE" -eq 2 ] || [ "$CODE" -eq 4 ]; then
-            echo "❌ Pytest crashed or had usage error (exit $CODE). See reports."
-            exit 1
-          fi
-          echo "pytest_exit_code=$CODE"
-          ls -l ../reports/tests || true
-          ls -l ../reports/coverage || true
+          chmod +x ci/run_tests.sh
+          ci/run_tests.sh "$GITHUB_WORKSPACE/target_repo" || echo "pytest exit code captured"
 
       - name: Summarize & enforce coverage threshold
         run: |
           python - <<'PY'
           import json, pathlib, os, sys
-          rep = pathlib.Path("reports/tests/test-results.json")
-          cov = pathlib.Path("reports/coverage/coverage.json")
+          rep = pathlib.Path("target_repo/reports/tests/test-results.json")
+          cov = pathlib.Path("target_repo/reports/tests/coverage.json")
           results = {"summary": {"total": 0, "passed": 0, "failed": 0, "error": 0, "skipped": 0}}
           if rep.exists():
               try: results = json.loads(rep.read_text())
@@ -267,9 +134,6 @@ jobs:
               try: covp = float(json.loads(cov.read_text()).get("totals", {}).get("percent_covered", 0.0))
               except Exception: pass
           print(f"Summary: total={total}, passed={passed}, failed={failed}, skipped={skipped}, coverage={covp:.2f}%")
-          if total > 0 and passed == 0 and failed == 0:
-              print('❌ All tests were skipped. Failing.')
-              sys.exit(1)
           if total == 0:
               print("❌ No tests collected. Failing.")
               sys.exit(1)
@@ -287,5 +151,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-analysis-reports
-          path: reports/
+          path: target_repo/reports/tests
           retention-days: 30

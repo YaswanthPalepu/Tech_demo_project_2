@@ -9,7 +9,7 @@ on:
       repo_url:
         description: "Repository to validate"
         required: false
-        default: "https://github.com/DeviPrasad372002/django-test-app.git"
+        default: "https://github.com/DeviPrasad372002/test-calculator.git"
       coverage_threshold:
         description: "Minimum coverage threshold (%)"
         required: false
@@ -35,7 +35,7 @@ jobs:
 
       - name: Clone target repository to ./target_repo
         run: |
-          REPO_URL="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
+          REPO_URL="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/test-calculator.git' }}"
           rm -rf target_repo
           git clone --depth=1 "$REPO_URL" target_repo
 

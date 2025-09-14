@@ -8,7 +8,7 @@ on:
       repo_url:
         description: "Repo to analyze"
         required: true
-        default: "https://github.com/DeviPrasad372002/django-test-app.git"
+        default: "https://github.com/DeviPrasad372002/test-calculator.git"
       force_gen:
         required: false
         default: "false"
@@ -60,7 +60,7 @@ jobs:
 
       - name: Clone target repository
         run: |
-          REPO_URL="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
+          REPO_URL="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/test-calculator.git' }}"
           echo "REPO_URL=$REPO_URL" >> $GITHUB_ENV
           git clone --depth 1 "$REPO_URL" target
 

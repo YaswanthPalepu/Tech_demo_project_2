@@ -22,7 +22,6 @@ on:
   #   types: [completed]
   push:
     branches: ["test"]
-    
 
 concurrency:
   group: validate-tests-${{ github.ref }}-${{ github.workflow }}
@@ -127,7 +126,7 @@ jobs:
           echo "🔧 Installing testing framework..."
           python -m pip install --upgrade "pip<25" wheel setuptools
           
-          # Install core testing tools with constraints
+          # Install core testing tools with constraints - ensuring all plugins are available
           pip install -c "$PIP_CONSTRAINT" \
             pytest \
             pytest-cov \
@@ -137,10 +136,25 @@ jobs:
             pytest-mock \
             pytest-django \
             pytest-flask \
+            pytest-xdist \
+            pytest-metadata \
             coverage \
             httpx \
             requests \
             psycopg2-binary
+          
+          # Verify plugin installation
+          echo "🔍 Verifying pytest plugins:"
+          python -c "
+          import pytest
+          plugins = ['pytest_cov', 'pytest_html', 'pytest_json_report', 'pytest_timeout', 'pytest_django']
+          for plugin in plugins:
+              try:
+                  __import__(plugin)
+                  print(f'  ✅ {plugin}')
+              except ImportError:
+                  print(f'  ❌ {plugin} - not available')
+          "
           
           echo "✅ Core testing dependencies installed"
 
@@ -216,33 +230,705 @@ jobs:
         run: |
           echo "🔍 Checking for generated tests..."
           
-          # Check for generated tests directory
-          if [ -d "tests/generated" ]; then
-            generated_count=$(find tests/generated -name "test_*.py" | wc -l)
-            echo "✅ Found tests/generated directory with $generated_count test files"
-            echo "has_generated_tests=true" >> $GITHUB_OUTPUT
-            echo "generated_count=$generated_count" >> $GITHUB_OUTPUT
-            
-            echo "📁 Generated test files:"
-            find tests/generated -name "test_*.py" | head -10 | sed 's/^/  - /'
-          else
-            echo "❌ No tests/generated directory found"
+          # Debug: Show repository structure
+          echo "📁 Repository structure:"
+          find . -type f -name "*.py" | grep -E "(test|Test)" | head -20 | sed 's/^/  /'
+          
+          echo ""
+          echo "📂 Directory structure (first 3 levels):"
+          find . -maxdepth 3 -type d | sort | sed 's/^/  /'
+          
+          # Check for tests directory (with different possible names)
+          echo ""
+          echo "🔍 Looking for test directories..."
+          test_dirs_found=""
+          for test_dir in "tests" "test" "Tests" "Test"; do
+            if [ -d "$test_dir" ]; then
+              echo "✅ Found $test_dir/ directory"
+              test_dirs_found="$test_dirs_found $test_dir"
+              
+              # Check for generated subdirectory
+              if [ -d "$test_dir/generated" ]; then
+                generated_count=$(find "$test_dir/generated" -name "test_*.py" -o -name "*_test.py" | wc -l)
+                echo "  ✅ Found $test_dir/generated/ with $generated_count test files"
+                echo "has_generated_tests=true" >> $GITHUB_OUTPUT
+                echo "generated_count=$generated_count" >> $GITHUB_OUTPUT
+                echo "generated_dir=$test_dir/generated" >> $GITHUB_OUTPUT
+                
+                echo "  📁 Generated test files:"
+                find "$test_dir/generated" -name "test_*.py" -o -name "*_test.py" | head -10 | sed 's/^/    - /'
+                
+                # Show file contents preview for debugging
+                echo "  📄 Sample file content:"
+                for test_file in $(find "$test_dir/generated" -name "test_*.py" | head -1); do
+                  if [ -f "$test_file" ]; then
+                    echo "    File: $test_file"
+                    echo "    Size: $(wc -c < "$test_file") bytes"
+                    echo "    First 5 lines:"
+                    head -5 "$test_file" | sed 's/^/      /'
+                  fi
+                done
+              else
+                echo "  ❌ No generated/ subdirectory in $test_dir/"
+              fi
+            fi
+          done
+          
+          if [ -z "$test_dirs_found" ]; then
+            echo "❌ No test directories found"
             echo "has_generated_tests=false" >> $GITHUB_OUTPUT
             echo "generated_count=0" >> $GITHUB_OUTPUT
           fi
           
-          # Check for any test files in the repository
-          total_tests=$(find . -name "test_*.py" -o -name "*_test.py" | grep -v "/venv/" | grep -v "/.venv/" | grep -v "/site-packages/" | wc -l)
-          echo "📊 Total test files in repository: $total_tests"
+          # Check for any test files anywhere in the repository
+          echo ""
+          echo "🔍 Searching for all test files in repository..."
+          all_test_files=$(find . -name "test_*.py" -o -name "*_test.py" | grep -v "/venv/" | grep -v "/.venv/" | grep -v "/site-packages/" | grep -v "/.git/")
+          total_tests=$(echo "$all_test_files" | grep -v '^
+
+      - name: Setup Django configuration (if needed)
+        working-directory: target
+        run: |
+          echo "🔧 Setting up Django configuration if needed..."
+          
+          # Check if this is a Django project by looking for settings files
+          settings_files=$(find . -name "settings.py" -type f | head -5)
+          
+          if [ -n "$settings_files" ]; then
+            echo "🎯 Django project detected"
+            echo "Found settings files:"
+            echo "$settings_files" | sed 's/^/  - /'
+            
+            # Try to find the main settings file (usually in a project directory)
+            main_settings=""
+            for settings_file in $settings_files; do
+              # Extract directory name and check if it looks like a main project
+              dir_name=$(dirname "$settings_file" | sed 's|^\./||')
+              if [ "$dir_name" != "." ] && [ ! -path "*/migrations/*" ]; then
+                main_settings="$settings_file"
+                break
+              fi
+            done
+            
+            # Fallback to first settings file found
+            if [ -z "$main_settings" ]; then
+              main_settings=$(echo "$settings_files" | head -1)
+            fi
+            
+            echo "📝 Using settings file: $main_settings"
+            
+            # Extract settings module path
+            settings_module=$(echo "$main_settings" | sed 's|^\./||' | sed 's|/|.|g' | sed 's|\.py$||')
+            echo "📝 Django settings module: $settings_module"
+            echo "DJANGO_SETTINGS_MODULE=$settings_module" >> $GITHUB_ENV
+            
+            # Create enhanced conftest.py for Django
+            cat > conftest.py << 'EOF'
+          import os
+          import sys
+          import pathlib
+          
+          # Add project root to Python path
+          ROOT = pathlib.Path(__file__).resolve().parent
+          if str(ROOT) not in sys.path:
+              sys.path.insert(0, str(ROOT))
+          
+          # Configure Django if needed
+          def setup_django():
+              try:
+                  import django
+                  from django.conf import settings
+                  
+                  if not settings.configured:
+                      # Try to configure Django with the settings module
+                      if not os.environ.get('DJANGO_SETTINGS_MODULE'):
+                          # Try to find and set settings module automatically
+                          for settings_file in ROOT.rglob('settings.py'):
+                              if 'migration' not in str(settings_file):
+                                  relative_path = settings_file.relative_to(ROOT).with_suffix('')
+                                  settings_module = '.'.join(relative_path.parts)
+                                  os.environ['DJANGO_SETTINGS_MODULE'] = settings_module
+                                  break
+                      
+                      django.setup()
+                      print("✅ Django configured successfully")
+                      return True
+              except Exception as e:
+                  print(f"⚠️ Django setup warning: {e}")
+                  return False
+          
+          # Setup Django when conftest is imported
+          setup_django()
+          
+          # Additional pytest configuration for generated tests
+          import pytest
+          
+          def pytest_configure(config):
+              """Configure pytest for generated tests"""
+              config.addinivalue_line("markers", "generated: marks tests as AI-generated")
+              config.addinivalue_line("markers", "unit: marks tests as unit tests")
+              config.addinivalue_line("markers", "integration: marks tests as integration tests")
+              config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")
+          
+          @pytest.fixture(autouse=True)
+          def setup_test_environment():
+              """Setup test environment for each test"""
+              # Ensure Django is setup for each test
+              setup_django()
+          EOF
+            
+            echo "✅ Django configuration completed"
+            
+            # Show Django version and settings info
+            python -c "
+          import django
+          print(f'Django version: {django.get_version()}')
+          try:
+              from django.conf import settings
+              print(f'Settings module: {settings.SETTINGS_MODULE}')
+              print(f'DEBUG: {getattr(settings, \"DEBUG\", \"Not set\")}')
+              print(f'Installed apps count: {len(getattr(settings, \"INSTALLED_APPS\", []))}')
+          except Exception as e:
+              print(f'Settings not accessible: {e}')
+          " || echo "Django info not available yet"
+          
+          else
+            echo "ℹ️ No Django project detected"
+            
+            # Create basic conftest.py for non-Django projects
+            cat > conftest.py << 'EOF'
+          import pytest
+          import sys
+          import pathlib
+          
+          # Add project root to Python path
+          ROOT = pathlib.Path(__file__).resolve().parent
+          if str(ROOT) not in sys.path:
+              sys.path.insert(0, str(ROOT))
+          
+          def pytest_configure(config):
+              """Configure pytest for generated tests"""
+              config.addinivalue_line("markers", "generated: marks tests as AI-generated")
+              config.addinivalue_line("markers", "unit: marks tests as unit tests")
+              config.addinivalue_line("markers", "integration: marks tests as integration tests")
+              config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")
+          EOF
+          fi
+
+      - name: Discover and validate test structure
+        working-directory: target
+        run: |
+          echo "🧪 Discovering and validating test structure..."
+          
+          # Create reports directory
+          mkdir -p reports/tests
+          
+          python << 'EOF'
+          import pathlib
+          import ast
+          import sys
+          
+          def is_excluded_path(path_str):
+              """Check if path should be excluded from test discovery"""
+              exclude_patterns = [
+                  'venv', '.venv', 'env', '.env',
+                  'site-packages', 'node_modules', 
+                  '.git', '.pytest_cache', '__pycache__',
+                  'build', 'dist', '.tox'
+              ]
+              
+              path_parts = pathlib.Path(path_str).parts
+              return any(pattern in path_parts for pattern in exclude_patterns)
+          
+          def find_valid_test_files():
+              """Find valid test files with proper filtering"""
+              root = pathlib.Path('.')
+              test_files = []
+              invalid_files = []
+              
+              # Look for test files with common patterns
+              patterns = ['test_*.py', '*_test.py']
+              
+              for pattern in patterns:
+                  for file_path in root.rglob(pattern):
+                      file_str = str(file_path)
+                      if not is_excluded_path(file_str) and file_path.is_file():
+                          # Validate syntax
+                          try:
+                              content = file_path.read_text(encoding='utf-8', errors='ignore')
+                              ast.parse(content, filename=str(file_path))
+                              test_files.append(file_str)
+                          except SyntaxError as e:
+                              invalid_files.append((file_str, str(e)))
+                              print(f"⚠️ Syntax error in {file_str}: {e}")
+              
+              return sorted(set(test_files)), invalid_files
+          
+          def find_test_directories():
+              """Find test directories with proper filtering"""
+              root = pathlib.Path('.')
+              test_dirs = []
+              
+              for dir_path in root.rglob('*'):
+                  if dir_path.is_dir() and dir_path.name in ['tests', 'test']:
+                      dir_str = str(dir_path)
+                      if not is_excluded_path(dir_str):
+                          # Check if directory contains Python test files
+                          has_test_files = any(
+                              f.name.startswith('test_') or f.name.endswith('_test.py')
+                              for f in dir_path.rglob('*.py')
+                              if not is_excluded_path(str(f))
+                          )
+                          if has_test_files:
+                              test_dirs.append(dir_str)
+              
+              return sorted(set(test_dirs))
+          
+          # Discover tests
+          test_files, invalid_files = find_valid_test_files()
+          test_dirs = find_test_directories()
+          
+          print(f"✅ Found {len(test_files)} valid test files")
+          print(f"⚠️ Found {len(invalid_files)} invalid test files")
+          
+          if test_files:
+              print("📁 Valid test files:")
+              for file in test_files[:20]:  # Show first 20
+                  print(f"  - {file}")
+              if len(test_files) > 20:
+                  print(f"  ... and {len(test_files) - 20} more")
+          
+          if test_dirs:
+              print("📁 Test directories:")
+              for dir in test_dirs:
+                  print(f"  - {dir}")
+          
+          if invalid_files:
+              print("❌ Invalid test files (will be skipped):")
+              for file, error in invalid_files[:10]:
+                  print(f"  - {file}: {error}")
+          
+          # Determine test targets
+          test_targets = []
+          
+          # Add generated tests if they exist and we're not filtering
+          run_generated_only = '${{ github.event.inputs.run_generated_only }}' == 'true'
+          
+          # Look for generated tests in various possible locations
+          generated_test_paths = []
+          for test_dir in ['tests/generated', 'test/generated', 'Tests/generated', 'Test/generated']:
+              test_path = pathlib.Path(test_dir)
+              if test_path.exists():
+                  generated_files = [str(f) for f in test_path.rglob('test_*.py') if not is_excluded_path(str(f))]
+                  generated_files.extend([str(f) for f in test_path.rglob('*_test.py') if not is_excluded_path(str(f))])
+                  generated_test_paths.extend(generated_files)
+          
+          if run_generated_only:
+              if generated_test_paths:
+                  test_targets.extend(generated_test_paths)
+                  print(f"🎯 Running only generated tests: {len(generated_test_paths)} files")
+                  for target in generated_test_paths[:10]:
+                      print(f"  - {target}")
+                  if len(generated_test_paths) > 10:
+                      print(f"  ... and {len(generated_test_paths) - 10} more")
+              else:
+                  print("❌ No generated tests found but run_generated_only=true")
+                  print("💡 Make sure the AI Test Generation workflow has run successfully")
+                  print("   and generated tests are in tests/generated/ or test/generated/")
+                  
+                  # Show what directories exist
+                  root = pathlib.Path('.')
+                  test_dirs = [d for d in root.iterdir() if d.is_dir() and 'test' in d.name.lower()]
+                  if test_dirs:
+                      print("🔍 Found test-related directories:")
+                      for d in test_dirs:
+                          print(f"  - {d}/")
+                          if (d / 'generated').exists():
+                              gen_files = list((d / 'generated').glob('*.py'))
+                              print(f"    └── generated/ ({len(gen_files)} Python files)")
+                  sys.exit(1)
+          else:
+              # Add all valid test files and directories
+              test_targets.extend(test_files)
+              test_targets.extend(test_dirs)
+              
+              # Also specifically add any generated test files we found
+              test_targets.extend(generated_test_paths)
+          
+          if not test_targets:
+              print("❌ No valid test targets found")
+              print("")
+              print("🔍 Debug information:")
+              print(f"  - Found {len(test_files)} individual test files")
+              print(f"  - Found {len(test_dirs)} test directories") 
+              print(f"  - Found {len(generated_test_paths)} generated test files")
+              print(f"  - run_generated_only = {run_generated_only}")
+              print("")
+              print("💡 Possible solutions:")
+              print("  1. Run the AI Test Generation workflow first")
+              print("  2. Ensure tests are in standard locations (tests/ or test/)")
+              print("  3. Check that test files follow naming conventions (test_*.py or *_test.py)")
+              sys.exit(1)
+          
+          print(f"🎯 Final test targets: {len(test_targets)} items")
+          
+          # Write targets to file for next step
+          with open('/tmp/test_targets.txt', 'w') as f:
+              f.write(' '.join(f'"{target}"' for target in test_targets))
+          
+          EOF
+
+      - name: Run tests with coverage
+        working-directory: target
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "0"
+        run: |
+          echo "🚀 Running tests with coverage..."
+          
+          # Read test targets
+          test_targets=$(cat /tmp/test_targets.txt || echo '.')
+          
+          echo "📋 Test targets: $test_targets"
+          
+          # Check which pytest plugins are available
+          echo "🔍 Checking available pytest plugins..."
+          python << 'EOF'
+          available_plugins = []
+          try:
+              import pytest_cov
+              available_plugins.append("--cov=.")
+              available_plugins.append("--cov-report=json:reports/tests/coverage.json")
+              available_plugins.append("--cov-report=html:reports/tests/coverage-html")
+              available_plugins.append("--cov-report=term-missing")
+              print("✅ pytest-cov available")
+          except ImportError:
+              print("❌ pytest-cov not available")
+          
+          try:
+              import pytest_html
+              available_plugins.append("--html=reports/tests/test-report.html")
+              available_plugins.append("--self-contained-html")
+              print("✅ pytest-html available")
+          except ImportError:
+              print("❌ pytest-html not available")
+          
+          try:
+              import pytest_json_report
+              available_plugins.append("--json-report")
+              available_plugins.append("--json-report-file=reports/tests/test-results.json")
+              print("✅ pytest-json-report available")
+          except ImportError:
+              print("❌ pytest-json-report not available")
+          
+          try:
+              import pytest_timeout
+              available_plugins.append("--timeout=300")
+              print("✅ pytest-timeout available")
+          except ImportError:
+              print("❌ pytest-timeout not available")
+          
+          with open('/tmp/pytest_plugins.txt', 'w') as f:
+              f.write(' '.join(available_plugins))
+          EOF
+          
+          # Read available plugins
+          plugin_args=$(cat /tmp/pytest_plugins.txt || echo "")
+          
+          # Build pytest command with available plugins only
+          pytest_cmd="pytest -v --tb=short --maxfail=50 $plugin_args $test_targets"
+          
+          echo "📋 Running command: $pytest_cmd"
+          
+          # Create basic coverage config to exclude common non-test directories
+          cat > .coveragerc << 'EOF'
+          [run]
+          omit = 
+              */venv/*
+              */.venv/*
+              */site-packages/*
+              */migrations/*
+              */test*
+              manage.py
+              */settings/*
+              */config/*
+          
+          [report]
+          exclude_lines =
+              pragma: no cover
+              def __repr__
+              raise AssertionError
+              raise NotImplementedError
+          EOF
+          
+          # Run tests and capture exit code
+          set +e
+          eval $pytest_cmd
+          test_exit_code=$?
+          set -e
+          
+          echo "📊 Test execution completed with exit code: $test_exit_code"
+          
+          # If no reports were generated due to missing plugins, create basic ones
+          if [ ! -f "reports/tests/test-results.json" ]; then
+            echo "📝 Creating basic test results (plugins unavailable)"
+            python << 'EOF'
+          import json
+          import pathlib
+          
+          # Create basic test result structure
+          basic_result = {
+              "summary": {
+                  "total": 0,
+                  "passed": 0,
+                  "failed": 0,
+                  "error": 0,
+                  "skipped": 0
+              },
+              "tests": []
+          }
+          
+          pathlib.Path("reports/tests").mkdir(parents=True, exist_ok=True)
+          with open("reports/tests/test-results.json", "w") as f:
+              json.dump(basic_result, f)
+          
+          print("📄 Created basic test results file")
+          EOF
+          fi
+          
+          # Always show what was generated
+          echo "📄 Generated reports:"
+          ls -la reports/tests/ || echo "No reports directory found"
+
+      - name: Generate comprehensive test summary
+        id: test-summary
+        if: always()
+        working-directory: target
+        run: |
+          echo "📈 Generating comprehensive test summary..."
+          
+          python << 'EOF'
+          import json
+          import pathlib
+          import os
+          import sys
+          
+          # Default values
+          summary_data = {
+              "total": 0,
+              "passed": 0, 
+              "failed": 0,
+              "errors": 0,
+              "skipped": 0,
+              "coverage": 0.0,
+              "generated_tests": 0,
+              "regular_tests": 0
+          }
+          
+          status = "❌ FAILED"
+          
+          # Read test results
+          results_file = pathlib.Path("reports/tests/test-results.json")
+          if results_file.exists():
+              try:
+                  with open(results_file) as f:
+                      results = json.load(f)
+                  
+                  summary = results.get("summary", {})
+                  summary_data.update({
+                      "total": int(summary.get("total", 0)),
+                      "passed": int(summary.get("passed", 0)),
+                      "failed": int(summary.get("failed", 0)),
+                      "errors": int(summary.get("error", 0)),
+                      "skipped": int(summary.get("skipped", 0))
+                  })
+                  
+                  # Count generated vs regular tests
+                  tests = results.get("tests", [])
+                  generated_count = sum(1 for test in tests if "tests/generated" in test.get("nodeid", ""))
+                  regular_count = summary_data["total"] - generated_count
+                  
+                  summary_data["generated_tests"] = generated_count
+                  summary_data["regular_tests"] = regular_count
+                  
+                  print(f"✅ Parsed test results: {summary_data}")
+              except Exception as e:
+                  print(f"⚠️ Failed to parse test results: {e}")
+          else:
+              print("⚠️ No test results file found")
+          
+          # Read coverage results  
+          coverage_file = pathlib.Path("reports/tests/coverage.json")
+          if coverage_file.exists():
+              try:
+                  with open(coverage_file) as f:
+                      coverage_data = json.load(f)
+                  
+                  coverage_percent = coverage_data.get("totals", {}).get("percent_covered", 0.0)
+                  summary_data["coverage"] = float(coverage_percent)
+                  
+                  print(f"✅ Parsed coverage: {coverage_percent}%")
+              except Exception as e:
+                  print(f"⚠️ Failed to parse coverage: {e}")
+          
+          # Determine overall status
+          total_tests = summary_data["total"]
+          failed_tests = summary_data["failed"] + summary_data["errors"]
+          coverage = summary_data["coverage"]
+          threshold = float(os.environ.get("COVERAGE_THRESHOLD", "70"))
+          
+          if total_tests == 0:
+              status = "⚠️ NO TESTS FOUND"
+              print("❌ No tests were discovered or executed")
+          elif failed_tests == 0:
+              if coverage >= threshold:
+                  status = "✅ ALL TESTS PASSED"
+                  print("🎉 All tests passed and coverage meets threshold!")
+              else:
+                  status = "⚠️ TESTS PASSED, LOW COVERAGE"
+                  print(f"⚠️ Tests passed but coverage {coverage:.1f}% < {threshold}%")
+          else:
+              status = "❌ TESTS FAILED"
+              print(f"❌ {failed_tests} test(s) failed out of {total_tests}")
+          
+          # Create enhanced summary output
+          summary_text = f"""
+          ## 🧪 Generated Test Validation Results
+          
+          **Overall Status:** {status}
+          
+          ### 📊 Test Execution Statistics
+          - **Total Tests:** {summary_data['total']}
+          - **✅ Passed:** {summary_data['passed']}
+          - **❌ Failed:** {summary_data['failed']}
+          - **⚠️ Errors:** {summary_data['errors']}
+          - **⏭️ Skipped:** {summary_data['skipped']}
+          
+          ### 🤖 AI Generated vs Regular Tests
+          - **🤖 Generated Tests:** {summary_data['generated_tests']}
+          - **📝 Regular Tests:** {summary_data['regular_tests']}
+          
+          ### 📈 Coverage Analysis
+          - **Coverage:** {summary_data['coverage']:.2f}%
+          - **Threshold:** {threshold}%
+          - **Status:** {"✅ MEETS THRESHOLD" if coverage >= threshold else "❌ BELOW THRESHOLD"}
+          
+          ### 🎯 Validation Summary
+          {status}
+          
+          Generated by Azure OpenAI test validation pipeline.
+          """
+          
+          # Set GitHub Actions outputs (new format)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"summary<<EOF\n{summary_text}\nEOF\n")
+              f.write(f"status={status}\n")
+              f.write(f"total={summary_data['total']}\n")
+              f.write(f"passed={summary_data['passed']}\n")
+              f.write(f"failed={summary_data['failed']}\n")
+              f.write(f"errors={summary_data['errors']}\n")
+              f.write(f"skipped={summary_data['skipped']}\n")
+              f.write(f"coverage={summary_data['coverage']:.2f}\n")
+              f.write(f"generated_tests={summary_data['generated_tests']}\n")
+              f.write(f"regular_tests={summary_data['regular_tests']}\n")
+          
+          # Print summary to console
+          print("\n" + "="*80)
+          print(summary_text)
+          print("="*80)
+          
+          # Exit with appropriate code
+          if total_tests == 0 or failed_tests > 0:
+              sys.exit(1)
+          
+          EOF
+
+      - name: Upload comprehensive test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-validation-reports-${{ github.run_number }}
+          path: target/reports/tests/
+          retention-days: 30
+
+      - name: Comment on PR with results (if applicable)
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = `${{ steps.test-summary.outputs.summary }}`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+
+      - name: Create status check
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ steps.test-summary.outputs.status }}';
+            const state = status.includes('✅') ? 'success' : 
+                         status.includes('⚠️') ? 'failure' : 'failure';
+            
+            github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: state,
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              description: `${{ steps.test-summary.outputs.total }} tests, ${{ steps.test-summary.outputs.passed }} passed, ${{ steps.test-summary.outputs.failed }} failed`,
+              context: 'test-validation/generated-tests'
+            });
+
+      - name: Final validation summary
+        if: always()
+        run: |
+          echo "🏁 Test validation pipeline completed"
+          echo ""
+          echo "📊 FINAL RESULTS:"
+          echo "=================="
+          echo "Status: ${{ steps.test-summary.outputs.status }}"
+          echo "Total Tests: ${{ steps.test-summary.outputs.total }}"
+          echo "✅ Passed: ${{ steps.test-summary.outputs.passed }}"
+          echo "❌ Failed: ${{ steps.test-summary.outputs.failed }}"
+          echo "⚠️ Errors: ${{ steps.test-summary.outputs.errors }}"
+          echo "⏭️ Skipped: ${{ steps.test-summary.outputs.skipped }}"
+          echo "🤖 Generated Tests: ${{ steps.test-summary.outputs.generated_tests }}"
+          echo "📝 Regular Tests: ${{ steps.test-summary.outputs.regular_tests }}"
+          echo "📈 Coverage: ${{ steps.test-summary.outputs.coverage }}%"
+          echo "🎯 Threshold: ${{ env.COVERAGE_THRESHOLD }}%"
+          echo ""
+          
+          if [[ "${{ steps.test-summary.outputs.status }}" == *"✅"* ]]; then
+            echo "🎉 All tests passed successfully!"
+          elif [[ "${{ steps.test-summary.outputs.status }}" == *"⚠️"* ]]; then
+            echo "⚠️ Tests passed but with warnings (coverage/etc)"
+          else
+            echo "❌ Test validation failed"
+            exit 1
+          fi | wc -l)
+          
+          echo "📊 Total test files found: $total_tests"
           echo "total_test_files=$total_tests" >> $GITHUB_OUTPUT
+          
+          if [ "$total_tests" -gt 0 ]; then
+            echo "📁 All test files found:"
+            echo "$all_test_files" | head -20 | sed 's/^/  - /'
+            if [ "$total_tests" -gt 20 ]; then
+              echo "  ... and $((total_tests - 20)) more"
+            fi
+          fi
           
           # Check if this repo needs test generation first
           if [ "$total_tests" -eq 0 ]; then
             echo ""
             echo "💡 SUGGESTION: This repository has no tests!"
             echo "   You may need to run the 'AI Test Generation' workflow first."
-            echo "   Repository structure:"
-            find . -name "*.py" | grep -v "/venv/" | grep -v "/.venv/" | head -20 | sed 's/^/     /'
+            echo "   Repository Python files:"
+            find . -name "*.py" | grep -v "/venv/" | grep -v "/.venv/" | grep -v "/.git/" | head -20 | sed 's/^/     /'
           fi
 
       - name: Setup Django configuration (if needed)

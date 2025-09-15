@@ -30,14 +30,13 @@ jobs:
         with: {fetch-depth: 0}
 
       - name: Clone target repository to ./target_repo
+        timeout-minutes: 5
         env:
           GH_PAT3: ${{ secrets.GH_PAT3 || secrets.GITHUB_TOKEN }}
           INPUT_REPO_URL: ${{ github.event.inputs.repo_url || format('https://github.com/{0}.git', github.repository) }}
         run: |
           set -euo pipefail
           REPO_URL="$INPUT_REPO_URL"
-
-          # normalize to HTTPS
           case "$REPO_URL" in
             git://github.com/*)        REPO_URL="${REPO_URL/git:\/\//https://}";;
             git@github.com:*)          REPO_URL="https://github.com/${REPO_URL#git@github.com:}";;
@@ -45,24 +44,19 @@ jobs:
           esac
           [[ "$REPO_URL" != https://* ]] && REPO_URL="https://github.com/${REPO_URL#*/}"
           [[ "$REPO_URL" != *.git ]] && REPO_URL="${REPO_URL%.git}.git"
+          [ -n "$GH_PAT3" ] && REPO_URL="${REPO_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
 
-          # inject PAT for private repos
-          if [ -n "$GH_PAT3" ]; then
-            REPO_URL="${REPO_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
-          fi
-
-          echo "Cloning: $REPO_URL"
-          rm -rf target_repo
-          if ! git clone --depth=1 "$REPO_URL" target_repo; then
-            echo "git clone failed, trying tarball fallback"
+          git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 \
+              clone --depth=1 "$REPO_URL" target_repo || {
+            echo "git clone failed, tarball fallback"
             ORG_REPO="$(echo "$REPO_URL" | sed -E 's#^https://(?:x-access-token:[^@]+@)?github.com/([^/]+/[^/.]+)(\.git)?$#\1#')"
-            AUTH=()
-            [ -n "$GH_PAT3" ] && AUTH=(-H "Authorization: Bearer $GH_PAT3")
+            AUTH=(); [ -n "$GH_PAT3" ] && AUTH=(-H "Authorization: Bearer $GH_PAT3")
             mkdir -p target_repo
-            curl -sSL "${AUTH[@]}" -o /tmp/repo.tgz "https://api.github.com/repos/${ORG_REPO}/tarball"
+            curl -sS --fail --retry 5 --retry-all-errors --max-time 300 \
+                 "${AUTH[@]}" -L -o /tmp/repo.tgz \
+                 "https://api.github.com/repos/${ORG_REPO}/tarball"
             tar -xzf /tmp/repo.tgz --strip-components=1 -C target_repo
-          fi
-
+          }
 
       - uses: actions/setup-python@v5
         with: {python-version: "3.10", cache: pip}
@@ -83,8 +77,14 @@ jobs:
           fi
 
       - name: Install project dependencies (respect repo pins)
+        timeout-minutes: 15
         working-directory: target_repo
+        env:
+          PIP_DEFAULT_TIMEOUT: "120"
+          PIP_NO_INPUT: "1"
+          PIP_PROGRESS_BAR: "off"
         run: |
+          set -e
           if [ -f requirements.txt ]; then
             sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' requirements.txt || true
             pip install -r requirements.txt || true
@@ -110,45 +110,49 @@ jobs:
           pip check || true
 
       - name: Auto-install missing Python imports
+        timeout-minutes: 10
+        env:
+          PIP_DEFAULT_TIMEOUT: "120"
+          PIP_NO_INPUT: "1"
+          PIP_PROGRESS_BAR: "off"
         run: |
           python - <<'PY'
           import ast, pathlib, sys, subprocess, importlib.util
           ROOT = pathlib.Path("target_repo")
-          paths = [p for p in ROOT.rglob("*.py") if "venv" not in p.as_posix()]
+          paths = [p for p in ROOT.rglob("*.py")
+                   if "/venv/" not in p.as_posix() and p.stat().st_size < 800_000]
           std = set(getattr(sys, "stdlib_module_names", set())) or {
-              "os","sys","re","json","pathlib","math","itertools","functools","typing","subprocess","datetime",
-              "time","collections","dataclasses","ast","logging","unittest","argparse","asyncio","sqlite3",
-              "email","http","urllib","hashlib","hmac","base64","statistics","random","fractions","decimal",
-              "csv","shutil","tempfile","glob","inspect","traceback","textwrap","string","pprint","enum","types"
+            "os","sys","re","json","pathlib","math","itertools","functools","typing","subprocess","datetime",
+            "time","collections","dataclasses","ast","logging","unittest","argparse","asyncio","sqlite3",
+            "email","http","urllib","hashlib","hmac","base64","statistics","random","fractions","decimal",
+            "csv","shutil","tempfile","glob","inspect","traceback","textwrap","string","pprint","enum","types"
           }
-          deny = {
-              "models","model","views","view","urls","settings","config","configs","tests","test",
-              "schemas","schema","forms","admin","migrations","apps","serializers","permissions","filters",
-              "routers","services","repository","repositories","managers","helpers","utils","renderers","relations"
-          }
+          deny = {"models","model","views","view","urls","settings","config","configs","tests","test",
+                  "schemas","schema","forms","admin","migrations","apps","serializers","permissions","filters",
+                  "routers","services","repository","repositories","managers","helpers","utils",
+                  "renderers","relations"}  # known bad PyPI names
           alias = {
-              "bs4":"beautifulsoup4","cv2":"opencv-python","yaml":"PyYAML","sklearn":"scikit-learn",
-              "PIL":"Pillow","Crypto":"pycryptodome","MySQLdb":"mysqlclient","psycopg2":"psycopg2-binary",
-              "jwt":"PyJWT","rest_framework":"djangorestframework","jinja2":"Jinja2","flask":"Flask",
-              "werkzeug":"Werkzeug","sqlalchemy":"SQLAlchemy","fastapi":"fastapi","starlette":"starlette",
-              "pydantic":"pydantic","uvicorn":"uvicorn","marshmallow":"marshmallow","pymongo":"pymongo",
-              "redis":"redis","httpx":"httpx","requests":"requests","numpy":"numpy","pandas":"pandas",
-              "scipy":"scipy","matplotlib":"matplotlib","seaborn":"seaborn","faker":"Faker",
-              "cryptography":"cryptography","boto3":"boto3","googleapiclient":"google-api-python-client",
-              "google_cloud_storage":"google-cloud-storage","tensorflow":"tensorflow","torch":"torch",
-              "torchvision":"torchvision","snowflake":"snowflake-connector-python","django":"Django"
+            "bs4":"beautifulsoup4","cv2":"opencv-python","yaml":"PyYAML","sklearn":"scikit-learn","PIL":"Pillow",
+            "Crypto":"pycryptodome","MySQLdb":"mysqlclient","psycopg2":"psycopg2-binary","jwt":"PyJWT",
+            "rest_framework":"djangorestframework","jinja2":"Jinja2","flask":"Flask","werkzeug":"Werkzeug",
+            "sqlalchemy":"SQLAlchemy","fastapi":"fastapi","starlette":"starlette","pydantic":"pydantic",
+            "uvicorn":"uvicorn","marshmallow":"marshmallow","pymongo":"pymongo","redis":"redis","httpx":"httpx",
+            "requests":"requests","numpy":"numpy","pandas":"pandas","scipy":"scipy","matplotlib":"matplotlib",
+            "seaborn":"seaborn","faker":"Faker","cryptography":"cryptography","boto3":"boto3",
+            "googleapiclient":"google-api-python-client","google_cloud_storage":"google-cloud-storage",
+            "tensorflow":"tensorflow","torch":"torch","torchvision":"torchvision",
+            "snowflake":"snowflake-connector-python","django":"Django"
           }
-          extras = {"fastapi":["starlette","pydantic"], "django":["djangorestframework"]}
+          # do NOT auto-add DRF unless explicitly imported
+          extras = {"fastapi":["starlette","pydantic"]}
 
           def is_local(t): return (ROOT / f"{t}.py").exists() or (ROOT / t).is_dir()
-          def installed(top): return importlib.util.find_spec(top) is not None
+          def installed(t): return importlib.util.find_spec(t) is not None
 
           tops=set()
           for p in paths:
-              try:
-                  tree=ast.parse(p.read_text(encoding="utf-8",errors="ignore"))
-              except Exception:
-                  continue
+              try: tree=ast.parse(p.read_text(encoding="utf-8",errors="ignore"))
+              except Exception: continue
               for n in ast.walk(tree):
                   if isinstance(n, ast.Import):
                       for a in n.names: tops.add((a.name.split(".")[0] or "").strip())
@@ -166,12 +170,18 @@ jobs:
               for p in pkgs:
                   if p not in cands: cands.append(p)
 
-          for pkg in cands:
+          if cands:
               try:
-                  subprocess.check_call([sys.executable,"-m","pip","install","--disable-pip-version-check",pkg])
+                  subprocess.check_call([sys.executable,"-m","pip","install","--disable-pip-version-check",*cands])
               except subprocess.CalledProcessError as e:
-                  print(f"[auto-install] failed for {pkg} ({e.returncode})")
-          unresolved=[t for t in sorted(tops) if t and t not in std and t not in deny and not is_local(t) and not installed(t)]
+                  print("batch pip failed", e.returncode)
+                  for pkg in cands:
+                      try: subprocess.check_call([sys.executable,"-m","pip","install","--disable-pip-version-check",pkg])
+                      except subprocess.CalledProcessError as e2:
+                          print(f"pip failed for {pkg} ({e2.returncode})")
+
+          unresolved=[t for t in sorted(tops)
+                      if t and t not in std and t not in deny and not is_local(t) and not installed(t)]
           print("Unresolved after install:", unresolved)
           PY
 
@@ -191,17 +201,17 @@ jobs:
               import django
           except Exception:
               django = None
+          # Only configure if project has a settings.py with INSTALLED_APPS
+          if django is not None and not os.environ.get("DJANGO_SETTINGS_MODULE"):
+              for p in ROOT.rglob("settings.py"):
+                  try:
+                      txt = p.read_text(encoding="utf-8", errors="ignore")
+                  except Exception:
+                      continue
+                  if "INSTALLED_APPS" in txt:
+                      os.environ["DJANGO_SETTINGS_MODULE"] = ".".join(p.relative_to(ROOT).with_suffix("").parts)
+                      break
           if django is not None:
-              if not os.environ.get("DJANGO_SETTINGS_MODULE"):
-                  for p in ROOT.rglob("settings.py"):
-                      try:
-                          txt = p.read_text(encoding="utf-8", errors="ignore")
-                      except Exception:
-                          continue
-                      if "INSTALLED_APPS" in txt:
-                          mod = ".".join(p.relative_to(ROOT).with_suffix("").parts)
-                          os.environ["DJANGO_SETTINGS_MODULE"] = mod
-                          break
               try:
                   from django.apps import apps
                   if not apps.ready:
@@ -218,11 +228,42 @@ jobs:
           print("conftest.py ensured")
           PY
 
-      - name: Run all tests
+      - name: Discover tests and run
         working-directory: target_repo
         run: |
+          set -euo pipefail
+          unset PYTEST_ADDOPTS
+          TEST_ARGS="$(python - <<'PY'
+          import pathlib
+          root=pathlib.Path(".").resolve()
+          deny={'venv','.venv','site-packages','node_modules','dist','build','.git','__pycache__'}
+          patterns=['test_*.py','*_test.py','tests']
+          cands=set()
+          # collect files
+          for pat in patterns[:2]:
+              for p in root.rglob(pat):
+                  if set(p.parts)&deny: continue
+                  cands.add(p.parent)
+          # collect common test dirs
+          td = root / "tests"
+          if td.exists(): cands.add(td)
+          # compress to unique top-level dirs
+          dirs=set()
+          for d in sorted(cands):
+              try: rel=d.resolve().relative_to(root)
+              except Exception: continue
+              s=str(rel)
+              if not any(s!=x and s.startswith(x+'/') for x in dirs):
+                  dirs.add(s)
+          print(" ".join(sorted(dirs)))
+          PY
+                    )"
+          if [ -z "$TEST_ARGS" ]; then
+            echo "No tests discovered. Failing."; exit 1
+          fi
+          echo "Pytest targets: $TEST_ARGS"
           mkdir -p reports/tests
-          pytest -q -r a --maxfail=1 \
+          pytest -q -r a --maxfail=1 $TEST_ARGS \
             --json-report --json-report-file=reports/tests/test-results.json \
             --cov=. --cov-report=json:reports/tests/coverage.json || true
 

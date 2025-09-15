@@ -46,14 +46,13 @@ jobs:
           EOF
           echo "PIP_CONSTRAINT=/tmp/compat-constraints.txt" >> "$GITHUB_ENV"
 
-      # Download artifact from the last SUCCESSFUL run of the generator workflow (by file path)
       - name: Download latest successful generated-tests artifact
         uses: dawidd6/action-download-artifact@v2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow: .github/workflows/testgen.yml   # use file path, avoids name mismatch
+          workflow: .github/workflows/testgen.yml
           workflow_conclusion: success
-          branch: test                              # restrict to generator’s branch
+          branch: test
           name: generated-tests
           path: _gen_art
           repo: ${{ github.repository }}
@@ -78,7 +77,7 @@ jobs:
       - name: Install base runner deps
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
-          pip install -c "$PIP_CONSTRAINT" pytest pytest-cov coverage pytest-json-report pytest-html pytest-timeout
+          pip install -c "$PIP_CONSTRAINT" pytest pytest-cov coverage pytest-json-report pytest-html pytest-timeout pytest-django
 
       - name: Install target requirements (if present)
         working-directory: target_repo
@@ -113,13 +112,12 @@ jobs:
         run: |
           python - <<'PY'
           import ast, pathlib, sys, os, subprocess, importlib.util
-
           ROOT = pathlib.Path("target_repo")
           GEN  = ROOT / "tests" / "generated"
           files = []
           for base in (ROOT, GEN):
             if base.exists():
-              files += [p for p in base.rglob("*.py")]
+              files += list(base.rglob("*.py"))
 
           def top_imports(paths):
             tops=set()
@@ -145,7 +143,6 @@ jobs:
             "email","http","urllib","hashlib","hmac","base64","statistics","random","fractions","decimal",
             "csv","shutil","tempfile","glob","inspect","traceback","textwrap","string","pprint","enum","types"
           }
-
           def is_local(t): return (ROOT / f"{t}.py").exists() or (ROOT / t).is_dir()
 
           aliases = {
@@ -159,6 +156,7 @@ jobs:
             "seaborn":"seaborn", "pytest_django":"pytest-django", "faker":"Faker", "cryptography":"cryptography",
             "boto3":"boto3", "googleapiclient":"google-api-python-client", "google_cloud_storage":"google-cloud-storage",
             "tensorflow":"tensorflow", "torch":"torch", "torchvision":"torchvision", "snowflake":"snowflake-connector-python",
+            "django":"Django"
           }
           extras = {"fastapi":["starlette","pydantic"], "django":["djangorestframework"]}
 
@@ -189,17 +187,50 @@ jobs:
           print("Unresolved after install:", unresolved)
           PY
 
-      - name: Auto-detect Django settings (optional)
+      - name: Generate minimal Django settings for tests
         working-directory: target_repo
         run: |
-          if [ -f conduit/settings.py ]; then
-            echo "DJANGO_SETTINGS_MODULE=conduit.settings" >> $GITHUB_ENV
-            echo "Using DJANGO_SETTINGS_MODULE=conduit.settings"
-          fi
+          python - <<'PY'
+          import pathlib
+          root = pathlib.Path(".")
+          apps = []
+          for p in root.rglob("apps.py"):
+              rel = p.relative_to(root).with_suffix("")
+              pkg = ".".join(rel.parts[:-1])
+              if pkg and pkg not in apps:
+                  apps.append(pkg)
+          base = [
+            "django.contrib.auth","django.contrib.contenttypes",
+            "django.contrib.sessions","django.contrib.messages","django.contrib.admin"
+          ]
+          content = f"""
+          SECRET_KEY='autotest'
+          DEBUG=True
+          USE_TZ=True
+          TIME_ZONE='UTC'
+          ALLOWED_HOSTS=['*']
+          DATABASES={{'default':{{'ENGINE':'django.db.backends.sqlite3','NAME':':memory:'}}}}
+          INSTALLED_APPS={base + apps}
+          MIDDLEWARE=['django.middleware.security.SecurityMiddleware',
+                      'django.contrib.sessions.middleware.SessionMiddleware',
+                      'django.middleware.common.CommonMiddleware',
+                      'django.middleware.csrf.CsrfViewMiddleware',
+                      'django.contrib.auth.middleware.AuthenticationMiddleware',
+                      'django.contrib.messages.middleware.MessageMiddleware']
+          ROOT_URLCONF='__autourls__'
+          DEFAULT_AUTO_FIELD='django.db.models.AutoField'
+          EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend'
+          """
+          (root / "_autotest_settings.py").write_text(content, encoding="utf-8")
+          (root / "__autourls__.py").write_text("from django.urls import path\nurlpatterns=[]\n", encoding="utf-8")
+          print("Wrote _autotest_settings.py with apps:", apps)
+          PY
 
       - name: Run tests repo-agnostic (no files added to target repo)
         env:
-          TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "1"
+          PYTHONPATH: ${{ github.workspace }}/target_repo
+          DJANGO_SETTINGS_MODULE: _autotest_settings
+          TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "0"
         run: |
           chmod +x ci/run_tests.sh
           ci/run_tests.sh "$GITHUB_WORKSPACE/target_repo" || echo "pytest exit code captured"

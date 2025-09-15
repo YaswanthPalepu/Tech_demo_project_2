@@ -24,9 +24,8 @@ on:
           - django
           - flask
   push:
-    branches: ["main", "master", "develop"]
-  pull_request:
-    branches: ["main", "master"]
+    branches: ["test"]
+
 
 concurrency:
   group: azure-openai-test-${{ github.ref }}

@@ -79,29 +79,34 @@ jobs:
           python -m pip install --upgrade "pip<25" wheel setuptools
           pip install -c "$PIP_CONSTRAINT" pytest pytest-cov coverage pytest-json-report pytest-html pytest-timeout pytest-django
 
-      - name: Install target requirements (if present)
+      - name: Install target requirements (repo-agnostic, strip conflicting pins)
         working-directory: target_repo
         run: |
+          filter_req() { grep -viE '^[[:space:]]*(django|djangorestframework)\b' "$1" > /tmp/req.filtered.txt || true; }
           if [ -f requirements.txt ]; then
             sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' requirements.txt || true
-            pip install -c "$PIP_CONSTRAINT" -r requirements.txt || true
+            filter_req requirements.txt
+            pip install -c "$PIP_CONSTRAINT" -r /tmp/req.filtered.txt || true
           fi
           if [ -d requirements ]; then
             for f in requirements/*.txt; do
               sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' "$f" || true
-              pip install -c "$PIP_CONSTRAINT" -r "$f" || true
+              filter_req "$f"
+              pip install -c "$PIP_CONSTRAINT" -r /tmp/req.filtered.txt || true
             done
           fi
           if [ -f "pyproject.toml" ]; then
             if grep -q "\[tool.poetry\]" pyproject.toml; then
               pip install -c "$PIP_CONSTRAINT" poetry || true
               poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req || true
-              [ -s /tmp/poetry.lock.req ] && pip install -c "$PIP_CONSTRAINT" -r /tmp/poetry.lock.req || true
+              [ -s /tmp/poetry.lock.req ] && grep -viE '^[[:space:]]*(django|djangorestframework)\b' /tmp/poetry.lock.req > /tmp/poetry.lock.filtered
+              [ -s /tmp/poetry.lock.filtered ] && pip install -c "$PIP_CONSTRAINT" -r /tmp/poetry.lock.filtered || true
             fi
             if grep -q "\[tool.pdm\]" pyproject.toml; then
               pip install -c "$PIP_CONSTRAINT" pdm || true
               pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
-              [ -s /tmp/pdm.lock.req ] && pip install -c "$PIP_CONSTRAINT" -r /tmp/pdm.lock.req || true
+              [ -s /tmp/pdm.lock.req ] && grep -viE '^[[:space:]]*(django|djangorestframework)\b' /tmp/pdm.lock.req > /tmp/pdm.lock.filtered
+              [ -s /tmp/pdm.lock.filtered ] && pip install -c "$PIP_CONSTRAINT" -r /tmp/pdm.lock.filtered || true
             fi
           fi
           pip check || true
@@ -143,6 +148,11 @@ jobs:
             "email","http","urllib","hashlib","hmac","base64","statistics","random","fractions","decimal",
             "csv","shutil","tempfile","glob","inspect","traceback","textwrap","string","pprint","enum","types"
           }
+          deny = {
+            "models","model","views","view","urls","settings","config","configs","tests","test",
+            "schemas","schema","forms","admin","migrations","apps","serializers","permissions","filters",
+            "routers","services","repository","repositories","managers","helpers","utils","renderers","relations"
+          }
           def is_local(t): return (ROOT / f"{t}.py").exists() or (ROOT / t).is_dir()
 
           aliases = {
@@ -164,7 +174,7 @@ jobs:
 
           candidates=[]
           for t in sorted(tops):
-            if not t or t.startswith("_") or t in std or is_local(t) or installed(t): continue
+            if not t or t.startswith("_") or t in std or t in deny or is_local(t) or installed(t): continue
             c=[aliases.get(t,t)]
             dash=t.replace("_","-")
             if dash!=t: c.append(dash)
@@ -183,7 +193,7 @@ jobs:
 
           for pkg in candidates: pip_install(pkg)
 
-          unresolved=[t for t in sorted(tops) if t not in std and not is_local(t) and not installed(t)]
+          unresolved=[t for t in sorted(tops) if t not in std and t not in deny and not is_local(t) and not installed(t)]
           print("Unresolved after install:", unresolved)
           PY
 
@@ -193,12 +203,19 @@ jobs:
           python - <<'PY'
           import pathlib
           root = pathlib.Path(".")
-          apps = []
+          apps = set()
+          # Prefer apps.py, else any package with models.py or migrations
           for p in root.rglob("apps.py"):
               rel = p.relative_to(root).with_suffix("")
               pkg = ".".join(rel.parts[:-1])
-              if pkg and pkg not in apps:
-                  apps.append(pkg)
+              if pkg: apps.add(pkg)
+          for p in root.rglob("models.py"):
+              pkg = ".".join(p.relative_to(root).parent.parts)
+              if pkg and "tests" not in pkg and "venv" not in pkg: apps.add(pkg)
+          for p in root.rglob("migrations"):
+              if (p / "__init__.py").exists():
+                  pkg = ".".join(p.relative_to(root).parent.parts)
+                  if pkg and "tests" not in pkg and "venv" not in pkg: apps.add(pkg)
           base = [
             "django.contrib.auth","django.contrib.contenttypes",
             "django.contrib.sessions","django.contrib.messages","django.contrib.admin"
@@ -210,7 +227,7 @@ jobs:
           TIME_ZONE='UTC'
           ALLOWED_HOSTS=['*']
           DATABASES={{'default':{{'ENGINE':'django.db.backends.sqlite3','NAME':':memory:'}}}}
-          INSTALLED_APPS={base + apps}
+          INSTALLED_APPS={base + sorted(apps)}
           MIDDLEWARE=['django.middleware.security.SecurityMiddleware',
                       'django.contrib.sessions.middleware.SessionMiddleware',
                       'django.middleware.common.CommonMiddleware',
@@ -223,7 +240,7 @@ jobs:
           """
           (root / "_autotest_settings.py").write_text(content, encoding="utf-8")
           (root / "__autourls__.py").write_text("from django.urls import path\nurlpatterns=[]\n", encoding="utf-8")
-          print("Wrote _autotest_settings.py with apps:", apps)
+          print("Wrote _autotest_settings.py with apps:", sorted(apps))
           PY
 
       - name: Run tests repo-agnostic (no files added to target repo)
@@ -231,6 +248,8 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/target_repo
           DJANGO_SETTINGS_MODULE: _autotest_settings
           TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "0"
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "0"
+          PYTEST_ADDOPTS: "-p pytest_django"
         run: |
           chmod +x ci/run_tests.sh
           ci/run_tests.sh "$GITHUB_WORKSPACE/target_repo" || echo "pytest exit code captured"

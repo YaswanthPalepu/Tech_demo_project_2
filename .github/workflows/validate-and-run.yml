@@ -11,9 +11,6 @@ on:
         description: "Minimum coverage threshold (%)"
         required: false
         default: "80"
-  push:
-    branches:
-      - test
 
 concurrency:
   group: test-validation-${{ github.workflow }}
@@ -47,15 +44,19 @@ jobs:
           EOF
           echo "PIP_CONSTRAINT=/tmp/compat-constraints.txt" >> "$GITHUB_ENV"
 
+      # Download artifact from the last SUCCESSFUL run of the generator workflow (by file path)
       - name: Download latest successful generated-tests artifact
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: AI Test Generation
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow: .github/workflows/testgen.yml   # use file path, avoids name mismatch
           workflow_conclusion: success
+          branch: test                              # restrict to generator’s branch
           name: generated-tests
           path: _gen_art
           repo: ${{ github.repository }}
-          if_no_artifact_found: fail
+          check_artifacts: true
+          search_artifacts: true
 
       - name: Copy generated tests into cloned repo (not committed)
         run: |
@@ -109,21 +110,20 @@ jobs:
           PIP_CONSTRAINT: /tmp/compat-constraints.txt
         run: |
           python - <<'PY'
-          import ast, pathlib, sys, os, subprocess, importlib.util, json
+          import ast, pathlib, sys, os, subprocess, importlib.util
 
           ROOT = pathlib.Path("target_repo")
           GEN  = ROOT / "tests" / "generated"
-          paths = []
+          files = []
           for base in (ROOT, GEN):
             if base.exists():
-              paths.extend(p.as_posix() for p in base.rglob("*.py"))
+              files += [p for p in base.rglob("*.py")]
 
-          def top_imports(files):
+          def top_imports(paths):
             tops=set()
-            for fp in files:
+            for p in paths:
               try:
-                src=pathlib.Path(fp).read_text(encoding="utf-8", errors="ignore")
-                tree=ast.parse(src)
+                tree=ast.parse(p.read_text(encoding="utf-8", errors="ignore"))
               except Exception:
                 continue
               for n in ast.walk(tree):
@@ -136,119 +136,54 @@ jobs:
                   if m: tops.add(m)
             return tops
 
-          tops = top_imports(paths)
+          tops = top_imports(files)
+          std = set(getattr(sys, "stdlib_module_names", set())) or {
+            "os","sys","re","json","pathlib","math","itertools","functools","typing","subprocess","datetime",
+            "time","collections","dataclasses","ast","logging","unittest","argparse","asyncio","sqlite3",
+            "email","http","urllib","hashlib","hmac","base64","statistics","random","fractions","decimal",
+            "csv","shutil","tempfile","glob","inspect","traceback","textwrap","string","pprint","enum","types"
+          }
 
-          # stdlib filter
-          std = set(getattr(sys, "stdlib_module_names", set()))
-          if not std:
-            std = {"os","sys","re","json","pathlib","math","itertools","functools","typing","subprocess","datetime",
-                   "time","collections","dataclasses","ast","logging","unittest","argparse","asyncio","sqlite3",
-                   "email","http","urllib","hashlib","hmac","base64","statistics","random","fractions","decimal",
-                   "csv","shutil","tempfile","glob","inspect","traceback","textwrap","string","pprint","enum","types"}
-          # local filter
-          def is_local(top):
-            return (ROOT / f"{top}.py").exists() or (ROOT / top).is_dir()
+          def is_local(t): return (ROOT / f"{t}.py").exists() or (ROOT / t).is_dir()
 
-          # map import top -> candidate pip packages
           aliases = {
-            "bs4":"beautifulsoup4",
-            "cv2":"opencv-python",
-            "yaml":"PyYAML",
-            "sklearn":"scikit-learn",
-            "PIL":"Pillow",
-            "Crypto":"pycryptodome",
-            "MySQLdb":"mysqlclient",
-            "psycopg2":"psycopg2-binary",
-            "jwt":"PyJWT",
-            "rest_framework":"djangorestframework",
-            "jinja2":"Jinja2",
-            "tensorflow":"tensorflow",
-            "torch":"torch",
-            "torchvision":"torchvision",
-            "fastapi":"fastapi",
-            "starlette":"starlette",
-            "pydantic":"pydantic",
-            "uvicorn":"uvicorn",
-            "flask":"Flask",
-            "werkzeug":"Werkzeug",
-            "sqlalchemy":"SQLAlchemy",
-            "marshmallow":"marshmallow",
-            "pymongo":"pymongo",
-            "redis":"redis",
-            "httpx":"httpx",
-            "requests":"requests",
-            "numpy":"numpy",
-            "pandas":"pandas",
-            "scipy":"scipy",
-            "matplotlib":"matplotlib",
-            "seaborn":"seaborn",
-            "pytest_django":"pytest-django",
-            "starlette_exporter":"starlette-exporter",
-            "faker":"Faker",
-            "cryptography":"cryptography",
-            "boto3":"boto3",
-            "google":"google",
-            "googleapiclient":"google-api-python-client",
-            "google_cloud_storage":"google-cloud-storage",
-            "snowflake":"snowflake-connector-python",
+            "bs4":"beautifulsoup4", "cv2":"opencv-python", "yaml":"PyYAML", "sklearn":"scikit-learn",
+            "PIL":"Pillow", "Crypto":"pycryptodome", "MySQLdb":"mysqlclient", "psycopg2":"psycopg2-binary",
+            "jwt":"PyJWT", "rest_framework":"djangorestframework", "jinja2":"Jinja2",
+            "fastapi":"fastapi", "starlette":"starlette", "pydantic":"pydantic",
+            "uvicorn":"uvicorn", "flask":"Flask", "werkzeug":"Werkzeug", "sqlalchemy":"SQLAlchemy",
+            "marshmallow":"marshmallow", "pymongo":"pymongo", "redis":"redis", "httpx":"httpx",
+            "requests":"requests", "numpy":"numpy", "pandas":"pandas", "scipy":"scipy", "matplotlib":"matplotlib",
+            "seaborn":"seaborn", "pytest_django":"pytest-django", "faker":"Faker", "cryptography":"cryptography",
+            "boto3":"boto3", "googleapiclient":"google-api-python-client", "google_cloud_storage":"google-cloud-storage",
+            "tensorflow":"tensorflow", "torch":"torch", "torchvision":"torchvision", "snowflake":"snowflake-connector-python",
           }
-          # extra packages implied by some tops
-          extras = {
-            "fastapi":["starlette","pydantic"],
-            "django":["djangorestframework"],  # safe default
-          }
+          extras = {"fastapi":["starlette","pydantic"], "django":["djangorestframework"]}
 
-          def installed(top):
-            return importlib.util.find_spec(top) is not None
+          def installed(top): return importlib.util.find_spec(top) is not None
 
-          to_try = []
+          candidates=[]
           for t in sorted(tops):
-            if not t or t.startswith("_") or t in std or is_local(t):
-              continue
-            if installed(t):
-              continue
-            cand = []
-            # alias, raw, dashed
-            if t in aliases: cand.append(aliases[t])
-            cand.append(t)
-            dash = t.replace("_","-")
-            if dash != t: cand.append(dash)
-            # special google namespace
-            if t == "google": cand += ["google-api-python-client","google-auth","google-auth-oauthlib"]
-            # queue
-            for c in cand:
-              if c not in to_try:
-                to_try.append(c)
-            for e in extras.get(t, []):
-              if e not in to_try:
-                to_try.append(e)
-
-          print("Missing import tops:", to_try)
+            if not t or t.startswith("_") or t in std or is_local(t) or installed(t): continue
+            c=[aliases.get(t,t)]
+            dash=t.replace("_","-")
+            if dash!=t: c.append(dash)
+            if t=="google": c += ["google-api-python-client","google-auth","google-auth-oauthlib"]
+            c += extras.get(t,[])
+            for pkg in c:
+              if pkg not in candidates: candidates.append(pkg)
 
           cons = os.environ.get("PIP_CONSTRAINT")
           def pip_install(pkg):
             cmd=[sys.executable,"-m","pip","install","--disable-pip-version-check"]
-            if cons and os.path.exists(cons):
-              cmd += ["-c", cons]
+            if cons and os.path.exists(cons): cmd += ["-c", cons]
             cmd.append(pkg)
-            try:
-              subprocess.check_call(cmd)
-              return True
-            except subprocess.CalledProcessError as e:
-              print(f"pip failed for {pkg} (exit {e.returncode})")
-              return False
+            try: subprocess.check_call(cmd)
+            except subprocess.CalledProcessError as e: print(f"pip failed for {pkg} ({e.returncode})")
 
-          installed_any=False
-          for pkg in to_try:
-            ok = pip_install(pkg)
-            # if this install satisfied some import, fine; we don't re-check each top here for speed
-            installed_any = installed_any or ok
+          for pkg in candidates: pip_install(pkg)
 
-          # final report of unresolved tops
-          unresolved=[]
-          for t in sorted(tops):
-            if t and not (t in std or is_local(t)) and not installed(t):
-              unresolved.append(t)
+          unresolved=[t for t in sorted(tops) if t not in std and not is_local(t) and not installed(t)]
           print("Unresolved after install:", unresolved)
           PY
 

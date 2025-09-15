@@ -22,7 +22,7 @@ on:
   #   workflows: ["AI Test Generation"]
   #   types: [completed]
   push:
-    branches: ["test"]
+    branches: [ "test" ]
 
 concurrency:
   group: validate-tests-${{ github.ref }}-${{ github.workflow }}

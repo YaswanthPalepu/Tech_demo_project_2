@@ -17,12 +17,12 @@ on:
         required: false
         default: false
         type: boolean
-  workflow_run:
-    workflows: ["AI Test Generation"]
-    types: [completed]
+  # workflow_run:
+  #   workflows: ["AI Test Generation"]
+  #   types: [completed]
   push:
     branches: ["test"]
-    paths: ["tests/generated/**"]
+    
 
 concurrency:
   group: validate-tests-${{ github.ref }}-${{ github.workflow }}

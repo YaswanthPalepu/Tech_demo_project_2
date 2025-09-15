@@ -1,9 +1,6 @@
 name: Test Validation & Quality Analysis
 
 on:
-  workflow_run:
-    workflows: ["AI Test Generation"]
-    types: [completed]
   workflow_dispatch:
     inputs:
       repo_url:
@@ -39,7 +36,7 @@ jobs:
           rm -rf target_repo
           git clone --depth=1 "$REPO_URL" target_repo
 
-      - name: Create repo-agnostic compatibility constraints
+      - name: Create compatibility constraints
         run: |
           cat > /tmp/compat-constraints.txt << 'EOF'
           Django>=3.2,<4.3
@@ -47,12 +44,15 @@ jobs:
           EOF
           echo "PIP_CONSTRAINT=/tmp/compat-constraints.txt" >> "$GITHUB_ENV"
 
-      - name: Download generated tests artifacts
+      - name: Download latest successful generated-tests artifact
         uses: dawidd6/action-download-artifact@v2
         with:
-          run_id: ${{ github.event.workflow_run.id }}
+          workflow: AI Test Generation
+          workflow_conclusion: success
+          name: generated-tests
           path: _gen_art
           repo: ${{ github.repository }}
+          if_no_artifact_found: fail
 
       - name: Copy generated tests into cloned repo (not committed)
         run: |
@@ -69,49 +69,197 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.10", cache: pip}
 
-      - name: Install runner deps
+      - name: Install base runner deps
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
-          pip install -c "$PIP_CONSTRAINT" pytest pytest-cov coverage pytest-json-report pytest-html pytest-timeout pytest-django
+          pip install -c "$PIP_CONSTRAINT" pytest pytest-cov coverage pytest-json-report pytest-html pytest-timeout
 
       - name: Install target requirements (if present)
         working-directory: target_repo
         run: |
           if [ -f requirements.txt ]; then
             sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' requirements.txt || true
-            grep -viE '^[[:space:]]*(django|djangorestframework)\b' requirements.txt > /tmp/req.filtered.txt || true
-            pip install -c "$PIP_CONSTRAINT" -r /tmp/req.filtered.txt || true
+            pip install -c "$PIP_CONSTRAINT" -r requirements.txt || true
           fi
           if [ -d requirements ]; then
             for f in requirements/*.txt; do
               sed -i 's/^psycopg2\([^a-zA-Z0-9]\|$\)/psycopg2-binary\1/' "$f" || true
-              grep -viE '^[[:space:]]*(django|djangorestframework)\b' "$f" > /tmp/req.filtered.txt || true
-              pip install -c "$PIP_CONSTRAINT" -r /tmp/req.filtered.txt || true
+              pip install -c "$PIP_CONSTRAINT" -r "$f" || true
             done
           fi
           if [ -f "pyproject.toml" ]; then
             if grep -q "\[tool.poetry\]" pyproject.toml; then
               pip install -c "$PIP_CONSTRAINT" poetry || true
               poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req || true
-              if [ -s /tmp/poetry.lock.req ]; then
-                grep -viE '^[[:space:]]*(django|djangorestframework)\b' /tmp/poetry.lock.req > /tmp/poetry.lock.filtered
-                pip install -c "$PIP_CONSTRAINT" -r /tmp/poetry.lock.filtered || true
-              fi
+              [ -s /tmp/poetry.lock.req ] && pip install -c "$PIP_CONSTRAINT" -r /tmp/poetry.lock.req || true
             fi
             if grep -q "\[tool.pdm\]" pyproject.toml; then
               pip install -c "$PIP_CONSTRAINT" pdm || true
               pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
-              if [ -s /tmp/pdm.lock.req ]; then
-                grep -viE '^[[:space:]]*(django|djangorestframework)\b' /tmp/pdm.lock.req > /tmp/pdm.lock.filtered
-                pip install -c "$PIP_CONSTRAINT" -r /tmp/pdm.lock.filtered || true
-              fi
+              [ -s /tmp/pdm.lock.req ] && pip install -c "$PIP_CONSTRAINT" -r /tmp/pdm.lock.req || true
             fi
           fi
           pip check || true
 
+      - name: Auto-detect and install missing Python dependencies
+        env:
+          PIP_CONSTRAINT: /tmp/compat-constraints.txt
+        run: |
+          python - <<'PY'
+          import ast, pathlib, sys, os, subprocess, importlib.util, json
+
+          ROOT = pathlib.Path("target_repo")
+          GEN  = ROOT / "tests" / "generated"
+          paths = []
+          for base in (ROOT, GEN):
+            if base.exists():
+              paths.extend(p.as_posix() for p in base.rglob("*.py"))
+
+          def top_imports(files):
+            tops=set()
+            for fp in files:
+              try:
+                src=pathlib.Path(fp).read_text(encoding="utf-8", errors="ignore")
+                tree=ast.parse(src)
+              except Exception:
+                continue
+              for n in ast.walk(tree):
+                if isinstance(n, ast.Import):
+                  for a in n.names:
+                    t=(a.name.split(".")[0] or "").strip()
+                    if t: tops.add(t)
+                elif isinstance(n, ast.ImportFrom):
+                  m=(n.module or "").split(".")[0]
+                  if m: tops.add(m)
+            return tops
+
+          tops = top_imports(paths)
+
+          # stdlib filter
+          std = set(getattr(sys, "stdlib_module_names", set()))
+          if not std:
+            std = {"os","sys","re","json","pathlib","math","itertools","functools","typing","subprocess","datetime",
+                   "time","collections","dataclasses","ast","logging","unittest","argparse","asyncio","sqlite3",
+                   "email","http","urllib","hashlib","hmac","base64","statistics","random","fractions","decimal",
+                   "csv","shutil","tempfile","glob","inspect","traceback","textwrap","string","pprint","enum","types"}
+          # local filter
+          def is_local(top):
+            return (ROOT / f"{top}.py").exists() or (ROOT / top).is_dir()
+
+          # map import top -> candidate pip packages
+          aliases = {
+            "bs4":"beautifulsoup4",
+            "cv2":"opencv-python",
+            "yaml":"PyYAML",
+            "sklearn":"scikit-learn",
+            "PIL":"Pillow",
+            "Crypto":"pycryptodome",
+            "MySQLdb":"mysqlclient",
+            "psycopg2":"psycopg2-binary",
+            "jwt":"PyJWT",
+            "rest_framework":"djangorestframework",
+            "jinja2":"Jinja2",
+            "tensorflow":"tensorflow",
+            "torch":"torch",
+            "torchvision":"torchvision",
+            "fastapi":"fastapi",
+            "starlette":"starlette",
+            "pydantic":"pydantic",
+            "uvicorn":"uvicorn",
+            "flask":"Flask",
+            "werkzeug":"Werkzeug",
+            "sqlalchemy":"SQLAlchemy",
+            "marshmallow":"marshmallow",
+            "pymongo":"pymongo",
+            "redis":"redis",
+            "httpx":"httpx",
+            "requests":"requests",
+            "numpy":"numpy",
+            "pandas":"pandas",
+            "scipy":"scipy",
+            "matplotlib":"matplotlib",
+            "seaborn":"seaborn",
+            "pytest_django":"pytest-django",
+            "starlette_exporter":"starlette-exporter",
+            "faker":"Faker",
+            "cryptography":"cryptography",
+            "boto3":"boto3",
+            "google":"google",
+            "googleapiclient":"google-api-python-client",
+            "google_cloud_storage":"google-cloud-storage",
+            "snowflake":"snowflake-connector-python",
+          }
+          # extra packages implied by some tops
+          extras = {
+            "fastapi":["starlette","pydantic"],
+            "django":["djangorestframework"],  # safe default
+          }
+
+          def installed(top):
+            return importlib.util.find_spec(top) is not None
+
+          to_try = []
+          for t in sorted(tops):
+            if not t or t.startswith("_") or t in std or is_local(t):
+              continue
+            if installed(t):
+              continue
+            cand = []
+            # alias, raw, dashed
+            if t in aliases: cand.append(aliases[t])
+            cand.append(t)
+            dash = t.replace("_","-")
+            if dash != t: cand.append(dash)
+            # special google namespace
+            if t == "google": cand += ["google-api-python-client","google-auth","google-auth-oauthlib"]
+            # queue
+            for c in cand:
+              if c not in to_try:
+                to_try.append(c)
+            for e in extras.get(t, []):
+              if e not in to_try:
+                to_try.append(e)
+
+          print("Missing import tops:", to_try)
+
+          cons = os.environ.get("PIP_CONSTRAINT")
+          def pip_install(pkg):
+            cmd=[sys.executable,"-m","pip","install","--disable-pip-version-check"]
+            if cons and os.path.exists(cons):
+              cmd += ["-c", cons]
+            cmd.append(pkg)
+            try:
+              subprocess.check_call(cmd)
+              return True
+            except subprocess.CalledProcessError as e:
+              print(f"pip failed for {pkg} (exit {e.returncode})")
+              return False
+
+          installed_any=False
+          for pkg in to_try:
+            ok = pip_install(pkg)
+            # if this install satisfied some import, fine; we don't re-check each top here for speed
+            installed_any = installed_any or ok
+
+          # final report of unresolved tops
+          unresolved=[]
+          for t in sorted(tops):
+            if t and not (t in std or is_local(t)) and not installed(t):
+              unresolved.append(t)
+          print("Unresolved after install:", unresolved)
+          PY
+
+      - name: Auto-detect Django settings (optional)
+        working-directory: target_repo
+        run: |
+          if [ -f conduit/settings.py ]; then
+            echo "DJANGO_SETTINGS_MODULE=conduit.settings" >> $GITHUB_ENV
+            echo "Using DJANGO_SETTINGS_MODULE=conduit.settings"
+          fi
+
       - name: Run tests repo-agnostic (no files added to target repo)
         env:
-          TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "1"   # enable minimal Django settings during import
+          TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "1"
         run: |
           chmod +x ci/run_tests.sh
           ci/run_tests.sh "$GITHUB_WORKSPACE/target_repo" || echo "pytest exit code captured"

@@ -15,7 +15,6 @@ on:
         required: false
         default: "80"
 
-
 concurrency:
   group: test-validation-${{ github.workflow }}
   cancel-in-progress: false
@@ -111,6 +110,8 @@ jobs:
           pip check || true
 
       - name: Run tests repo-agnostic (no files added to target repo)
+        env:
+          TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "1"   # enable minimal Django settings during import
         run: |
           chmod +x ci/run_tests.sh
           ci/run_tests.sh "$GITHUB_WORKSPACE/target_repo" || echo "pytest exit code captured"

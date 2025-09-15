@@ -1,5 +1,3 @@
-# .github/workflows/testgen.yml
-#
 name: AI Test Generation
 
 on:
@@ -136,10 +134,9 @@ jobs:
             if [ -f "$req_file" ]; then
               echo "Installing from $req_file (constrained via PIP_CONSTRAINT)..."
               sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' "$req_file"
-              # filter legacy Django pins to keep things repo-agnostic
               grep -viE '^[[:space:]]*(django|djangorestframework)\b' "$req_file" > /tmp/req.filtered.txt || true
               pip install -c "$PIP_CONSTRAINT" -r /tmp/req.filtered.txt || echo "Some packages from $req_file failed to install"
-            fi
+            fi>
           }
           install_requirements_file "target/requirements.txt"
           if compgen -G "target/requirements/*.txt" >/dev/null; then
@@ -198,7 +195,6 @@ jobs:
           g.generate_all(analysis, outdir=outdir, focus_files=None)
           PY
 
-
       - name: List generated tests
         run: |
           echo "Listing ${OUTDIR}"
@@ -234,7 +230,6 @@ jobs:
           mkdir -p gen_artifact
           if [ -d target/tests/generated ]; then rsync -a target/tests/generated/ gen_artifact/; fi
           if [ -d "${OUTDIR}" ]; then rsync -a "${OUTDIR}"/ gen_artifact/; fi
-          # ensure non-empty so upload-artifact doesn't fail
           find gen_artifact -type f -name 'test_*.py' | wc -l > gen_artifact/_count.txt
           [ -s gen_artifact/_count.txt ] || echo "0" > gen_artifact/_count.txt
           [ -f gen_artifact/README.txt ] || echo "Generated tests artifact bundle" > gen_artifact/README.txt
@@ -250,6 +245,7 @@ jobs:
       - name: Sanity check generated tests (collect-only)
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "1"   # enable minimal Django settings for import/collect
         run: |
           cd target
           pytest -q --collect-only tests/generated || true

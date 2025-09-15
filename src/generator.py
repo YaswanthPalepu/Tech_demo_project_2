@@ -161,50 +161,48 @@ project_root = os.path.dirname(os.path.abspath(__file__))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-def _fix_jinja2_compatibility():
-    try:
-        import jinja2
-        if not hasattr(jinja2, 'Markup'):
-            try:
-                from markupsafe import Markup, escape
-                jinja2.Markup = Markup
-                if not hasattr(jinja2, 'escape'):
-                    jinja2.escape = escape
-            except Exception:
-                pass
-    except ImportError:
-        pass
-
-def _fix_collections_compatibility():
-    try:
-        import collections
-        import collections.abc as abc
-        for name in ['Mapping','MutableMapping','Sequence','Iterable','Container',
-                     'MutableSequence','Set','MutableSet','Iterator','Generator','Callable','Collection']:
-            if not hasattr(collections, name) and hasattr(abc, name):
-                setattr(collections, name, getattr(abc, name))
-    except ImportError:
-        pass
-
-def _fix_flask_compatibility():
-    try:
-        import flask
-        if not hasattr(flask, 'escape'):
-            try:
-                from markupsafe import escape
-                flask.escape = escape
-            except Exception:
-                pass
+if os.getenv("TESTGEN_FIX_JINJA2","1") in ("1","true","yes"):
+    def _fix_jinja2_compatibility():
         try:
-            import threading
-            from flask import _app_ctx_stack, _request_ctx_stack
-            for _stack in (_app_ctx_stack, _request_ctx_stack):
-                if _stack is not None and not hasattr(_stack, "__ident_func__"):
-                    _stack.__ident_func__ = getattr(threading, "get_ident", None) or (lambda: 0)
-        except Exception:
+            import jinja2
+            if not hasattr(jinja2, 'Markup'):
+                try:
+                    from markupsafe import Markup, escape
+                    jinja2.Markup = Markup
+                    if not hasattr(jinja2, 'escape'):
+                        jinja2.escape = escape
+                except Exception:
+                    pass
+        except ImportError:
             pass
-    except ImportError:
-        pass
+    _fix_jinja2_compatibility()
+
+if os.getenv("TESTGEN_FIX_COLLECTIONS","1") in ("1","true","yes"):
+    def _fix_collections_compatibility():
+        try:
+            import collections
+            import collections.abc as abc
+            for name in ['Mapping','MutableMapping','Sequence','Iterable','Container',
+                         'MutableSequence','Set','MutableSet','Iterator','Generator','Callable','Collection']:
+                if not hasattr(collections, name) and hasattr(abc, name):
+                    setattr(collections, name, getattr(abc, name))
+        except ImportError:
+            pass
+    _fix_collections_compatibility()
+
+if os.getenv("TESTGEN_FIX_FLASK","0") in ("1","true","yes"):
+    def _fix_flask_compatibility():
+        try:
+            import flask
+            if not hasattr(flask, 'escape'):
+                try:
+                    from markupsafe import escape
+                    flask.escape = escape
+                except Exception:
+                    pass
+        except ImportError:
+            pass
+    _fix_flask_compatibility()
 
 def _fix_marshmallow_compatibility():
     try:
@@ -214,9 +212,6 @@ def _fix_marshmallow_compatibility():
     except Exception:
         pass
 
-_fix_jinja2_compatibility()
-_fix_collections_compatibility()
-_fix_flask_compatibility()
 _fix_marshmallow_compatibility()
 
 os.environ.setdefault('WTF_CSRF_ENABLED', 'False')
@@ -503,15 +498,17 @@ def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Se
 
 def _enhanced_universal_bootstrap(compact: Dict[str, Any]) -> str:
     include_qt = any((m.split(".")[0] or "").startswith(("PyQt","PySide")) for m in (compact.get("modules") or []))
-    qt_block = f"""
-for __qt_root in ["PyQt5","PyQt6","PySide2","PySide6"]:
-    try:
-        import importlib.util as _iu
-        if _iu.find_spec(__qt_root) is None:
-            raise ImportError
-    except Exception:
-        pass
-""" if include_qt else ""
+    qt_env = ("import os\nos.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')\n" if include_qt else "")
+    qt_probe = (
+        "for __qt_root in ['PyQt5','PyQt6','PySide2','PySide6']:\n"
+        "    try:\n"
+        "        import importlib.util as _iu\n"
+        "        if _iu.find_spec(__qt_root) is None:\n"
+        "            raise ImportError\n"
+        "    except Exception:\n"
+        "        pass\n"
+        if include_qt else ""
+    )
 
     return f'''# --- ENHANCED UNIVERSAL BOOTSTRAP ---
 import os, sys, importlib.util as _iu, types as _types, pytest as _pytest, builtins as _builtins, warnings
@@ -520,11 +517,9 @@ STRICT_FAIL = os.getenv("TESTGEN_STRICT_FAIL","0").lower() in ("1","true","yes")
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
 
-_target = os.environ.get("TARGET_ROOT") or os.environ.get("ANALYZE_ROOT") or "target"
-if _target and os.path.exists(_target):
+_target = os.environ.get("TARGET_ROOT") or os.environ.get("ANALYZE_ROOT")
+if _target and os.path.isdir(_target):
     if _target not in sys.path: sys.path.insert(0, _target)
-    try: os.chdir(_target)
-    except Exception: pass
 
 def _exc_lookup(name, default):
     try:
@@ -536,78 +531,34 @@ def _exc_lookup(name, default):
     except Exception:
         return default
 
-def _apply_compatibility_fixes():
+# Optional Django bootstrap to avoid masking real failures by default.
+if os.getenv("TESTGEN_ENABLE_DJANGO_BOOTSTRAP","0") in ("1","true","yes"):
     try:
-        import jinja2
-        if not hasattr(jinja2, 'Markup'):
-            try:
-                from markupsafe import Markup, escape
-                jinja2.Markup = Markup
-                if not hasattr(jinja2, 'escape'):
-                    jinja2.escape = escape
-            except Exception:
-                pass
-    except ImportError:
-        pass
-    try:
-        import collections as _collections, collections.abc as _abc
-        for _n in ('Mapping','MutableMapping','Sequence','Iterable','Container',
-                   'MutableSequence','Set','MutableSet','Iterator','Generator','Callable','Collection'):
-            if not hasattr(_collections, _n) and hasattr(_abc, _n):
-                setattr(_collections, _n, getattr(_abc, _n))
-    except Exception:
-        pass
-    try:
-        import marshmallow as _mm
-        if not hasattr(_mm, "__version__"):
-            _mm.__version__ = "4"
-    except Exception:
-        pass
-
-_apply_compatibility_fixes()
-
-# Minimal, safe Django bootstrap. If anything goes wrong, skip the module (repo-agnostic).
-try:
-    import django
-    from django.conf import settings as _dj_settings
-    from django import apps as _dj_apps
-
-    if not _dj_settings.configured:
-        _cfg = dict(
-            DEBUG=True,
-            SECRET_KEY='pytest-secret',
-            DATABASES={{'default': {{'ENGINE': 'django.db.backends.sqlite3','NAME': ':memory:'}}}},
-            INSTALLED_APPS=[
-                'django.contrib.auth','django.contrib.contenttypes',
-                'django.contrib.sessions','django.contrib.messages'
-            ],
-            MIDDLEWARE=[
-                'django.middleware.security.SecurityMiddleware',
-                'django.contrib.sessions.middleware.SessionMiddleware',
-                'django.middleware.common.CommonMiddleware',
-            ],
-            USE_TZ=True, TIME_ZONE='UTC',
-        )
-        try: _cfg["DEFAULT_AUTO_FIELD"] = "django.db.models.AutoField"
-        except Exception: pass
-        try: _dj_settings.configure(**_cfg)
-        except Exception: pass
-
-    if not _dj_apps.ready:
-        try: django.setup()
-        except Exception: pass
-
-    # Probe a known Django core that previously crashed on some stacks.
-    try:
-        import django.contrib.auth.base_user as _dj_probe  # noqa
+        import django
+        from django.conf import settings as _dj_settings
+        from django import apps as _dj_apps
+        if not _dj_settings.configured:
+            _cfg = dict(
+                DEBUG=True, SECRET_KEY='pytest-secret',
+                DATABASES={{'default': {{'ENGINE': 'django.db.backends.sqlite3','NAME': ':memory:'}}}},
+                INSTALLED_APPS=['django.contrib.auth','django.contrib.contenttypes','django.contrib.sessions','django.contrib.messages'],
+                MIDDLEWARE=['django.middleware.security.SecurityMiddleware','django.contrib.sessions.middleware.SessionMiddleware','django.middleware.common.CommonMiddleware'],
+                USE_TZ=True, TIME_ZONE='UTC',
+            )
+            try: _cfg["DEFAULT_AUTO_FIELD"] = "django.db.models.AutoField"
+            except Exception: pass
+            try: _dj_settings.configure(**_cfg)
+            except Exception: pass
+        if not _dj_apps.ready:
+            try: django.setup()
+            except Exception: pass
+        try: import django.contrib.auth.base_user as _dj_probe  # noqa
+        except Exception as _e:
+            _pytest.skip(f"Django core import failed safely: {{_e.__class__.__name__}}: {{_e}}", allow_module_level=True)
     except Exception as _e:
-        _pytest.skip(f"Django core import failed safely: {{_e.__class__.__name__}}: {{_e}}", allow_module_level=True)
-except Exception as _e:
-    # Do NOT crash the entire test session – make the module opt-out.
-    _pytest.skip(f"Django bootstrap not available: {{_e.__class__.__name__}}: {{_e}}", allow_module_level=True)
+        _pytest.skip(f"Django bootstrap not available: {{_e.__class__.__name__}}: {{_e}}", allow_module_level=True)
 
-{qt_block}
-# --- /ENHANCED UNIVERSAL BOOTSTRAP ---
+{qt_env}{qt_probe}# --- /ENHANCED UNIVERSAL BOOTSTRAP ---
 '''
 
 def _requires_django(f):
@@ -629,14 +580,15 @@ def _requires_django(f):
 # ---------------------- prompts ----------------------
 
 _SYSTEM_MIN = (
-    "Return ONLY valid Python pytest tests. No Markdown, no explanations. "
-    "Guard ALL module-level imports in tests with try/except ImportError and call pytest.skip at module level. "
-    "Use Arrange-Act-Assert, parametrize normal+edge cases; include boundary & error paths. "
-    "Use tmp_path/monkeypatch/unittest.mock for I/O & collaborators. "
-    "No network, no external services, no private pytest internals, no custom markers. "
-    "Assert concrete outputs, types, and state changes. "
-    "For exceptions never assume custom names; use _exc_lookup('Name', Exception). "
-    "Never import packages via 'from pkg import __init__'; import the package/module directly."
+    "Return ONLY valid Python pytest tests. No Markdown.\n"
+    "Guard third-party imports with try/except ImportError and call pytest.skip at module level.\n"
+    "Use Arrange-Act-Assert, parametrize normal and edge cases; include error paths.\n"
+    "Use tmp_path/monkeypatch/unittest.mock for I/O and collaborators.\n"
+    "Do NOT use private pytest internals or custom markers.\n"
+    "Assert concrete outputs, types, and state changes.\n"
+    "For exceptions: do NOT indirect via string names. Refer to exception objects directly. "
+    "If a custom exception may not exist, use getattr(module, 'CalculatorError', ZeroDivisionError) or ZeroDivisionError.\n"
+    "Never write 'from pkg import __init__'."
 )
 
 _UNIT_DEV = "Write UNIT tests (3-6) like a senior dev. Prefer public functions/classes in the focus list."
@@ -670,34 +622,17 @@ def _build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, to
 
 # ---------------------- harden generated code ----------------------
 
-_RAISES_QUAL = re.compile(r"pytest\.raises\(\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\s*(,|\))")
-_RAISES_BARE = re.compile(r"pytest\.raises\(\s*([A-Za-z_][\w]*)\s*(,|\))")
-_ISINSTANCE_QUAL = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\s*\)")
-_ISINSTANCE_BARE = re.compile(r"isinstance\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)")
-
 _SKIP_ANY_EXC_RE = re.compile(
     r"except\s+Exception\s+as\s+e:\s*\n\s*pytest\.skip\((.*?)\)",
     flags=re.DOTALL
 )
 
 def _massage_generated_code(code: str) -> str:
-    # Normalize exception references
-    def _repl_qual(m): return f'pytest.raises(_exc_lookup("{m.group(1)}", Exception){m.group(2)}'
-    def _repl_bare(m): return f'pytest.raises(_exc_lookup("{m.group(1)}", Exception){m.group(2)}'
-    code = _RAISES_QUAL.sub(_repl_qual, code)
-    code = _RAISES_BARE.sub(_repl_bare, code)
-
-    def _repl_is_q(m): return f'isinstance({m.group(1)}, _exc_lookup("{m.group(2)}", Exception))'
-    def _repl_is_b(m): return f'isinstance({m.group(1)}, _exc_lookup("{m.group(2)}", Exception))'
-    code = _ISINSTANCE_QUAL.sub(_repl_is_q, code)
-    code = _ISINSTANCE_BARE.sub(_repl_is_b, code)
-
-    # ImportError-only skipping normalizer in user code
+    # Normalize ImportError-only skipping in user code
     code = _SKIP_ANY_EXC_RE.sub(
         r"except ImportError as e:\n        pytest.skip(\1)\n    except Exception:\n        raise",
         code
     )
-
     # Disallow bad import pattern
     code = re.sub(
         r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s+as\s+([A-Za-z_]\w*)\s*',
@@ -707,8 +642,7 @@ def _massage_generated_code(code: str) -> str:
         r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s*',
         r'import \1', code, flags=re.MULTILINE,
     )
-
-    # AAA hint
+    # Inject AAA hint under each test header and ensure pytest import
     lines, out = code.splitlines(), []
     for line in lines:
         out.append(line)
@@ -928,8 +862,8 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
                     "content": (
                         f"Invalid: {reason}. Regenerate strict, developer-style pytest code only. "
                         "Guard imports with try/except ImportError and module-level pytest.skip, prefer parametrize & boundaries, "
-                        "use tmp_path/monkeypatch/mock, no private pytest internals, "
-                        "use _exc_lookup for exception types. Never import via 'from pkg import __init__'."
+                        "use tmp_path/monkeypatch/mock, no private pytest internals. "
+                        "Refer to exception classes directly; do not use string lookups."
                     )
                 })
                 break

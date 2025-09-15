@@ -33,7 +33,7 @@ concurrency:
 
 jobs:
   validate-azure-openai-tests:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions: 
       contents: read
       actions: read

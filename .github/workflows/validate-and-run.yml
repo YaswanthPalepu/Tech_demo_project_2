@@ -1,10 +1,10 @@
-name: Azure OpenAI Generated Code Test Validation
+name: Validate Generated Tests
 
 on:
   workflow_dispatch:
     inputs:
       repo_url:
-        description: 'Azure OpenAI Generated Repository URL'
+        description: 'Repository with generated tests to validate'
         required: true
         type: string
       coverage_threshold:
@@ -12,27 +12,24 @@ on:
         required: false
         default: '70'
         type: string
-      test_framework:
-        description: 'Expected test framework'
+      run_generated_only:
+        description: 'Run only generated tests (skip existing ones)'
         required: false
-        default: 'auto'
-        type: choice
-        options:
-          - auto
-          - pytest
-          - unittest
-          - django
-          - flask
+        default: false
+        type: boolean
+  workflow_run:
+    workflows: ["AI Test Generation"]
+    types: [completed]
   push:
-    branches: ["test"]
-
+    branches: ["main", "master", "develop"]
+    paths: ["tests/generated/**"]
 
 concurrency:
-  group: azure-openai-test-${{ github.ref }}
+  group: validate-tests-${{ github.ref }}-${{ github.workflow }}
   cancel-in-progress: true
 
 jobs:
-  validate-azure-openai-tests:
+  validate-generated-tests:
     runs-on: self-hosted
     permissions: 
       contents: read
@@ -42,26 +39,35 @@ jobs:
 
     env:
       COVERAGE_THRESHOLD: ${{ github.event.inputs.coverage_threshold || '70' }}
-      TEST_FRAMEWORK: ${{ github.event.inputs.test_framework || 'auto' }}
+      DATABASE_URL: "sqlite:///:memory:"
+      DB_URL: "sqlite:///:memory:"
+      SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
+      PYTHONUTF8: "1"
+      TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "1"
 
     outputs:
       test-summary: ${{ steps.test-summary.outputs.summary }}
       test-status: ${{ steps.test-summary.outputs.status }}
+      total-tests: ${{ steps.test-summary.outputs.total }}
+      passed-tests: ${{ steps.test-summary.outputs.passed }}
+      failed-tests: ${{ steps.test-summary.outputs.failed }}
 
     steps:
       - name: Checkout current repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Clone Azure OpenAI Generated Repository
+      - name: Clone target repository with generated tests
         timeout-minutes: 10
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO_URL: ${{ github.event.inputs.repo_url || github.server_url }}/${{ github.repository }}.git
+          GH_PAT3: ${{ secrets.GH_PAT3 || secrets.GITHUB_TOKEN }}
+          REPO_URL: ${{ github.event.inputs.repo_url || format('https://github.com/{0}.git', github.repository) }}
         run: |
           set -euo pipefail
-          echo "🔍 Cloning Azure OpenAI generated repository..."
+          echo "🔍 Cloning repository with generated tests..."
           
-          # Clean and validate URL
+          # Clean and validate URL (same logic as testgen.yml)
           CLEAN_URL="$REPO_URL"
           if [[ "$CLEAN_URL" == git@* ]]; then
             CLEAN_URL="https://github.com/${CLEAN_URL#git@github.com:}"
@@ -75,25 +81,29 @@ jobs:
           
           echo "📂 Repository URL: $CLEAN_URL"
           
-          # Clone with authentication if needed
-          if [ -n "$GH_TOKEN" ]; then
-            CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_TOKEN}@}"
+          # Clone with authentication if available
+          if [ -n "$GH_PAT3" ]; then
+            CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
           fi
           
-          git clone --depth=1 "$CLEAN_URL" azure_openai_repo || {
-            echo "❌ Git clone failed, trying alternative method..."
-            # Extract org/repo from URL for API fallback
+          git clone --depth=1 "$CLEAN_URL" target || {
+            echo "❌ Git clone failed, trying API fallback..."
             ORG_REPO=$(echo "$REPO_URL" | sed -E 's#^https://github.com/([^/]+/[^/.]+)(\.git)?/?$#\1#')
             echo "📦 Downloading as archive: $ORG_REPO"
-            mkdir -p azure_openai_repo
-            curl -H "Authorization: Bearer $GH_TOKEN" \
+            mkdir -p target
+            AUTH_HEADER=""
+            if [ -n "$GH_PAT3" ]; then
+              AUTH_HEADER="Authorization: Bearer $GH_PAT3"
+            fi
+            curl ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
                  -L -o repo.tar.gz \
                  "https://api.github.com/repos/$ORG_REPO/tarball" || exit 1
-            tar -xzf repo.tar.gz --strip-components=1 -C azure_openai_repo
+            tar -xzf repo.tar.gz --strip-components=1 -C target
           }
           
           echo "✅ Repository cloned successfully"
-          ls -la azure_openai_repo/
+          echo "📁 Repository structure:"
+          ls -la target/
 
       - name: Setup Python Environment
         uses: actions/setup-python@v5
@@ -101,179 +111,130 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: Install Testing Dependencies
+      - name: Create compatibility constraints (same as testgen)
         run: |
-          echo "🔧 Installing testing dependencies..."
-          python -m pip install --upgrade pip wheel setuptools
+          cat > /tmp/compat-constraints.txt << 'EOF'
+          Django>=3.2,<4.3
+          djangorestframework>=3.12,<3.15
+          EOF
+          echo "PIP_CONSTRAINT=/tmp/compat-constraints.txt" >> "$GITHUB_ENV"
+
+      - name: Install core testing dependencies
+        run: |
+          echo "🔧 Installing testing framework..."
+          python -m pip install --upgrade "pip<25" wheel setuptools
           
-          # Core testing tools
-          pip install \
+          # Install core testing tools with constraints
+          pip install -c "$PIP_CONSTRAINT" \
             pytest \
             pytest-cov \
             pytest-html \
             pytest-json-report \
             pytest-timeout \
             pytest-mock \
-            coverage \
-            unittest-xml-reporting
-          
-          # Framework-specific tools
-          pip install \
             pytest-django \
             pytest-flask \
+            coverage \
+            httpx \
             requests \
-            httpx
+            psycopg2-binary
           
-          echo "✅ Testing dependencies installed"
+          echo "✅ Core testing dependencies installed"
 
-      - name: Install Project Dependencies
-        working-directory: azure_openai_repo
+      - name: Install system build tools (matching testgen)
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y --no-install-recommends \
+              build-essential python3-dev libpq-dev default-libmysqlclient-dev \
+              libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
+              libxml2-dev libxslt1-dev curl || true
+          else
+            echo "Skipping apt-get setup on this self-hosted runner."
+          fi
+
+      - name: Install project dependencies (matching testgen logic)
+        working-directory: target
         timeout-minutes: 15
         run: |
           echo "📦 Installing project dependencies..."
           
-          # Handle different dependency files
-          if [ -f "requirements.txt" ]; then
-            echo "📄 Found requirements.txt"
-            # Replace psycopg2 with binary version to avoid compilation issues
-            sed -i 's/^psycopg2==/psycopg2-binary==/' requirements.txt || true
-            sed -i 's/^psycopg2$/psycopg2-binary/' requirements.txt || true
-            pip install -r requirements.txt || echo "⚠️ Some requirements failed to install"
-          fi
+          # Function to install requirements file with filtering (same as testgen)
+          install_requirements_file() {
+            local req_file="$1"
+            if [ -f "$req_file" ]; then
+              echo "Installing from $req_file (constrained via PIP_CONSTRAINT)..."
+              sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' "$req_file"
+              grep -viE '^[[:space:]]*(django|djangorestframework)\b' "$req_file" > /tmp/req.filtered.txt || true
+              pip install -c "$PIP_CONSTRAINT" -r /tmp/req.filtered.txt || echo "Some packages from $req_file failed to install"
+            fi
+          }
           
-          # Check for requirements directory
-          if [ -d "requirements" ]; then
-            echo "📁 Found requirements directory"
-            for req_file in requirements/*.txt; do
-              if [ -f "$req_file" ]; then
-                echo "Installing from $req_file"
-                sed -i 's/^psycopg2==/psycopg2-binary==/' "$req_file" || true
-                pip install -r "$req_file" || echo "⚠️ Some requirements in $req_file failed"
-              fi
+          # Install from requirements.txt
+          install_requirements_file "requirements.txt"
+          
+          # Install from requirements/ directory
+          if compgen -G "requirements/*.txt" >/dev/null; then
+            for f in requirements/*.txt; do 
+              install_requirements_file "$f"
             done
           fi
           
           # Handle Poetry projects
-          if [ -f "pyproject.toml" ] && grep -q "tool.poetry" pyproject.toml; then
+          if [ -f "pyproject.toml" ] && grep -q "\[tool.poetry\]" pyproject.toml; then
             echo "🎭 Poetry project detected"
-            pip install poetry || true
-            poetry export -f requirements.txt --output poetry-requirements.txt --without-hashes || true
-            if [ -f "poetry-requirements.txt" ]; then
-              pip install -r poetry-requirements.txt || true
+            pip install -c "$PIP_CONSTRAINT" poetry || true
+            poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req || true
+            if [ -s /tmp/poetry.lock.req ]; then
+              grep -viE '^[[:space:]]*(django|djangorestframework)\b' /tmp/poetry.lock.req > /tmp/poetry.lock.filtered
+              pip install -c "$PIP_CONSTRAINT" -r /tmp/poetry.lock.filtered || true
             fi
           fi
           
-          # Handle setup.py
-          if [ -f "setup.py" ]; then
-            echo "⚙️ setup.py detected"
-            pip install -e . || echo "⚠️ Failed to install package in development mode"
+          # Handle PDM projects
+          if [ -f "pyproject.toml" ] && grep -q "\[tool.pdm\]" pyproject.toml; then
+            echo "📦 PDM project detected"
+            pip install -c "$PIP_CONSTRAINT" pdm || true
+            pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
+            if [ -s /tmp/pdm.lock.req ]; then
+              grep -viE '^[[:space:]]*(django|djangorestframework)\b' /tmp/pdm.lock.req > /tmp/pdm.lock.filtered
+              pip install -c "$PIP_CONSTRAINT" -r /tmp/pdm.lock.filtered || true
+            fi
+          fi
+
+      - name: Force compatible Django & DRF (matching testgen)
+        working-directory: target
+        run: |
+          python -m pip install --upgrade -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
+
+      - name: Check for generated tests
+        id: check-tests
+        working-directory: target
+        run: |
+          echo "🔍 Checking for generated tests..."
+          
+          # Check for generated tests directory
+          if [ -d "tests/generated" ]; then
+            generated_count=$(find tests/generated -name "test_*.py" | wc -l)
+            echo "✅ Found tests/generated directory with $generated_count test files"
+            echo "has_generated_tests=true" >> $GITHUB_OUTPUT
+            echo "generated_count=$generated_count" >> $GITHUB_OUTPUT
+            
+            echo "📁 Generated test files:"
+            find tests/generated -name "test_*.py" | head -10 | sed 's/^/  - /'
+          else
+            echo "❌ No tests/generated directory found"
+            echo "has_generated_tests=false" >> $GITHUB_OUTPUT
+            echo "generated_count=0" >> $GITHUB_OUTPUT
           fi
           
-          echo "✅ Dependencies installation completed"
+          # Check for any test files in the repository
+          total_tests=$(find . -name "test_*.py" -o -name "*_test.py" | grep -v "/venv/" | grep -v "/.venv/" | grep -v "/site-packages/" | wc -l)
+          echo "📊 Total test files in repository: $total_tests"
+          echo "total_test_files=$total_tests" >> $GITHUB_OUTPUT
 
-      - name: Auto-detect and Install Missing Dependencies
-        working-directory: azure_openai_repo
-        timeout-minutes: 10
-        run: |
-          echo "🔍 Auto-detecting missing dependencies..."
-          
-          python << 'EOF'
-          import ast
-          import pathlib
-          import subprocess
-          import sys
-          import importlib.util
-          
-          # Standard library modules (Python 3.10)
-          STDLIB_MODULES = {
-              'os', 'sys', 're', 'json', 'pathlib', 'math', 'itertools', 'functools',
-              'typing', 'subprocess', 'datetime', 'time', 'collections', 'dataclasses',
-              'ast', 'logging', 'unittest', 'argparse', 'asyncio', 'sqlite3', 'urllib',
-              'http', 'email', 'hashlib', 'hmac', 'base64', 'random', 'string', 'csv'
-          }
-          
-          # Common package mappings
-          PACKAGE_MAPPINGS = {
-              'cv2': 'opencv-python',
-              'PIL': 'Pillow', 
-              'bs4': 'beautifulsoup4',
-              'yaml': 'PyYAML',
-              'jwt': 'PyJWT',
-              'Crypto': 'pycryptodome',
-              'psycopg2': 'psycopg2-binary',
-              'MySQLdb': 'mysqlclient',
-              'rest_framework': 'djangorestframework',
-              'sklearn': 'scikit-learn',
-              'flask': 'Flask',
-              'django': 'Django',
-              'fastapi': 'fastapi',
-              'sqlalchemy': 'SQLAlchemy',
-              'numpy': 'numpy',
-              'pandas': 'pandas',
-              'requests': 'requests',
-              'httpx': 'httpx'
-          }
-          
-          # Find all Python files
-          python_files = list(pathlib.Path('.').rglob('*.py'))
-          python_files = [f for f in python_files if 'venv' not in str(f) and '.git' not in str(f)]
-          
-          imports = set()
-          
-          # Extract imports from all Python files
-          for py_file in python_files:
-              try:
-                  content = py_file.read_text(encoding='utf-8', errors='ignore')
-                  tree = ast.parse(content)
-                  
-                  for node in ast.walk(tree):
-                      if isinstance(node, ast.Import):
-                          for alias in node.names:
-                              imports.add(alias.name.split('.')[0])
-                      elif isinstance(node, ast.ImportFrom) and node.module:
-                          imports.add(node.module.split('.')[0])
-              except Exception as e:
-                  print(f"⚠️ Could not parse {py_file}: {e}")
-          
-          # Filter out standard library and already installed packages
-          missing_packages = []
-          for imp in imports:
-              if imp in STDLIB_MODULES:
-                  continue
-              
-              # Check if already installed
-              if importlib.util.find_spec(imp):
-                  continue
-                  
-              # Check if it's a local module
-              if pathlib.Path(f"{imp}.py").exists() or pathlib.Path(imp).is_dir():
-                  continue
-              
-              # Map to actual package name
-              package_name = PACKAGE_MAPPINGS.get(imp, imp)
-              if package_name not in missing_packages:
-                  missing_packages.append(package_name)
-          
-          print(f"🔍 Found {len(imports)} unique imports")
-          print(f"📦 Missing packages to install: {missing_packages}")
-          
-          # Install missing packages
-          if missing_packages:
-              for package in missing_packages:
-                  try:
-                      subprocess.check_call([
-                          sys.executable, '-m', 'pip', 'install', 
-                          '--disable-pip-version-check', package
-                      ])
-                      print(f"✅ Installed {package}")
-                  except subprocess.CalledProcessError:
-                      print(f"❌ Failed to install {package}")
-          else:
-              print("✅ No additional packages needed")
-          EOF
-
-      - name: Setup Django Configuration (if applicable)
-        working-directory: azure_openai_repo
+      - name: Setup Django configuration (if needed)
+        working-directory: target
         run: |
           echo "🔧 Setting up Django configuration if needed..."
           
@@ -282,33 +243,38 @@ jobs:
             echo "🎯 Django project detected: $settings_file"
             
             # Extract settings module path
-            settings_dir=$(dirname "$settings_file")
             settings_module=$(echo "$settings_file" | sed 's|^\./||' | sed 's|/|.|g' | sed 's|\.py$||')
-            
             echo "📝 Django settings module: $settings_module"
-            export DJANGO_SETTINGS_MODULE="$settings_module"
+            echo "DJANGO_SETTINGS_MODULE=$settings_module" >> $GITHUB_ENV
             
-            # Create or update conftest.py for Django
+            # Create enhanced conftest.py for Django (matching testgen approach)
             cat > conftest.py << 'EOF'
           import os
           import sys
           import pathlib
-          import django
-          from django.conf import settings
-          from django.test.utils import get_runner
           
           # Add project root to Python path
           ROOT = pathlib.Path(__file__).resolve().parent
           if str(ROOT) not in sys.path:
               sys.path.insert(0, str(ROOT))
           
-          # Configure Django settings
-          if not settings.configured:
-              try:
+          # Configure Django if needed
+          try:
+              import django
+              from django.conf import settings
+              
+              if not settings.configured:
                   django.setup()
                   print("✅ Django configured successfully")
-              except Exception as e:
-                  print(f"⚠️ Django setup warning: {e}")
+          except Exception as e:
+              print(f"⚠️ Django setup warning: {e}")
+          
+          # Additional pytest configuration for generated tests
+          import pytest
+          
+          def pytest_configure(config):
+              """Configure pytest for generated tests"""
+              config.addinivalue_line("markers", "generated: marks tests as AI-generated")
           EOF
             
             echo "✅ Django configuration completed"
@@ -316,56 +282,178 @@ jobs:
             echo "ℹ️ No Django project detected"
           fi
 
-      - name: Discover and Run Tests
-        working-directory: azure_openai_repo
+      - name: Discover and validate test structure
+        working-directory: target
         run: |
-          echo "🧪 Discovering and running tests..."
+          echo "🧪 Discovering and validating test structure..."
           
           # Create reports directory
           mkdir -p reports/tests
           
-          # Discover test files and directories
-          echo "🔍 Looking for test files..."
+          python << 'EOF'
+          import pathlib
+          import ast
+          import sys
           
-          # Find test patterns
-          test_files=$(find . -name "test_*.py" -o -name "*_test.py" | head -20)
-          test_dirs=$(find . -type d -name "tests" -o -name "test" | head -10)
+          def is_excluded_path(path_str):
+              """Check if path should be excluded from test discovery"""
+              exclude_patterns = [
+                  'venv', '.venv', 'env', '.env',
+                  'site-packages', 'node_modules', 
+                  '.git', '.pytest_cache', '__pycache__',
+                  'build', 'dist', '.tox'
+              ]
+              
+              path_parts = pathlib.Path(path_str).parts
+              return any(pattern in path_parts for pattern in exclude_patterns)
           
-          echo "📁 Found test files:"
-          echo "$test_files" | while read file; do [ -n "$file" ] && echo "  - $file"; done
+          def find_valid_test_files():
+              """Find valid test files with proper filtering"""
+              root = pathlib.Path('.')
+              test_files = []
+              invalid_files = []
+              
+              # Look for test files with common patterns
+              patterns = ['test_*.py', '*_test.py']
+              
+              for pattern in patterns:
+                  for file_path in root.rglob(pattern):
+                      file_str = str(file_path)
+                      if not is_excluded_path(file_str) and file_path.is_file():
+                          # Validate syntax
+                          try:
+                              content = file_path.read_text(encoding='utf-8', errors='ignore')
+                              ast.parse(content, filename=str(file_path))
+                              test_files.append(file_str)
+                          except SyntaxError as e:
+                              invalid_files.append((file_str, str(e)))
+                              print(f"⚠️ Syntax error in {file_str}: {e}")
+              
+              return sorted(set(test_files)), invalid_files
           
-          echo "📁 Found test directories:"
-          echo "$test_dirs" | while read dir; do [ -n "$dir" ] && echo "  - $dir"; done
+          def find_test_directories():
+              """Find test directories with proper filtering"""
+              root = pathlib.Path('.')
+              test_dirs = []
+              
+              for dir_path in root.rglob('*'):
+                  if dir_path.is_dir() and dir_path.name in ['tests', 'test']:
+                      dir_str = str(dir_path)
+                      if not is_excluded_path(dir_str):
+                          # Check if directory contains Python test files
+                          has_test_files = any(
+                              f.name.startswith('test_') or f.name.endswith('_test.py')
+                              for f in dir_path.rglob('*.py')
+                              if not is_excluded_path(str(f))
+                          )
+                          if has_test_files:
+                              test_dirs.append(dir_str)
+              
+              return sorted(set(test_dirs))
+          
+          # Discover tests
+          test_files, invalid_files = find_valid_test_files()
+          test_dirs = find_test_directories()
+          
+          print(f"✅ Found {len(test_files)} valid test files")
+          print(f"⚠️ Found {len(invalid_files)} invalid test files")
+          
+          if test_files:
+              print("📁 Valid test files:")
+              for file in test_files[:20]:  # Show first 20
+                  print(f"  - {file}")
+              if len(test_files) > 20:
+                  print(f"  ... and {len(test_files) - 20} more")
+          
+          if test_dirs:
+              print("📁 Test directories:")
+              for dir in test_dirs:
+                  print(f"  - {dir}")
+          
+          if invalid_files:
+              print("❌ Invalid test files (will be skipped):")
+              for file, error in invalid_files[:10]:
+                  print(f"  - {file}: {error}")
           
           # Determine test targets
-          test_targets=""
-          if [ -n "$test_files" ]; then
-            test_targets="$test_files"
-          fi
-          if [ -n "$test_dirs" ]; then
-            test_targets="$test_targets $test_dirs"
-          fi
+          test_targets = []
           
-          # If no specific test files found, try current directory
-          if [ -z "$test_targets" ]; then
-            echo "🔄 No specific test files found, scanning current directory..."
-            test_targets="."
-          fi
+          # Add generated tests if they exist and we're not filtering
+          run_generated_only = '${{ github.event.inputs.run_generated_only }}' == 'true'
           
-          echo "🎯 Test targets: $test_targets"
+          if run_generated_only:
+              generated_tests = [f for f in test_files if 'tests/generated' in f]
+              if generated_tests:
+                  test_targets.extend(generated_tests)
+                  print(f"🎯 Running only generated tests: {len(generated_tests)} files")
+              else:
+                  print("❌ No generated tests found but run_generated_only=true")
+                  sys.exit(1)
+          else:
+              # Add all valid test files and directories
+              test_targets.extend(test_files)
+              test_targets.extend(test_dirs)
           
-          # Run tests with coverage
-          echo "🚀 Running tests..."
+          if not test_targets:
+              print("❌ No valid test targets found")
+              sys.exit(1)
           
-          pytest_cmd="pytest -v --tb=short --maxfail=10 \
+          print(f"🎯 Final test targets: {len(test_targets)} items")
+          
+          # Write targets to file for next step
+          with open('/tmp/test_targets.txt', 'w') as f:
+              f.write(' '.join(f'"{target}"' for target in test_targets))
+          
+          EOF
+
+      - name: Run tests with coverage
+        working-directory: target
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "0"
+        run: |
+          echo "🚀 Running tests with coverage..."
+          
+          # Read test targets
+          test_targets=$(cat /tmp/test_targets.txt || echo '.')
+          
+          echo "📋 Test targets: $test_targets"
+          
+          # Configure pytest command
+          pytest_cmd="pytest -v \
+            --tb=short \
+            --maxfail=50 \
+            --timeout=300 \
             --json-report --json-report-file=reports/tests/test-results.json \
             --html=reports/tests/test-report.html --self-contained-html \
-            --cov=. --cov-report=json:reports/tests/coverage.json \
+            --cov=. \
+            --cov-report=json:reports/tests/coverage.json \
             --cov-report=html:reports/tests/coverage-html \
             --cov-report=term-missing \
+            --cov-config=.coveragerc \
             $test_targets"
           
           echo "📋 Running command: $pytest_cmd"
+          
+          # Create basic coverage config to exclude common non-test directories
+          cat > .coveragerc << 'EOF'
+          [run]
+          omit = 
+              */venv/*
+              */.venv/*
+              */site-packages/*
+              */migrations/*
+              */test*
+              manage.py
+              */settings/*
+              */config/*
+          
+          [report]
+          exclude_lines =
+              pragma: no cover
+              def __repr__
+              raise AssertionError
+              raise NotImplementedError
+          EOF
           
           # Run tests and capture exit code
           set +e
@@ -379,12 +467,12 @@ jobs:
           echo "📄 Generated reports:"
           ls -la reports/tests/ || echo "No reports directory found"
 
-      - name: Generate Test Summary
+      - name: Generate comprehensive test summary
         id: test-summary
         if: always()
-        working-directory: azure_openai_repo
+        working-directory: target
         run: |
-          echo "📈 Generating test summary..."
+          echo "📈 Generating comprehensive test summary..."
           
           python << 'EOF'
           import json
@@ -399,7 +487,9 @@ jobs:
               "failed": 0,
               "errors": 0,
               "skipped": 0,
-              "coverage": 0.0
+              "coverage": 0.0,
+              "generated_tests": 0,
+              "regular_tests": 0
           }
           
           status = "❌ FAILED"
@@ -419,6 +509,14 @@ jobs:
                       "errors": int(summary.get("error", 0)),
                       "skipped": int(summary.get("skipped", 0))
                   })
+                  
+                  # Count generated vs regular tests
+                  tests = results.get("tests", [])
+                  generated_count = sum(1 for test in tests if "tests/generated" in test.get("nodeid", ""))
+                  regular_count = summary_data["total"] - generated_count
+                  
+                  summary_data["generated_tests"] = generated_count
+                  summary_data["regular_tests"] = regular_count
                   
                   print(f"✅ Parsed test results: {summary_data}")
               except Exception as e:
@@ -460,63 +558,67 @@ jobs:
               status = "❌ TESTS FAILED"
               print(f"❌ {failed_tests} test(s) failed out of {total_tests}")
           
-          # Create summary output
+          # Create enhanced summary output
           summary_text = f"""
-          ## 🧪 Azure OpenAI Code Test Results
+          ## 🧪 Generated Test Validation Results
           
-          **Status:** {status}
+          **Overall Status:** {status}
           
-          ### 📊 Test Statistics
+          ### 📊 Test Execution Statistics
           - **Total Tests:** {summary_data['total']}
           - **✅ Passed:** {summary_data['passed']}
           - **❌ Failed:** {summary_data['failed']}
           - **⚠️ Errors:** {summary_data['errors']}
           - **⏭️ Skipped:** {summary_data['skipped']}
           
-          ### 📈 Coverage Report
+          ### 🤖 AI Generated vs Regular Tests
+          - **🤖 Generated Tests:** {summary_data['generated_tests']}
+          - **📝 Regular Tests:** {summary_data['regular_tests']}
+          
+          ### 📈 Coverage Analysis
           - **Coverage:** {summary_data['coverage']:.2f}%
           - **Threshold:** {threshold}%
           - **Status:** {"✅ MEETS THRESHOLD" if coverage >= threshold else "❌ BELOW THRESHOLD"}
           
-          ### 🎯 Summary
+          ### 🎯 Validation Summary
           {status}
+          
+          Generated by Azure OpenAI test validation pipeline.
           """
           
-          # Set GitHub Actions outputs
-          print(f"::set-output name=summary::{summary_text}")
-          print(f"::set-output name=status::{status}")
-          print(f"::set-output name=total::{summary_data['total']}")
-          print(f"::set-output name=passed::{summary_data['passed']}")
-          print(f"::set-output name=failed::{summary_data['failed']}")
-          print(f"::set-output name=errors::{summary_data['errors']}")
-          print(f"::set-output name=skipped::{summary_data['skipped']}")
-          print(f"::set-output name=coverage::{summary_data['coverage']:.2f}")
+          # Set GitHub Actions outputs (new format)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"summary<<EOF\n{summary_text}\nEOF\n")
+              f.write(f"status={status}\n")
+              f.write(f"total={summary_data['total']}\n")
+              f.write(f"passed={summary_data['passed']}\n")
+              f.write(f"failed={summary_data['failed']}\n")
+              f.write(f"errors={summary_data['errors']}\n")
+              f.write(f"skipped={summary_data['skipped']}\n")
+              f.write(f"coverage={summary_data['coverage']:.2f}\n")
+              f.write(f"generated_tests={summary_data['generated_tests']}\n")
+              f.write(f"regular_tests={summary_data['regular_tests']}\n")
           
           # Print summary to console
-          print("\n" + "="*60)
+          print("\n" + "="*80)
           print(summary_text)
-          print("="*60)
+          print("="*80)
           
-          # Exit with failure if tests failed or no tests found
+          # Exit with appropriate code
           if total_tests == 0 or failed_tests > 0:
               sys.exit(1)
-              
-          # Exit with warning code if coverage is below threshold
-          if coverage < threshold:
-              print(f"⚠️ Coverage warning: {coverage:.2f}% < {threshold}%")
-              # Don't fail on coverage for now, just warn
           
           EOF
 
-      - name: Upload Test Reports
+      - name: Upload comprehensive test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: azure-openai-test-reports
-          path: azure_openai_repo/reports/tests/
+          name: test-validation-reports-${{ github.run_number }}
+          path: target/reports/tests/
           retention-days: 30
 
-      - name: Comment on PR (if applicable)
+      - name: Comment on PR with results (if applicable)
         if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
@@ -530,12 +632,49 @@ jobs:
               body: summary
             });
 
-      - name: Final Status Check
+      - name: Create status check
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ steps.test-summary.outputs.status }}';
+            const state = status.includes('✅') ? 'success' : 
+                         status.includes('⚠️') ? 'failure' : 'failure';
+            
+            github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: state,
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              description: `${{ steps.test-summary.outputs.total }} tests, ${{ steps.test-summary.outputs.passed }} passed, ${{ steps.test-summary.outputs.failed }} failed`,
+              context: 'test-validation/generated-tests'
+            });
+
+      - name: Final validation summary
         if: always()
         run: |
-          echo "🏁 Pipeline completed"
-          echo "📊 Final Status: ${{ steps.test-summary.outputs.status }}"
-          echo "📈 Total Tests: ${{ steps.test-summary.outputs.total }}"
+          echo "🏁 Test validation pipeline completed"
+          echo ""
+          echo "📊 FINAL RESULTS:"
+          echo "=================="
+          echo "Status: ${{ steps.test-summary.outputs.status }}"
+          echo "Total Tests: ${{ steps.test-summary.outputs.total }}"
           echo "✅ Passed: ${{ steps.test-summary.outputs.passed }}"
           echo "❌ Failed: ${{ steps.test-summary.outputs.failed }}"
-          echo "📊 Coverage: ${{ steps.test-summary.outputs.coverage }}%"
+          echo "⚠️ Errors: ${{ steps.test-summary.outputs.errors }}"
+          echo "⏭️ Skipped: ${{ steps.test-summary.outputs.skipped }}"
+          echo "🤖 Generated Tests: ${{ steps.test-summary.outputs.generated_tests }}"
+          echo "📝 Regular Tests: ${{ steps.test-summary.outputs.regular_tests }}"
+          echo "📈 Coverage: ${{ steps.test-summary.outputs.coverage }}%"
+          echo "🎯 Threshold: ${{ env.COVERAGE_THRESHOLD }}%"
+          echo ""
+          
+          if [[ "${{ steps.test-summary.outputs.status }}" == *"✅"* ]]; then
+            echo "🎉 All tests passed successfully!"
+          elif [[ "${{ steps.test-summary.outputs.status }}" == *"⚠️"* ]]; then
+            echo "⚠️ Tests passed but with warnings (coverage/etc)"
+          else
+            echo "❌ Test validation failed"
+            exit 1
+          fi

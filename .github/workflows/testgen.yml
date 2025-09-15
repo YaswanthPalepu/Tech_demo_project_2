@@ -183,18 +183,21 @@ jobs:
       - name: Generate tests
         env:
           TARGET_ROOT: target
-          FORCE: ${{ github.event.inputs.force_gen || 'false' }}
+          TESTGEN_FORCE: ${{ github.event.inputs.force_gen || 'false' }}
+          TESTGEN_STRICT_FAIL: "1"
+          TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "0"
+          TESTGEN_FIX_FLASK: "0"
         run: |
           python - <<'PY'
           import os, json
           import src.generator as g
           analysis = json.load(open('/tmp/analysis.json'))
           outdir = os.environ['OUTDIR']
-          if os.environ.get('FORCE', 'false').lower() == 'true':
+          if os.environ.get('TESTGEN_FORCE','false').lower() == 'true':
               os.environ['TESTGEN_FORCE'] = 'true'
-          os.environ['TESTGEN_STRICT_FAIL'] = os.environ.get('TESTGEN_STRICT_FAIL','1')
           g.generate_all(analysis, outdir=outdir, focus_files=None)
           PY
+
 
       - name: List generated tests
         run: |

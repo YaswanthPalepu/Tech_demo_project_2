@@ -1,4 +1,4 @@
-# #src/generator.py
+# src/generator.py
 import os, sys, json, pathlib, datetime, time, re, ast, math, subprocess, importlib.util, types as _types, random, shutil
 from typing import Dict, Any, List, Tuple, Set, Optional
 from openai import AzureOpenAI, RateLimitError
@@ -153,13 +153,26 @@ def _cleanup_deleted_tests(outdir: pathlib.Path, deleted_files: Set[str]):
 # ---------------------- conftest: compat shims ----------------------
 
 def _create_enhanced_conftest(outdir: pathlib.Path) -> str:
-    conftest_content = '''import pytest, sys, os, warnings
+    conftest_content = '''import pytest, sys, os, warnings, types as _types
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
 
 project_root = os.path.dirname(os.path.abspath(__file__))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
+
+# --- target import shim (make "from target import X" work even if 'target' isn't a package) ---
+_tr = os.environ.get("TARGET_ROOT", "target")
+if _tr and os.path.isdir(_tr):
+    _parent = os.path.abspath(os.path.join(_tr, os.pardir))
+    for p in (_parent, _tr):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    if "target" not in sys.modules:
+        _pkg = _types.ModuleType("target")
+        _pkg.__path__ = [_tr]  # namespace-like package
+        sys.modules["target"] = _pkg
+# ---------------------------------------------------------------------------------------------
 
 if os.getenv("TESTGEN_FIX_JINJA2","1") in ("1","true","yes"):
     def _fix_jinja2_compatibility():
@@ -419,8 +432,8 @@ def _pip_install(packages: List[str]) -> None:
     print("📦 Installing packages (one-by-one):", ", ".join(pkgs))
     for pkg in pkgs:
         cmd = [sys.executable, "-m", "pip", "install",
-               "--disable-pip-version-check", "--no-input",
-               "--upgrade-strategy", "only-if-needed"]
+            "--disable-pip-version-check", "--no-input",
+            "--upgrade-strategy", "only-if-needed"]
         if constraints:
             cmd += ["-c", constraints]
         cmd.append(pkg)
@@ -482,7 +495,7 @@ def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Se
     focus_basenames = _basename_set(focus_norm)
     def keep(entry: Dict[str, Any]) -> bool:
         fn = _norm_rel(entry.get("file") or "")
-        return (fn in focus_norm) or any(fn.endswith("/" + rel) for rel in focus_norm) or (pathlib.Path(fn).name in focus_basenames)
+        return (fn in focus_norm) or any(fn.endswith("/" + rel) for fn in [fn] for rel in focus_norm) or (pathlib.Path(fn).name in focus_basenames)
     filt = {
         "functions": [d for d in (analysis.get("functions") or []) if keep(d)],
         "classes":   [d for d in (analysis.get("classes")  or []) if keep(d)],
@@ -510,6 +523,7 @@ def _enhanced_universal_bootstrap(compact: Dict[str, Any]) -> str:
         if include_qt else ""
     )
 
+    # IMPORTANT: Make "from target import X" work by exposing a namespace-like package named 'target'
     return f'''# --- ENHANCED UNIVERSAL BOOTSTRAP ---
 import os, sys, importlib.util as _iu, types as _types, pytest as _pytest, builtins as _builtins, warnings
 STRICT = os.getenv("TESTGEN_STRICT", "1").lower() in ("1","true","yes")
@@ -517,9 +531,16 @@ STRICT_FAIL = os.getenv("TESTGEN_STRICT_FAIL","0").lower() in ("1","true","yes")
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
 
-_target = os.environ.get("TARGET_ROOT") or os.environ.get("ANALYZE_ROOT")
+_target = os.environ.get("TARGET_ROOT") or os.environ.get("ANALYZE_ROOT") or "target"
 if _target and os.path.isdir(_target):
-    if _target not in sys.path: sys.path.insert(0, _target)
+    _parent = os.path.abspath(os.path.join(_target, os.pardir))
+    for p in (_parent, _target):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    if "target" not in sys.modules:
+        _pkg = _types.ModuleType("target")
+        _pkg.__path__ = [_target]  # behave like a namespace package
+        sys.modules["target"] = _pkg
 
 def _exc_lookup(name, default):
     try:
@@ -628,12 +649,10 @@ _SKIP_ANY_EXC_RE = re.compile(
 )
 
 def _massage_generated_code(code: str) -> str:
-    # Normalize ImportError-only skipping in user code
     code = _SKIP_ANY_EXC_RE.sub(
         r"except ImportError as e:\n        pytest.skip(\1)\n    except Exception:\n        raise",
         code
     )
-    # Disallow bad import pattern
     code = re.sub(
         r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s+as\s+([A-Za-z_]\w*)\s*',
         r'import \1 as \2', code, flags=re.MULTILINE,
@@ -642,7 +661,6 @@ def _massage_generated_code(code: str) -> str:
         r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s*',
         r'import \1', code, flags=re.MULTILINE,
     )
-    # Inject AAA hint under each test header and ensure pytest import
     lines, out = code.splitlines(), []
     for line in lines:
         out.append(line)

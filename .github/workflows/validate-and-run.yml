@@ -15,14 +15,14 @@ on:
       run_generated_only:
         description: 'Run only generated tests (skip existing ones)'
         required: false
-        default: false
+        default: 'false'
         type: boolean
   workflow_run:
     workflows: ["AI Test Generation"]
     types: [completed]
   push:
-    branches: ["test"]
-    
+    branches: ["main", "master", "develop"]
+    paths: ["tests/generated/**"]
 
 concurrency:
   group: validate-tests-${{ github.ref }}-${{ github.workflow }}
@@ -62,13 +62,15 @@ jobs:
         timeout-minutes: 10
         env:
           GH_PAT3: ${{ secrets.GH_PAT3 || secrets.GITHUB_TOKEN }}
-          REPO_URL: ${{ github.event.inputs.repo_url || format('https://github.com/{0}.git', github.repository) }}
+          REPO_URL: ${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}
         run: |
           set -euo pipefail
           echo "🔍 Cloning repository with generated tests..."
           
           # Clean and validate URL (same logic as testgen.yml)
           CLEAN_URL="$REPO_URL"
+          echo "📍 Original URL: $REPO_URL"
+          
           if [[ "$CLEAN_URL" == git@* ]]; then
             CLEAN_URL="https://github.com/${CLEAN_URL#git@github.com:}"
           fi
@@ -79,11 +81,12 @@ jobs:
             CLEAN_URL="${CLEAN_URL}.git"
           fi
           
-          echo "📂 Repository URL: $CLEAN_URL"
+          echo "📂 Cleaned URL: $CLEAN_URL"
           
           # Clone with authentication if available
           if [ -n "$GH_PAT3" ]; then
             CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
+            echo "🔐 Using authenticated clone"
           fi
           
           git clone --depth=1 "$CLEAN_URL" target || {
@@ -102,7 +105,7 @@ jobs:
           }
           
           echo "✅ Repository cloned successfully"
-          echo "📁 Repository structure:"
+          echo "📁 Repository contents:"
           ls -la target/
 
       - name: Setup Python Environment
@@ -232,6 +235,15 @@ jobs:
           total_tests=$(find . -name "test_*.py" -o -name "*_test.py" | grep -v "/venv/" | grep -v "/.venv/" | grep -v "/site-packages/" | wc -l)
           echo "📊 Total test files in repository: $total_tests"
           echo "total_test_files=$total_tests" >> $GITHUB_OUTPUT
+          
+          # Check if this repo needs test generation first
+          if [ "$total_tests" -eq 0 ]; then
+            echo ""
+            echo "💡 SUGGESTION: This repository has no tests!"
+            echo "   You may need to run the 'AI Test Generation' workflow first."
+            echo "   Repository structure:"
+            find . -name "*.py" | grep -v "/venv/" | grep -v "/.venv/" | head -20 | sed 's/^/     /'
+          fi
 
       - name: Setup Django configuration (if needed)
         working-directory: target

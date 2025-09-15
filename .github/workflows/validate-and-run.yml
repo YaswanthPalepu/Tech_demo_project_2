@@ -1167,7 +1167,7 @@ jobs:
           ls -la reports/tests/ || echo "No reports directory found"
 
       - name: Generate comprehensive test summary
-        id: test-summary
+        id: test-summary1
         if: always()
         working-directory: target
         run: |

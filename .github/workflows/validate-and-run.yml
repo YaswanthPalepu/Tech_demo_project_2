@@ -15,14 +15,13 @@ on:
       run_generated_only:
         description: 'Run only generated tests (skip existing ones)'
         required: false
-        default: 'false'
+        default: false
         type: boolean
-  workflow_run:
-    workflows: ["AI Test Generation"]
-    types: [completed]
+  # workflow_run:
+  #   workflows: ["AI Test Generation"]
+  #   types: [completed]
   push:
-    branches: ["main", "master", "develop"]
-    paths: ["tests/generated/**"]
+    branches: ["test"]
 
 concurrency:
   group: validate-tests-${{ github.ref }}-${{ github.workflow }}

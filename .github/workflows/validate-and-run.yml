@@ -11,6 +11,8 @@ on:
         description: "Minimum coverage threshold (%)"
         required: false
         default: "80"
+  push:
+    branches: ["test"]
 
 concurrency:
   group: test-validation-${{ github.workflow }}

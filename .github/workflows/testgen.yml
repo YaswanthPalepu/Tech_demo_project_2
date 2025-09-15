@@ -136,7 +136,7 @@ jobs:
               sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' "$req_file"
               grep -viE '^[[:space:]]*(django|djangorestframework)\b' "$req_file" > /tmp/req.filtered.txt || true
               pip install -c "$PIP_CONSTRAINT" -r /tmp/req.filtered.txt || echo "Some packages from $req_file failed to install"
-            fi>
+            fi
           }
           install_requirements_file "target/requirements.txt"
           if compgen -G "target/requirements/*.txt" >/dev/null; then

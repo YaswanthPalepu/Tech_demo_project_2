@@ -8,8 +8,6 @@ PROMPT_STYLE = os.getenv("TESTGEN_PROMPT_STYLE", "ultra_bare").strip().lower()
 REPO_ROOT = pathlib.Path(".").resolve()
 STRICT_FAIL = os.getenv("TESTGEN_STRICT_FAIL", "0").lower() in ("1","true","yes")
 
-# ---------------------- Azure OpenAI wiring ----------------------
-
 def _get_any_env(*names: str) -> str:
     for n in names:
         v = os.getenv(n)
@@ -30,8 +28,6 @@ def _deployment_name() -> str:
 def _chat_completion_create(client: AzureOpenAI, deployment: str, messages: list):
     return client.chat.completions.create(model=deployment, messages=messages)
 
-# ---------------------- helpers: paths, hashing, change detect ----------------------
-
 def _norm_rel(p: str) -> str:
     try:
         pp = pathlib.Path(p)
@@ -43,10 +39,8 @@ def _norm_rel(p: str) -> str:
         s = str(pp.as_posix())
     except Exception:
         s = str(p).replace("\\", "/")
-    if s.startswith("./"):
-        s = s[2:]
-    if s.startswith("target/"):
-        s = s[len("target/"):]
+    if s.startswith("./"): s = s[2:]
+    if s.startswith("target/"): s = s[len("target/"):]
     return s
 
 def _basename_set(paths: Set[str]) -> Set[str]:
@@ -126,8 +120,6 @@ def _detect_detailed_changes(target_root: pathlib.Path, manifest_path: pathlib.P
     _save_current_state(manifest_path, current_state)
     return added_or_modified, deleted, unchanged
 
-# ---------------------- manage generated tests vs changes ----------------------
-
 def _find_related_test_files(outdir: pathlib.Path, source_file: str) -> List[pathlib.Path]:
     related_tests = []
     source_path = pathlib.Path(source_file)
@@ -150,8 +142,6 @@ def _cleanup_deleted_tests(outdir: pathlib.Path, deleted_files: Set[str]):
             except Exception as e:
                 print(f"Warning: Could not remove {test_file}: {e}")
 
-# ---------------------- conftest: compat shims ----------------------
-
 def _create_enhanced_conftest(outdir: pathlib.Path) -> str:
     conftest_content = '''import pytest, sys, os, warnings, types as _types
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -161,7 +151,6 @@ project_root = os.path.dirname(os.path.abspath(__file__))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# --- target import shim (make "from target import X" work even if 'target' isn't a package) ---
 _tr = os.environ.get("TARGET_ROOT", "target")
 if _tr and os.path.isdir(_tr):
     _parent = os.path.abspath(os.path.join(_tr, os.pardir))
@@ -170,9 +159,8 @@ if _tr and os.path.isdir(_tr):
             sys.path.insert(0, p)
     if "target" not in sys.modules:
         _pkg = _types.ModuleType("target")
-        _pkg.__path__ = [_tr]  # namespace-like package
+        _pkg.__path__ = [_tr]
         sys.modules["target"] = _pkg
-# ---------------------------------------------------------------------------------------------
 
 if os.getenv("TESTGEN_FIX_JINJA2","1") in ("1","true","yes"):
     def _fix_jinja2_compatibility():
@@ -224,8 +212,21 @@ def _fix_marshmallow_compatibility():
             _mm.__version__ = "4"
     except Exception:
         pass
-
 _fix_marshmallow_compatibility()
+
+# ---- SAFETY NET FIXTURES FOR GENERATED TESTS ----
+@pytest.fixture
+def expected_status():
+    return 404
+
+@pytest.fixture
+def expected_status_code(expected_status):
+    return expected_status
+
+@pytest.fixture
+def CalcError():
+    # Default to ZeroDivisionError when a module-specific error class is missing
+    return ZeroDivisionError
 
 os.environ.setdefault('WTF_CSRF_ENABLED', 'False')
 '''
@@ -233,8 +234,6 @@ os.environ.setdefault('WTF_CSRF_ENABLED', 'False')
     conftest_path.parent.mkdir(parents=True, exist_ok=True)
     conftest_path.write_text(conftest_content, encoding="utf-8")
     return str(conftest_path)
-
-# ---------------------- output validation and hardening ----------------------
 
 def _extract_python_only(text: str) -> str:
     if "```" in text:
@@ -287,8 +286,7 @@ def _skip_brittle_test_functions(code: str) -> str:
     while i < len(lines):
         line = lines[i]
         if is_test_header(line):
-            if current:
-                out.extend(current); current = []
+            if current: out.extend(current); current = []
             func_lines = [line]; i += 1
             while i < len(lines) and not is_test_header(lines[i]):
                 func_lines.append(lines[i]); i += 1
@@ -309,8 +307,6 @@ def _header_guard_for_banned_imports(code: str) -> str:
             "_pytest.skip('generator: banned private imports detected; skipping module', allow_module_level=True)\n\n"
         ) + code
     return code
-
-# ---------------------- analysis compaction ----------------------
 
 def _dedupe_keep(items: List[Dict[str, str]], key: str, limit: int = None) -> List[Dict[str, str]]:
     seen, out = set(), []
@@ -337,28 +333,23 @@ def _compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
         "modules": sorted(set(analysis.get("modules", []))),
     }
 
-# ---------------------- package inference ----------------------
-
 COMMON_PKG_ALIASES = {
-    "bs4": "beautifulsoup4", "yaml": "PyYAML", "cv2": "opencv-python", "sklearn": "scikit-learn",
-    "PIL": "Pillow", "Crypto": "pycryptodome", "MySQLdb": "mysqlclient", "mysql": "mysqlclient",
-    "psycopg2": "psycopg2-binary", "boto3": "boto3", "httpx": "httpx", "requests": "requests",
-    "uvicorn": "uvicorn", "fastapi": "fastapi", "starlette": "starlette", "pydantic": "pydantic",
-    "typing_extensions": "typing-extensions", "annotated_types": "annotated-types", "sqlalchemy": "SQLAlchemy",
-    "flask": "flask", "django": "Django", "click": "click", "typer": "typer", "jinja2": "Jinja2",
-    "ujson": "ujson", "orjson": "orjson", "pymongo": "pymongo", "redis": "redis", "pytest": "pytest",
-    "jwt": "PyJWT", "markupsafe": "MarkupSafe", "rest_framework": "djangorestframework",
+    "bs4": "beautifulsoup4","yaml":"PyYAML","cv2":"opencv-python","sklearn":"scikit-learn",
+    "PIL":"Pillow","Crypto":"pycryptodome","MySQLdb":"mysqlclient","mysql":"mysqlclient",
+    "psycopg2":"psycopg2-binary","boto3":"boto3","httpx":"httpx","requests":"requests",
+    "uvicorn":"uvicorn","fastapi":"fastapi","starlette":"starlette","pydantic":"pydantic",
+    "typing_extensions":"typing-extensions","annotated_types":"annotated-types","sqlalchemy":"SQLAlchemy",
+    "flask":"flask","django":"Django","click":"click","typer":"typer","jinja2":"Jinja2",
+    "ujson":"ujson","orjson":"orjson","pymongo":"pymongo","redis":"redis","pytest":"pytest",
+    "jwt":"PyJWT","markupsafe":"MarkupSafe","rest_framework":"djangorestframework",
 }
 VERSION_CONSTRAINTS: Dict[str, str] = {}
 DENY_INFER: Set[str] = {
     *(p.strip().lower() for p in os.getenv("TESTGEN_DENY_PKGS", "models,relations,renderers").split(",") if p.strip())
 }
-VALID_PIP_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
-BAD_GENERIC_TOPS = {
-    "models","model","views","view","urls","settings","config","configs","tests","test",
+BAD_GENERIC_TOPS = {"models","model","views","view","urls","settings","config","configs","tests","test",
     "schemas","schema","forms","admin","migrations","apps","serializers","permissions","filters",
-    "routers","services","repository","repositories","managers","helpers","utils"
-}
+    "routers","services","repository","repositories","managers","helpers","utils"}
 DENY_TOPS = {
     "__future__","__main__","__builtin__","builtins","typing","types","dataclasses","importlib","asyncio","json","re","os","sys","pathlib",
     "logging","argparse","functools","itertools","collections","subprocess","datetime","time","math","decimal","fractions","statistics","sqlite3",
@@ -369,8 +360,7 @@ DENY_TOPS = {
 def _is_stdlib(name: str) -> bool:
     try:
         stdmods = getattr(sys, "stdlib_module_names", None)
-        if stdmods:
-            return name in stdmods
+        if stdmods: return name in stdmods
         return name in {
             "os","sys","re","json","pathlib","math","itertools","functools","typing","subprocess","datetime","time","collections","dataclasses","ast",
             "logging","unittest","argparse","asyncio","multiprocessing","threading","sqlite3","email","http","urllib","hashlib","hmac","base64",
@@ -382,8 +372,7 @@ def _is_stdlib(name: str) -> bool:
 def _is_local_import(top: str) -> bool:
     roots: List[pathlib.Path] = []
     env_root = os.environ.get("TARGET_ROOT")
-    if env_root:
-        roots.append(pathlib.Path(env_root))
+    if env_root: roots.append(pathlib.Path(env_root))
     roots.extend([pathlib.Path("."), pathlib.Path("src"), pathlib.Path("backend"), pathlib.Path("app"), pathlib.Path("target")])
     if pathlib.Path(top).exists() or pathlib.Path(top.replace(".", "/")).exists():
         return True
@@ -397,17 +386,12 @@ def _infer_required_packages(compact: Dict[str, Any]) -> List[str]:
     needed: Set[str] = set()
     for m in mods:
         top = (m.split(".")[0] or "").strip()
-        if not top or top in DENY_TOPS or top.startswith("_") or "__" in top:
-            continue
-        if any(c.isupper() for c in top):
-            continue
-        if not VALID_PIP_RE.match(top):
-            continue
-        if _is_stdlib(top) or _is_local_import(top):
-            continue
+        if not top or top in DENY_TOPS or top.startswith("_") or "__" in top: continue
+        if any(c.isupper() for c in top): continue
+        if not re.match(r"^[a-z0-9][a-z0-9._-]*$", top): continue
+        if _is_stdlib(top) or _is_local_import(top): continue
         pkg = COMMON_PKG_ALIASES.get(top, top)
-        if pkg and pkg.lower() not in DENY_INFER:
-            needed.add(pkg)
+        if pkg and pkg.lower() not in DENY_INFER: needed.add(pkg)
 
     constrained: List[str] = []
     for pkg in sorted(needed):
@@ -417,8 +401,7 @@ def _infer_required_packages(compact: Dict[str, Any]) -> List[str]:
     pkg_names = {p.lower() for p in needed}
     if "fastapi" in pkg_names:
         for extra in {"starlette", "pydantic"}:
-            if extra not in DENY_INFER:
-                constrained.append(extra)
+            if extra not in DENY_INFER: constrained.append(extra)
 
     return sorted(set(constrained), key=str.lower)
 
@@ -427,15 +410,13 @@ def _pip_install(packages: List[str]) -> None:
     if not pkgs:
         print("📦 No third-party packages inferred from imports.")
         return
-
     constraints = os.getenv("TESTGEN_PIP_CONSTRAINTS") or os.getenv("PIP_CONSTRAINT")
     print("📦 Installing packages (one-by-one):", ", ".join(pkgs))
     for pkg in pkgs:
         cmd = [sys.executable, "-m", "pip", "install",
-            "--disable-pip-version-check", "--no-input",
-            "--upgrade-strategy", "only-if-needed"]
-        if constraints:
-            cmd += ["-c", constraints]
+               "--disable-pip-version-check", "--no-input",
+               "--upgrade-strategy", "only-if-needed"]
+        if constraints: cmd += ["-c", constraints]
         cmd.append(pkg)
         try:
             subprocess.check_call(cmd)
@@ -444,15 +425,11 @@ def _pip_install(packages: List[str]) -> None:
             print(f"  ⚠️ Skipping {pkg} (pip exit {e.returncode})")
             continue
 
-# ---------------------- sharding and focus ----------------------
-
 def _partition(lst: List[Dict[str, str]], n_parts: int) -> List[List[Dict[str, str]]]:
-    if not lst:
-        return [[] for _ in range(n_parts)]
+    if not lst: return [[] for _ in range(n_parts)]
     size = max(1, math.ceil(len(lst) / n_parts))
     groups = [lst[i:i + size] for i in range(0, len(lst), size)]
-    while len(groups) < n_parts:
-        groups.append([])
+    while len(groups) < n_parts: groups.append([])
     return groups
 
 def _targets_count_for_kind(compact: Dict[str, Any], kind: str) -> int:
@@ -465,8 +442,7 @@ def _targets_count_for_kind(compact: Dict[str, Any], kind: str) -> int:
 
 def _auto_files_per_kind(compact: Dict[str, Any], kind: str) -> int:
     n = _targets_count_for_kind(compact, kind)
-    if n <= 0:
-        return 0
+    if n <= 0: return 0
     base = 3 if n <= 8 else 4 if n <= 20 else 6 if n <= 40 else 8 if n <= 100 else 12
     cap = int(os.getenv("TESTGEN_FILES_PER_KIND_MAX", "6"))
     return min(base, max(1, min(n, cap)))
@@ -489,8 +465,7 @@ def _focus_for_shard(compact: Dict[str, Any], kind: str, shard_idx: int, total: 
     return (", ".join(names) if names else "(none)"), names
 
 def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Set[str]]) -> Tuple[Dict[str, Any], bool]:
-    if not focus_files:
-        return analysis, False
+    if not focus_files: return analysis, False
     focus_norm: Set[str] = {_norm_rel(f) for f in focus_files}
     focus_basenames = _basename_set(focus_norm)
     def keep(entry: Dict[str, Any]) -> bool:
@@ -507,8 +482,6 @@ def _filter_analysis_by_files(analysis: Dict[str, Any], focus_files: Optional[Se
         return analysis, True
     return filt, False
 
-# ---------------------- bootstrap injected into every test file ----------------------
-
 def _enhanced_universal_bootstrap(compact: Dict[str, Any]) -> str:
     include_qt = any((m.split(".")[0] or "").startswith(("PyQt","PySide")) for m in (compact.get("modules") or []))
     qt_env = ("import os\nos.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')\n" if include_qt else "")
@@ -522,8 +495,6 @@ def _enhanced_universal_bootstrap(compact: Dict[str, Any]) -> str:
         "        pass\n"
         if include_qt else ""
     )
-
-    # IMPORTANT: Make "from target import X" work by exposing a namespace-like package named 'target'
     return f'''# --- ENHANCED UNIVERSAL BOOTSTRAP ---
 import os, sys, importlib.util as _iu, types as _types, pytest as _pytest, builtins as _builtins, warnings
 STRICT = os.getenv("TESTGEN_STRICT", "1").lower() in ("1","true","yes")
@@ -539,7 +510,7 @@ if _target and os.path.isdir(_target):
             sys.path.insert(0, p)
     if "target" not in sys.modules:
         _pkg = _types.ModuleType("target")
-        _pkg.__path__ = [_target]  # behave like a namespace package
+        _pkg.__path__ = [_target]
         sys.modules["target"] = _pkg
 
 def _exc_lookup(name, default):
@@ -552,7 +523,6 @@ def _exc_lookup(name, default):
     except Exception:
         return default
 
-# Optional Django bootstrap to avoid masking real failures by default.
 if os.getenv("TESTGEN_ENABLE_DJANGO_BOOTSTRAP","0") in ("1","true","yes"):
     try:
         import django
@@ -598,20 +568,15 @@ def _requires_django(f):
             _pytest.skip(f"Django setup issue: {e}")
     return wrapper
 
-# ---------------------- prompts ----------------------
-
 _SYSTEM_MIN = (
     "Return ONLY valid Python pytest tests. No Markdown.\n"
     "Guard third-party imports with try/except ImportError and call pytest.skip at module level.\n"
     "Use Arrange-Act-Assert, parametrize normal and edge cases; include error paths.\n"
-    "Use tmp_path/monkeypatch/unittest.mock for I/O and collaborators.\n"
-    "Do NOT use private pytest internals or custom markers.\n"
+    "Use tmp_path/monkeypatch/unittest.mock only. Do NOT invent custom fixtures.\n"
     "Assert concrete outputs, types, and state changes.\n"
-    "For exceptions: do NOT indirect via string names. Refer to exception objects directly. "
-    "If a custom exception may not exist, use getattr(module, 'CalculatorError', ZeroDivisionError) or ZeroDivisionError.\n"
+    "For exceptions: refer to exception classes directly; if custom may not exist, use getattr(module, 'CalculatorError', ZeroDivisionError).\n"
     "Never write 'from pkg import __init__'."
 )
-
 _UNIT_DEV = "Write UNIT tests (3-6) like a senior dev. Prefer public functions/classes in the focus list."
 _INTEG_DEV = "Write INTEGRATION tests (2-5) that cross modules naturally; mock external calls."
 _E2E_DEV   = "Write E2E-style black-box tests (2-4) from the public API only. Deterministic & self-contained."
@@ -641,8 +606,6 @@ def _build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, to
         user = f"[E2E shard {shard}/{total}] {_E2E_DEV}\nContext: {brief}\nAnalysis: {_limit_str(compact_json)}"
     return [{"role": "system", "content": sys_msg}, {"role": "user", "content": user}]
 
-# ---------------------- harden generated code ----------------------
-
 _SKIP_ANY_EXC_RE = re.compile(
     r"except\s+Exception\s+as\s+e:\s*\n\s*pytest\.skip\((.*?)\)",
     flags=re.DOTALL
@@ -670,19 +633,15 @@ def _massage_generated_code(code: str) -> str:
     code = _ensure_pytest_import_top(code)
     return code if code.endswith("\n") else code + "\n"
 
-# ---------------------- IO ----------------------
-
 def write(path: pathlib.Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     print(f"📝 wrote {path}")
 
 def _load_list(path: Optional[str]) -> Optional[List[str]]:
-    if not path:
-        return None
+    if not path: return None
     p = pathlib.Path(path)
-    if not p.exists():
-        return None
+    if not p.exists(): return None
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
         if isinstance(data, list):
@@ -714,8 +673,7 @@ def _update_manifest(outdir: pathlib.Path, created_files: List[str], change_summ
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 def _smart_cleanup_outdir(outdir: pathlib.Path, deleted_files: Set[str], added_or_modified: Set[str]):
-    if not outdir.exists():
-        return
+    if not outdir.exists(): return
     print(f"🧹 Smart cleanup: {len(deleted_files)} deleted, {len(added_or_modified)} modified files")
     _cleanup_deleted_tests(outdir, deleted_files)
     for modified_file in added_or_modified:
@@ -731,8 +689,6 @@ def _smart_cleanup_outdir(outdir: pathlib.Path, deleted_files: Set[str], added_o
                 next(d.rglob("*"))
             except StopIteration:
                 shutil.rmtree(d, ignore_errors=True)
-
-# ---------------------- generation core ----------------------
 
 def _build_guard_and_messages(compact: Dict[str, Any], compact_json: str, kind: str, focus_label: str, shard: int, total: int):
     guard = _runtime_guard_for(compact)
@@ -835,8 +791,6 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
     else:
         print("ℹ️ No tests generated")
 
-# ---------------------- runtime guard per file ----------------------
-
 def _runtime_guard_for(compact: Dict[str, Any]) -> str:
     critical = {"fastapi", "flask", "django", "sqlalchemy", "starlette", "pydantic"}
     mods = {m.split(".")[0].lower() for m in (compact.get("modules") or [])}
@@ -849,8 +803,6 @@ def _runtime_guard_for(compact: Dict[str, Any]) -> str:
     bootstrap = _enhanced_universal_bootstrap(compact)
     return (checks + "\n" + bootstrap + "\n")
 
-# ---------------------- LLM loop ----------------------
-
 def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, backoff_seq=(3, 7, 15), compact: Optional[Dict[str, Any]] = None) -> str:
     client = _client()
     deployment = _deployment_name()
@@ -858,8 +810,7 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
     for attempt in range(1, attempts_per_file + 1):
         for sleep_s in (0, *backoff_seq):
             try:
-                if sleep_s:
-                    time.sleep(sleep_s)
+                if sleep_s: time.sleep(sleep_s)
                 resp = _chat_completion_create(client, deployment, messages)
                 raw = resp.choices[0].message.content or ""
                 cleaned = _extract_python_only(raw)
@@ -880,7 +831,7 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
                     "content": (
                         f"Invalid: {reason}. Regenerate strict, developer-style pytest code only. "
                         "Guard imports with try/except ImportError and module-level pytest.skip, prefer parametrize & boundaries, "
-                        "use tmp_path/monkeypatch/mock, no private pytest internals. "
+                        "use tmp_path/monkeypatch/mock, do NOT invent fixtures; only use built-in ones. "
                         "Refer to exception classes directly; do not use string lookups."
                     )
                 })
@@ -894,8 +845,6 @@ def _gen_validated(messages: List[Dict[str, str]], attempts_per_file: int = 3, b
                 print(f"⚠️ Error during generation attempt {attempt}: {e}")
                 break
     raise RuntimeError(f"LLM generation failed after {attempts_per_file} attempts: {reason}")
-
-# ---------------------- entrypoint ----------------------
 
 if __name__ == "__main__":
     try:

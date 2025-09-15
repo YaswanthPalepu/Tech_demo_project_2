@@ -1,4 +1,3 @@
-#
 name: Validate Generated Tests
 
 on:
@@ -23,6 +22,7 @@ on:
   #   types: [completed]
   push:
     branches: [ "test" ]
+    paths: ["tests/generated/**"]
 
 concurrency:
   group: validate-tests-${{ github.ref }}-${{ github.workflow }}
@@ -46,11 +46,11 @@ jobs:
       TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "1"
 
     outputs:
-      test-summary: ${{ steps.test-summary.outputs.summary }}
-      test-status: ${{ steps.test-summary.outputs.status }}
-      total-tests: ${{ steps.test-summary.outputs.total }}
-      passed-tests: ${{ steps.test-summary.outputs.passed }}
-      failed-tests: ${{ steps.test-summary.outputs.failed }}
+      test-summary: ${{ steps.generate-summary.outputs.summary }}
+      test-status: ${{ steps.generate-summary.outputs.status }}
+      total-tests: ${{ steps.generate-summary.outputs.total }}
+      passed-tests: ${{ steps.generate-summary.outputs.passed }}
+      failed-tests: ${{ steps.generate-summary.outputs.failed }}
 
     steps:
       - name: Checkout current repository
@@ -701,7 +701,7 @@ jobs:
           ls -la reports/tests/ || echo "No reports directory found"
 
       - name: Generate comprehensive test summary
-        id: test-summary
+        id: generate-summary
         if: always()
         working-directory: target
         run: |
@@ -856,7 +856,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const summary = `${{ steps.test-summary.outputs.summary }}`;
+            const summary = `${{ steps.generate-summary.outputs.summary }}`;
             
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -870,7 +870,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const status = '${{ steps.test-summary.outputs.status }}';
+            const status = '${{ steps.generate-summary.outputs.status }}';
             const state = status.includes('✅') ? 'success' : 
                          status.includes('⚠️') ? 'failure' : 'failure';
             
@@ -880,7 +880,7 @@ jobs:
               sha: context.sha,
               state: state,
               target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              description: `${{ steps.test-summary.outputs.total }} tests, ${{ steps.test-summary.outputs.passed }} passed, ${{ steps.test-summary.outputs.failed }} failed`,
+              description: `${{ steps.generate-summary.outputs.total }} tests, ${{ steps.generate-summary.outputs.passed }} passed, ${{ steps.generate-summary.outputs.failed }} failed`,
               context: 'test-validation/generated-tests'
             });
 
@@ -891,21 +891,21 @@ jobs:
           echo ""
           echo "📊 FINAL RESULTS:"
           echo "=================="
-          echo "Status: ${{ steps.test-summary.outputs.status }}"
-          echo "Total Tests: ${{ steps.test-summary.outputs.total }}"
-          echo "✅ Passed: ${{ steps.test-summary.outputs.passed }}"
-          echo "❌ Failed: ${{ steps.test-summary.outputs.failed }}"
-          echo "⚠️ Errors: ${{ steps.test-summary.outputs.errors }}"
-          echo "⏭️ Skipped: ${{ steps.test-summary.outputs.skipped }}"
-          echo "🤖 Generated Tests: ${{ steps.test-summary.outputs.generated_tests }}"
-          echo "📝 Regular Tests: ${{ steps.test-summary.outputs.regular_tests }}"
-          echo "📈 Coverage: ${{ steps.test-summary.outputs.coverage }}%"
+          echo "Status: ${{ steps.generate-summary.outputs.status }}"
+          echo "Total Tests: ${{ steps.generate-summary.outputs.total }}"
+          echo "✅ Passed: ${{ steps.generate-summary.outputs.passed }}"
+          echo "❌ Failed: ${{ steps.generate-summary.outputs.failed }}"
+          echo "⚠️ Errors: ${{ steps.generate-summary.outputs.errors }}"
+          echo "⏭️ Skipped: ${{ steps.generate-summary.outputs.skipped }}"
+          echo "🤖 Generated Tests: ${{ steps.generate-summary.outputs.generated_tests }}"
+          echo "📝 Regular Tests: ${{ steps.generate-summary.outputs.regular_tests }}"
+          echo "📈 Coverage: ${{ steps.generate-summary.outputs.coverage }}%"
           echo "🎯 Threshold: ${{ env.COVERAGE_THRESHOLD }}%"
           echo ""
           
-          if [[ "${{ steps.test-summary.outputs.status }}" == *"✅"* ]]; then
+          if [[ "${{ steps.generate-summary.outputs.status }}" == *"✅"* ]]; then
             echo "🎉 All tests passed successfully!"
-          elif [[ "${{ steps.test-summary.outputs.status }}" == *"⚠️"* ]]; then
+          elif [[ "${{ steps.generate-summary.outputs.status }}" == *"⚠️"* ]]; then
             echo "⚠️ Tests passed but with warnings (coverage/etc)"
           else
             echo "❌ Test validation failed"
@@ -1167,7 +1167,7 @@ jobs:
           ls -la reports/tests/ || echo "No reports directory found"
 
       - name: Generate comprehensive test summary
-        id: test-summary1
+        id: test-summary
         if: always()
         working-directory: target
         run: |

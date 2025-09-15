@@ -21,8 +21,8 @@ on:
     workflows: ["AI Test Generation"]
     types: [completed]
   push:
-    branches: ["main", "master", "develop"]
-    paths: ["tests/generated/**"]
+    branches: ["test"]
+    
 
 concurrency:
   group: validate-tests-${{ github.ref }}-${{ github.workflow }}

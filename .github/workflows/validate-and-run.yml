@@ -30,10 +30,39 @@ jobs:
         with: {fetch-depth: 0}
 
       - name: Clone target repository to ./target_repo
+        env:
+          GH_PAT3: ${{ secrets.GH_PAT3 || secrets.GITHUB_TOKEN }}
+          INPUT_REPO_URL: ${{ github.event.inputs.repo_url || format('https://github.com/{0}.git', github.repository) }}
         run: |
-          REPO_URL="${{ github.event.inputs.repo_url || github.repositoryUrl }}"
+          set -euo pipefail
+          REPO_URL="$INPUT_REPO_URL"
+
+          # normalize to HTTPS
+          case "$REPO_URL" in
+            git://github.com/*)        REPO_URL="${REPO_URL/git:\/\//https://}";;
+            git@github.com:*)          REPO_URL="https://github.com/${REPO_URL#git@github.com:}";;
+            ssh://git@github.com/*)    REPO_URL="https://github.com/${REPO_URL#ssh://git@github.com/}";;
+          esac
+          [[ "$REPO_URL" != https://* ]] && REPO_URL="https://github.com/${REPO_URL#*/}"
+          [[ "$REPO_URL" != *.git ]] && REPO_URL="${REPO_URL%.git}.git"
+
+          # inject PAT for private repos
+          if [ -n "$GH_PAT3" ]; then
+            REPO_URL="${REPO_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
+          fi
+
+          echo "Cloning: $REPO_URL"
           rm -rf target_repo
-          git clone --depth=1 "$REPO_URL" target_repo
+          if ! git clone --depth=1 "$REPO_URL" target_repo; then
+            echo "git clone failed, trying tarball fallback"
+            ORG_REPO="$(echo "$REPO_URL" | sed -E 's#^https://(?:x-access-token:[^@]+@)?github.com/([^/]+/[^/.]+)(\.git)?$#\1#')"
+            AUTH=()
+            [ -n "$GH_PAT3" ] && AUTH=(-H "Authorization: Bearer $GH_PAT3")
+            mkdir -p target_repo
+            curl -sSL "${AUTH[@]}" -o /tmp/repo.tgz "https://api.github.com/repos/${ORG_REPO}/tarball"
+            tar -xzf /tmp/repo.tgz --strip-components=1 -C target_repo
+          fi
+
 
       - uses: actions/setup-python@v5
         with: {python-version: "3.10", cache: pip}

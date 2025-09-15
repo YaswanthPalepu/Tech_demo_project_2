@@ -23,7 +23,6 @@ on:
   #   types: [completed]
   push:
     branches: [ "test" ]
-    paths: ["tests/generated/**"]
 
 concurrency:
   group: validate-tests-${{ github.ref }}-${{ github.workflow }}

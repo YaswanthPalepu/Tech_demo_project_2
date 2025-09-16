@@ -1,10 +1,15 @@
 name: Validate Generated Tests (CI Gate)
 
 on:
-  workflow_run:
-    workflows: ["AI Test Generation"]
-    types: [completed]
+  # workflow_run:
+  #   workflows: ["AI Test Generation"]
+  #   types: [completed]
+  #   branches: [ "test2" ]
+
+
+  push:
     branches: [ "test2" ]
+    
   workflow_dispatch:
     inputs:
       repo_url:

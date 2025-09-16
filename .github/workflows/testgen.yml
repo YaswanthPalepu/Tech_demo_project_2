@@ -19,8 +19,8 @@ on:
         required: false
         default: "0"
         description: "Minimum coverage threshold (%)"
-  # push:
-  #   branches: ["test2"]
+  push:
+    branches: ["test2"]
 
 concurrency:
   group: test-gen-${{ github.workflow }}
@@ -123,6 +123,7 @@ jobs:
             echo "Skipping apt-get setup on this self-hosted runner."
           fi
 
+      # uses your repo-agnostic installer script
       - name: Install Python deps (tooling + target libs, constrained)
         run: ci/install_deps.sh
 
@@ -151,16 +152,15 @@ jobs:
           TESTGEN_STRICT_FAIL: "1"
           TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "0"
           TESTGEN_FIX_FLASK: "0"
-          TESTGEN_AUTO_PIP: "0"     
+          TESTGEN_AUTO_PIP: "0"
         run: |
           python - <<'PY'
           import os, json
           import src.gen.generate as g
           analysis = json.load(open('/tmp/analysis.json'))
           outdir = os.environ['OUTDIR']
-          force = os.environ.get('TESTGEN_FORCE', 'false').lower() == 'true'
-          if force:
-              print('Force flag ON (TESTGEN_FORCE) — generating regardless of change detection')
+          if os.environ.get('TESTGEN_FORCE','false').lower() == 'true':
+              print('Force flag ON — generating regardless of change detection')
               os.environ['TESTGEN_FORCE'] = 'true'
           g.generate_all(analysis, outdir=outdir, focus_files=None)
           PY
@@ -215,7 +215,7 @@ jobs:
       - name: Sanity check generated tests (collect-only)
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
-          TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "1"   # enable minimal Django settings for import/collect
+          TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "1"
         run: |
           cd target
           pytest -q --collect-only tests/generated || true
@@ -235,3 +235,24 @@ jobs:
           git commit -m "chore(testgen): update generated tests [skip ci]" || true
           git pull --rebase origin "${DEFAULT_BRANCH}" || true
           git push origin HEAD:"${DEFAULT_BRANCH}" || true
+
+      # Handoff to the validation workflow
+      - name: Upload handoff metadata
+        if: always()
+        run: |
+          cat > /tmp/handoff.json <<EOF
+          {
+            "repo_url": "${REPO_URL}",
+            "repo_path": "${{ steps.meta.outputs.repo_path }}",
+            "default_branch": "${{ steps.meta.outputs.default_branch }}",
+            "outdir": "${OUTDIR}"
+          }
+          EOF
+
+      - name: Publish handoff artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: handoff-meta
+          path: /tmp/handoff.json
+          retention-days: 3

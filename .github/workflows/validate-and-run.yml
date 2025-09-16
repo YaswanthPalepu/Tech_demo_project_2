@@ -1,552 +1,296 @@
-name: Validate Generated Tests
+name: Validate Generated Tests (CI Gate)
 
 on:
-  # workflow_run:
-  #   workflows: ["AI Test Generation"]
-  #   types: [completed]
-  #   branches: [ "*" ]
+  workflow_run:
+    workflows: ["AI Test Generation"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       repo_url:
-        description: 'Repository with generated tests to validate'
-        required: true
-        type: string
-      coverage_threshold:
-        description: 'Minimum coverage threshold (%)'
+        description: "Repo to validate (fallback if no handoff artifact)"
         required: false
-        default: '70'
-        type: string
-      run_generated_only:
-        description: 'Run only generated tests (skip existing ones)'
-        required: false
-        default: false
-        type: boolean
-
-  push:
-    branches: [ "test2" ]
+        default: ""
 
 concurrency:
-  group: validate-tests-${{ github.ref }}-${{ github.workflow }}
+  group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  validate-generated-tests:
+  validate:
     runs-on: self-hosted
-    permissions: 
+    permissions:
       contents: read
       actions: read
       checks: write
-      pull-requests: write
+      # needed to download artifacts from upstream workflow_run
+      statuses: write
 
     env:
-      COVERAGE_THRESHOLD: ${{ github.event.inputs.coverage_threshold || '70' }}
-      DATABASE_URL: "sqlite:///:memory:"
-      DB_URL: "sqlite:///:memory:"
-      SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
       PYTHONUTF8: "1"
+      COVERAGE_THRESHOLD: "70"
       TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "1"
-
-    outputs:
-      test-summary: ${{ steps.generate-summary.outputs.summary }}
-      test-status: ${{ steps.generate-summary.outputs.status }}
-      total-tests: ${{ steps.generate-summary.outputs.total }}
-      passed-tests: ${{ steps.generate-summary.outputs.passed }}
-      failed-tests: ${{ steps.generate-summary.outputs.failed }}
+      PIP_CONSTRAINT: /tmp/compat-constraints.txt
 
     steps:
-      - name: Checkout current repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      # Try to pull repo_url from the upstream run's artifact (best way to chain automatically)
+      - name: Download handoff artifact (from upstream run)
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
+          name: handoff-meta
+          run-id: ${{ github.event.workflow_run.id }}
+          path: handoff
+        continue-on-error: true
 
-      - name: Clone target repository with generated tests
-        timeout-minutes: 10
-        env:
-          GH_PAT3: ${{ secrets.GH_PAT3 || secrets.GITHUB_TOKEN }}
-          REPO_URL: ${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}
+      - name: Resolve target repository URL
+        id: target
         run: |
-          set -euo pipefail
-          echo "🔍 Cloning repository with generated tests..."
-          
-          CLEAN_URL="$REPO_URL"
-          echo "📍 Original URL: $REPO_URL"
-          if [[ "$CLEAN_URL" == git@* ]]; then
-            CLEAN_URL="https://github.com/${CLEAN_URL#git@github.com:}"
+          set -e
+          HANDOFF="handoff/handoff.json"
+          if [ -f "$HANDOFF" ]; then
+            REPO_URL=$(python -c 'import json,sys;print(json.load(open(sys.argv[1])).get("repo_url",""))' "$HANDOFF")
+          else
+            REPO_URL="${{ inputs.repo_url }}"
           fi
-          if [[ "$CLEAN_URL" != https://* ]]; then
-            CLEAN_URL="https://github.com/$CLEAN_URL"
+          if [ -z "$REPO_URL" ]; then
+            echo "No repo_url available. Provide it via workflow_dispatch input."
+            exit 1
           fi
-          if [[ "$CLEAN_URL" != *.git ]]; then
-            CLEAN_URL="${CLEAN_URL}.git"
-          fi
-          echo "📂 Cleaned URL: $CLEAN_URL"
-          
-          if [ -n "$GH_PAT3" ]; then
-            CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
-            echo "🔐 Using authenticated clone"
-          fi
-          
-          git clone --depth=1 "$CLEAN_URL" target || {
-            echo "❌ Git clone failed, trying API fallback..."
-            ORG_REPO=$(echo "$REPO_URL" | sed -E 's#^https://github.com/([^/]+/[^/.]+)(\.git)?/?$#\1#')
-            echo "📦 Downloading as archive: $ORG_REPO"
-            mkdir -p target
-            AUTH_HEADER=""
-            if [ -n "$GH_PAT3" ]; then AUTH_HEADER="Authorization: Bearer $GH_PAT3"; fi
-            curl ${AUTH_HEADER:+-H "$AUTH_HEADER"} -L -o repo.tar.gz "https://api.github.com/repos/$ORG_REPO/tarball" || exit 1
-            tar -xzf repo.tar.gz --strip-components=1 -C target
-          }
-          
-          echo "✅ Repository cloned successfully"
-          echo "📁 Repository contents:"
-          ls -la target/
+          echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
+          echo "Resolved repo_url: $REPO_URL"
 
-      - name: Setup Python Environment
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          cache: 'pip'
-
-      - name: Create compatibility constraints (same as testgen)
+      - name: Set compatibility constraints
         run: |
-          cat > /tmp/compat-constraints.txt << 'EOF'
+          cat > /tmp/compat-constraints.txt <<'EOF'
           Django>=3.2,<4.3
           djangorestframework>=3.12,<3.15
           EOF
-          echo "PIP_CONSTRAINT=/tmp/compat-constraints.txt" >> "$GITHUB_ENV"
 
-      - name: Install core testing dependencies
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install core tooling
         run: |
-          echo "🔧 Installing testing framework..."
           python -m pip install --upgrade "pip<25" wheel setuptools
           pip install -c "$PIP_CONSTRAINT" \
-            pytest pytest-cov pytest-html pytest-json-report pytest-timeout \
-            pytest-mock pytest-django pytest-flask pytest-xdist pytest-metadata \
-            coverage httpx requests psycopg2-binary
-          python - <<'PY'
-          plugins = ['pytest_cov','pytest_html','pytest_json_report','pytest_timeout','pytest_django']
-          import importlib
-          for p in plugins:
-              try: importlib.import_module(p); print(f"  ✅ {p}")
-              except Exception: print(f"  ❌ {p} - not available")
-          PY
-          echo "✅ Core testing dependencies installed"
+            pytest pytest-cov pytest-timeout pytest-html \
+            pytest-django pytest-flask pytest-xdist \
+            coverage httpx requests
 
-      - name: Install system build tools (matching testgen)
+      - name: Clone target repo (with generated tests)
+        env:
+          GH_PAT3: ${{ secrets.GH_PAT3 || secrets.GITHUB_TOKEN }}
         run: |
-          if command -v apt-get >/dev/null 2>&1; then
-            sudo apt-get update -y
-            sudo apt-get install -y --no-install-recommends \
-              build-essential python3-dev libpq-dev default-libmysqlclient-dev \
-              libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
-              libxml2-dev libxslt1-dev curl || true
-          else
-            echo "Skipping apt-get setup on this self-hosted runner."
+          set -e
+          REPO_URL='${{ steps.target.outputs.repo_url }}'
+          echo "Cloning: $REPO_URL"
+          CLEAN_URL="$REPO_URL"
+          [[ "$CLEAN_URL" == git@* ]] && CLEAN_URL="https://github.com/${CLEAN_URL#git@github.com:}"
+          [[ "$CLEAN_URL" != https://* ]] && CLEAN_URL="https://github.com/$CLEAN_URL"
+          [[ "$CLEAN_URL" != *.git ]] && CLEAN_URL="${CLEAN_URL}.git"
+          if [ -n "$GH_PAT3" ]; then
+            CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
           fi
+          git clone --depth=1 "$CLEAN_URL" target
 
-      - name: Install project dependencies (matching testgen logic)
+      - name: Safe, repo-agnostic dependency install
         working-directory: target
-        timeout-minutes: 15
         run: |
-          echo "📦 Installing project dependencies..."
-          install_requirements_file() {
+          python -m pip install --upgrade "pip<25" wheel setuptools
+          # Baseline libs that many tests/frameworks expect
+          pip install -c "$PIP_CONSTRAINT" "typing-extensions>=4.8" "uvicorn>=0.23" "pydantic>=2" "starlette>=0.37" || true
+
+          sanitize_and_install() {
             local req_file="$1"
-            if [ -f "$req_file" ]; then
-              echo "Installing from $req_file (constrained via PIP_CONSTRAINT)..."
-              sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' "$req_file"
-              grep -viE '^[[:space:]]*(django|djangorestframework)\b' "$req_file" > /tmp/req.filtered.txt || true
-              pip install -c "$PIP_CONSTRAINT" -r /tmp/req.filtered.txt || echo "Some packages from $req_file failed to install"
+            [ -f "$req_file" ] || return 0
+            echo "Sanitizing $req_file"
+
+            # Normalize & remove problem deps (we force compatible Django/DRF separately)
+            sed -E 's/^psycopg2([^a-zA-Z0-9]|$)/psycopg2-binary\1/i' "$req_file" \
+            | grep -viE '^[[:space:]]*(django|djangorestframework)\b' \
+            > /tmp/req.candidate.txt
+
+            # Drop VCS/local/editable and options
+            awk '
+              /^[[:space:]]*$/ {next}
+              /^[[:space:]]*#/ {next}
+              /^[[:space:]]*-/ {next}
+              /^[[:space:]]*--/ {next}
+              /^\-e[[:space:]]/ {next}
+              /^git\+|^hg\+|^svn\+|^bzr\+/ {next}
+              /^file:/ {next}
+              {print}
+            ' /tmp/req.candidate.txt > /tmp/req.clean.txt
+
+            : > /tmp/req.final.txt
+            while IFS= read -r pkg; do
+              [ -z "$pkg" ] && continue
+              # Quick resolvability probe
+              if python - <<PY >/dev/null 2>&1
+              import sys, subprocess, shlex
+              pkg=sys.argv[1]
+              cmd=f"python -m pip index versions {shlex.quote(pkg)}"
+              sys.exit(subprocess.call(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+              PY
+              "$pkg"; then
+                              echo "$pkg" >> /tmp/req.final.txt
+                            else
+                              echo "⏭️  Skip non-resolvable: $pkg"
+                            fi
+            done < /tmp/req.clean.txt
+
+            if [ -s /tmp/req.final.txt ]; then
+              pip install -c "$PIP_CONSTRAINT" -r /tmp/req.final.txt || true
             fi
           }
-          install_requirements_file "requirements.txt"
+
+          sanitize_and_install "requirements.txt"
           if compgen -G "requirements/*.txt" >/dev/null; then
-            for f in requirements/*.txt; do install_requirements_file "$f"; done
+            for f in requirements/*.txt; do sanitize_and_install "$f"; done
           fi
-          if [ -f "pyproject.toml" ] && grep -q "\[tool.poetry\]" pyproject.toml; then
-            echo "🎭 Poetry project detected"
+
+          if [ -f pyproject.toml ] && grep -q "\[tool.poetry\]" pyproject.toml; then
             pip install -c "$PIP_CONSTRAINT" poetry || true
             poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req || true
-            if [ -s /tmp/poetry.lock.req ]; then
-              grep -viE '^[[:space:]]*(django|djangorestframework)\b' /tmp/poetry.lock.req > /tmp/poetry.lock.filtered
-              pip install -c "$PIP_CONSTRAINT" -r /tmp/poetry.lock.filtered || true
-            fi
+            [ -s /tmp/poetry.lock.req ] && sanitize_and_install /tmp/poetry.lock.req
           fi
-          if [ -f "pyproject.toml" ] && grep -q "\[tool.pdm\]" pyproject.toml; then
-            echo "📦 PDM project detected"
+
+          if [ -f pyproject.toml ] && grep -q "\[tool.pdm\]" pyproject.toml; then
             pip install -c "$PIP_CONSTRAINT" pdm || true
             pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
-            if [ -s /tmp/pdm.lock.req ]; then
-              grep -viE '^[[:space:]]*(django|djangorestframework)\b' /tmp/pdm.lock.req > /tmp/pdm.lock.filtered
-              pip install -c "$PIP_CONSTRAINT" -r /tmp/pdm.lock.filtered || true
-            fi
+            [ -s /tmp/pdm.lock.req ] && sanitize_and_install /tmp/pdm.lock.req
           fi
 
-      - name: Force compatible Django & DRF (matching testgen)
-        working-directory: target
-        run: |
-          python -m pip install --upgrade -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
-
-      - name: Check for generated tests
-        id: check-tests
-        working-directory: target
-        run: |
-          echo "🔍 Checking for generated tests..."
-          echo "📁 Repository structure:"
-          find . -type f -name "*.py" | grep -E "(test|Test)" | head -20 | sed 's/^/  /'
-          echo ""
-          echo "📂 Directory structure (first 3 levels):"
-          find . -maxdepth 3 -type d | sort | sed 's/^/  /'
-          echo ""
-          echo "🔍 Looking for test directories..."
-          test_dirs_found=""
-          for test_dir in "tests" "test" "Tests" "Test"; do
-            if [ -d "$test_dir" ]; then
-              echo "✅ Found $test_dir/ directory"
-              test_dirs_found="$test_dirs_found $test_dir"
-              if [ -d "$test_dir/generated" ]; then
-                generated_count=$(find "$test_dir/generated" -name "test_*.py" -o -name "*_test.py" | wc -l)
-                echo "  ✅ Found $test_dir/generated/ with $generated_count test files"
-                echo "has_generated_tests=true" >> $GITHUB_OUTPUT
-                echo "generated_count=$generated_count" >> $GITHUB_OUTPUT
-                echo "generated_dir=$test_dir/generated" >> $GITHUB_OUTPUT
-                echo "  📁 Generated test files:"
-                find "$test_dir/generated" -name "test_*.py" -o -name "*_test.py" | head -10 | sed 's/^/    - /'
-                echo "  📄 Sample file content:"
-                for test_file in $(find "$test_dir/generated" -name "test_*.py" | head -1); do
-                  if [ -f "$test_file" ]; then
-                    echo "    File: $test_file"
-                    echo "    Size: $(wc -c < "$test_file") bytes"
-                    echo "    First 5 lines:"
-                    head -5 "$test_file" | sed 's/^/      /'
-                  fi
-                done
-              else
-                echo "  ❌ No generated/ subdirectory in $test_dir/"
-              fi
-            fi
-          done
-          
-          if [ -z "$test_dirs_found" ]; then
-            echo "❌ No test directories found"
-            echo "has_generated_tests=false" >> $GITHUB_OUTPUT
-            echo "generated_count=0" >> $GITHUB_OUTPUT
+          # Force compatible Django/DRF if the project is Django
+          if find . -name "settings.py" -type f | grep -q .; then
+            pip install -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
           fi
-          
-          echo ""
-          echo "🔍 Searching for all test files in repository..."
-          all_test_files=$(find . -name "test_*.py" -o -name "*_test.py" | grep -v "/venv/" | grep -v "/.venv/" | grep -v "/site-packages/" | grep -v "/.git/")
-          total_tests=$(echo "$all_test_files" | grep -v '^' | wc -l)
 
-      - name: Setup Django configuration (if needed)
+      - name: Auto Django conftest (if Django project)
         working-directory: target
         run: |
-          echo "🔧 Setting up Django configuration if needed..."
-          settings_files=$(find . -name "settings.py" -type f | head -5)
-          if [ -n "$settings_files" ]; then
-            echo "🎯 Django project detected"
-            echo "$settings_files" | sed 's/^/  - /'
-            main_settings=""
-            for settings_file in $settings_files; do
-              dir_name=$(dirname "$settings_file" | sed 's|^\./||')
-              if [ "$dir_name" != "." ] && [ ! -path "*/migrations/*" ]; then
-                main_settings="$settings_file"; break
-              fi
-            done
-            [ -z "$main_settings" ] && main_settings=$(echo "$settings_files" | head -1)
-            echo "📝 Using settings file: $main_settings"
-            settings_module=$(echo "$main_settings" | sed 's|^\./||' | sed 's|/|.|g' | sed 's|\.py$||')
-            echo "📝 Django settings module: $settings_module"
-            echo "DJANGO_SETTINGS_MODULE=$settings_module" >> $GITHUB_ENV
-            cat > conftest.py << 'EOF'
-          import os, sys, pathlib
+          if find . -name "settings.py" -type f | grep -q .; then
+            cat > conftest.py <<'EOF'
+          import os, sys, pathlib, pytest
           ROOT = pathlib.Path(__file__).resolve().parent
-          if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
+          if str(ROOT) not in sys.path:
+              sys.path.insert(0, str(ROOT))
           def setup_django():
               try:
                   import django
                   from django.conf import settings
                   if not settings.configured:
-                      if not os.environ.get('DJANGO_SETTINGS_MODULE'):
-                          for s in ROOT.rglob('settings.py'):
-                              if 'migration' not in str(s):
-                                  rel = s.relative_to(ROOT).with_suffix('')
-                                  os.environ['DJANGO_SETTINGS_MODULE']='.'.join(rel.parts); break
-                      django.setup(); print("✅ Django configured successfully"); return True
+                      # try to find settings automatically
+                      for s in ROOT.rglob('settings.py'):
+                          if 'migration' not in str(s):
+                              rel = s.relative_to(ROOT).with_suffix('')
+                              os.environ['DJANGO_SETTINGS_MODULE']='.'.join(rel.parts)
+                              break
+                      django.setup()
               except Exception as e:
-                  print(f"⚠️ Django setup warning: {e}"); return False
+                  print(f"⚠️ Django setup warning: {e}")
           setup_django()
-          import pytest
           def pytest_configure(config):
-              config.addinivalue_line("markers", "generated: marks tests as AI-generated")
-              config.addinivalue_line("markers", "unit: marks tests as unit tests")
-              config.addinivalue_line("markers", "integration: marks tests as integration tests")
-              config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")
-          @pytest.fixture(autouse=True)
-          def setup_test_environment(): setup_django()
-          EOF
-            echo "✅ Django configuration completed"
-            python -c "import django; print(f'Django version: {django.get_version()}')"
-          else
-            echo "ℹ️ No Django project detected"
-            cat > conftest.py << 'EOF'
-          import pytest, sys, pathlib
-          ROOT = pathlib.Path(__file__).resolve().parent
-          if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
-          def pytest_configure(config):
-              config.addinivalue_line("markers", "generated: marks tests as AI-generated")
-              config.addinivalue_line("markers", "unit: marks tests as unit tests")
-              config.addinivalue_line("markers", "integration: marks tests as integration tests")
-              config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")
+              config.addinivalue_line("markers", "generated: AI-generated tests")
           EOF
           fi
 
-      - name: Discover and validate test structure
+      - name: Discover tests
+        id: collect
         working-directory: target
         run: |
-          echo "🧪 Discovering and validating test structure..."
-          mkdir -p reports/tests
-          python << 'EOF'
-          import pathlib, ast, sys
-          def is_excluded(p):
-              ex = ['venv','.venv','env','.env','site-packages','node_modules','.git','.pytest_cache','__pycache__','build','dist','.tox']
+          python - <<'PY'
+          import pathlib, ast, json, sys
+          def excluded(p):
+              ex={'venv','.venv','env','.env','site-packages','node_modules','.git','.pytest_cache','__pycache__','build','dist','.tox'}
               return any(x in pathlib.Path(p).parts for x in ex)
-          def find_valid():
-              root=pathlib.Path('.'); tests=[]; bad=[]
-              for pat in ['test_*.py','*_test.py']:
-                  for f in root.rglob(pat):
-                      s=str(f)
-                      if is_excluded(s) or not f.is_file(): continue
-                      try: ast.parse(f.read_text(encoding='utf-8', errors='ignore'), filename=s); tests.append(s)
-                      except SyntaxError as e: bad.append((s,str(e)))
-              return sorted(set(tests)), bad
-          def find_dirs():
-              root=pathlib.Path('.'); out=[]
-              for d in root.rglob('*'):
-                  if d.is_dir() and d.name in ['tests','test'] and not is_excluded(str(d)):
-                      if any(ff.name.startswith('test_') or ff.name.endswith('_test.py') for ff in d.rglob('*.py') if not is_excluded(str(ff))):
-                          out.append(str(d))
-              return sorted(set(out))
-          files,bad = find_valid(); dirs = find_dirs()
-          print(f"✅ Found {len(files)} valid test files"); print(f"⚠️ Found {len(bad)} invalid test files")
-          if files: 
-              print("📁 Valid test files:"); [print(f"  - {f}") for f in files[:20]]
-              if len(files)>20: print(f"  ... and {len(files)-20} more")
-          if dirs:
-              print("📁 Test directories:"); [print(f"  - {d}") for d in dirs]
-          if bad:
-              print("❌ Invalid test files (will be skipped):"); [print(f"  - {p}: {e}") for p,e in bad[:10]]
-          run_generated_only = '${{ github.event.inputs.run_generated_only }}' == 'true'
-          targets=[]
-          gen_paths=[]
-          for td in ['tests/generated','test/generated','Tests/generated','Test/generated']:
-              tp=pathlib.Path(td)
-              if tp.exists():
-                  gen_paths += [str(f) for f in tp.rglob('test_*.py') if not is_excluded(str(f))]
-                  gen_paths += [str(f) for f in tp.rglob('*_test.py') if not is_excluded(str(f))]
-          if run_generated_only:
-              if gen_paths:
-                  targets += gen_paths
-                  print(f"🎯 Running only generated tests: {len(gen_paths)} files")
-              else:
-                  print("❌ No generated tests found but run_generated_only=true"); sys.exit(1)
-          else:
-              targets += files + dirs + gen_paths
+          root=pathlib.Path('.')
+          files=set()
+          for pat in ('test_*.py','*_test.py'):
+              for f in root.rglob(pat):
+                  s=str(f)
+                  if not excluded(s):
+                      try:
+                          ast.parse(f.read_text(encoding='utf-8', errors='ignore'))
+                          files.add(s)
+                      except SyntaxError:
+                          pass
+          targets=sorted(files)
           if not targets:
-              print("❌ No valid test targets found"); sys.exit(1)
-          print(f"🎯 Final test targets: {len(targets)} items")
-          with open('/tmp/test_targets.txt','w') as f: f.write(' '.join(f'"{t}"' for t in targets))
-          EOF
+              print("No tests discovered"); sys.exit(1)
+          pathlib.Path("reports/tests").mkdir(parents=True, exist_ok=True)
+          open('/tmp/test_targets.txt','w').write(' '.join(f'"{t}"' for t in targets))
+          print(f"Collected {len(targets)} test files")
+          print(json.dumps(targets[:25], indent=2))
+          PY
 
-      - name: Run tests with coverage
+      - name: Run tests with coverage (CI gate)
+        id: run
         working-directory: target
         env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "0"
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: ""   # allow repo plugins
         run: |
-          echo "🚀 Running tests with coverage..."
+          mkdir -p reports/tests
           test_targets=$(cat /tmp/test_targets.txt || echo '.')
-          echo "📋 Test targets: $test_targets"
-          python << 'EOF'
-          available=[]
-          try:
-              import pytest_cov
-              available += ["--cov=.","--cov-report=json:reports/tests/coverage.json","--cov-report=html:reports/tests/coverage-html","--cov-report=term-missing"]
-              print("✅ pytest-cov available")
-          except ImportError: print("❌ pytest-cov not available")
-          try:
-              import pytest_html
-              available += ["--html=reports/tests/test-report.html","--self-contained-html"]
-              print("✅ pytest-html available")
-          except ImportError: print("❌ pytest-html not available")
-          try:
-              import pytest_json_report
-              available += ["--json-report","--json-report-file=reports/tests/test-results.json"]
-              print("✅ pytest-json-report available")
-          except ImportError: print("❌ pytest-json-report not available")
-          try:
-              import pytest_timeout
-              available += ["--timeout=300"]
-              print("✅ pytest-timeout available")
-          except ImportError: print("❌ pytest-timeout not available")
-          open('/tmp/pytest_plugins.txt','w').write(' '.join(available))
-          EOF
-          plugin_args=$(cat /tmp/pytest_plugins.txt || echo "")
-          pytest_cmd="pytest -v --tb=short --maxfail=50 $plugin_args $test_targets"
-          echo "📋 Running command: $pytest_cmd"
-          cat > .coveragerc << 'EOF'
-          [run]
-          omit = 
-              */venv/*
-              */.venv/*
-              */site-packages/*
-              */migrations/*
-              */test*
-              manage.py
-              */settings/*
-              */config/*
-          [report]
-          exclude_lines =
-              pragma: no cover
-              def __repr__
-              raise AssertionError
-              raise NotImplementedError
-          EOF
-          set +e
-          eval $pytest_cmd
-          test_exit_code=$?
-          set -e
-          echo "📊 Test execution completed with exit code: $test_exit_code"
-          echo "📄 Generated reports:"
-          ls -la reports/tests/ || echo "No reports directory found"
+          echo "Targets: $test_targets"
 
-      - name: Generate comprehensive test summary
-        id: generate-summary
+          # Force-load plugins so flags are recognized even if repo disables autoload
+          PLUGINS="-p pytest_cov -p pytest_html -p pytest_timeout"
+          set +e
+          pytest $PLUGINS -v --tb=short --maxfail=50 \
+            --cov=. \
+            --cov-report=json:reports/tests/coverage.json \
+            --cov-report=term-missing \
+            --html=reports/tests/test-report.html --self-contained-html \
+            --timeout=300 \
+            $test_targets
+          code=$?
+          set -e
+          echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit $code
+
+      - name: Parse coverage & set gate
+        id: gate
         if: always()
         working-directory: target
         run: |
-          echo "📈 Generating comprehensive test summary..."
-          python << 'EOF'
+          python - <<'PY'
           import json, pathlib, os, sys
-          summary_data = {"total":0,"passed":0,"failed":0,"errors":0,"skipped":0,"coverage":0.0,"generated_tests":0,"regular_tests":0}
-          status = "❌ FAILED"
-          rf = pathlib.Path("reports/tests/test-results.json")
-          if rf.exists():
+          covp = pathlib.Path("reports/tests/coverage.json")
+          coverage = 0.0
+          if covp.exists():
               try:
-                  res=json.load(open(rf))
-                  s=res.get("summary",{})
-                  summary_data.update({"total":int(s.get("total",0)),"passed":int(s.get("passed",0)),"failed":int(s.get("failed",0)),"errors":int(s.get("error",0)),"skipped":int(s.get("skipped",0))})
-                  tests=res.get("tests",[])
-                  gen=sum(1 for t in tests if "tests/generated" in t.get("nodeid",""))
-                  summary_data["generated_tests"]=gen
-                  summary_data["regular_tests"]=summary_data["total"]-gen
-              except Exception as e:
-                  print(f"⚠️ parse results failed: {e}")
-          cf = pathlib.Path("reports/tests/coverage.json")
-          if cf.exists():
-              try:
-                  cov=json.load(open(cf)); summary_data["coverage"]=float(cov.get("totals",{}).get("percent_covered",0.0))
-              except Exception as e:
-                  print(f"⚠️ parse coverage failed: {e}")
-          total, failed = summary_data["total"], summary_data["failed"]+summary_data["errors"]
-          threshold=float(os.environ.get("COVERAGE_THRESHOLD","70"))
-          if total==0: status="⚠️ NO TESTS FOUND"
-          elif failed==0:
-              status="✅ ALL TESTS PASSED" if summary_data["coverage"]>=threshold else "⚠️ TESTS PASSED, LOW COVERAGE"
-          else: status="❌ TESTS FAILED"
-          summary_text=f"""
-          ## 🧪 Generated Test Validation Results
+                  coverage = float(json.load(open(covp)).get("totals",{}).get("percent_covered",0.0))
+              except Exception:
+                  pass
+          thr = float(os.environ.get("COVERAGE_THRESHOLD","70"))
+          ok = (coverage >= thr) and ('${{ steps.run.outputs.pytest_exit_code }}' == '0')
+          print(f"Coverage: {coverage:.2f}% (threshold {thr}%), tests_ok=${{ steps.run.outputs.pytest_exit_code == '0' }} => {'OK' if ok else 'NOT OK'}")
+          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
+              f.write(f"coverage={coverage:.2f}\n")
+              f.write(f"ready={( 'true' if ok else 'false')}\n")
+          sys.exit(0 if ok else 1)
+          PY
 
-          **Overall Status:** {status}
-
-          ### 📊 Test Execution Statistics
-          - **Total Tests:** {summary_data['total']}
-          - **✅ Passed:** {summary_data['passed']}
-          - **❌ Failed:** {summary_data['failed']}
-          - **⚠️ Errors:** {summary_data['errors']}
-          - **⏭️ Skipped:** {summary_data['skipped']}
-
-          ### 🤖 AI Generated vs Regular Tests
-          - **🤖 Generated Tests:** {summary_data['generated_tests']}
-          - **📝 Regular Tests:** {summary_data['regular_tests']}
-
-          ### 📈 Coverage Analysis
-          - **Coverage:** {summary_data['coverage']:.2f}%
-          - **Threshold:** {threshold}%
-          - **Status:** {"✅ MEETS THRESHOLD" if summary_data['coverage']>=threshold else "❌ BELOW THRESHOLD"}
-
-          ### 🎯 Validation Summary
-          {status}
-
-          Generated by Azure OpenAI test validation pipeline.
-          """
-          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
-              f.write(f"summary<<EOF\n{summary_text}\nEOF\n")
-              for k,v in [("status",status),("total",summary_data['total']),("passed",summary_data['passed']),("failed",summary_data['failed']),("errors",summary_data['errors']),("skipped",summary_data['skipped']),("coverage",f"{summary_data['coverage']:.2f}"),("generated_tests",summary_data['generated_tests']),("regular_tests",summary_data['regular_tests'])]:
-                  f.write(f"{k}={v}\n")
-          print(summary_text)
-          if total==0 or failed>0: sys.exit(1)
-          EOF
-
-      - name: Upload comprehensive test reports
+      - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-validation-reports-${{ github.run_number }}
+          name: test-reports-${{ github.run_number }}
           path: target/reports/tests/
-          retention-days: 30
+          retention-days: 14
 
-      - name: Comment on PR with results (if applicable)
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const summary = `${{ steps.generate-summary.outputs.summary }}`;
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: summary
-            });
-
-      - name: Create status check
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const status = '${{ steps.generate-summary.outputs.status }}';
-            const state = status.includes('✅') ? 'success' : status.includes('⚠️') ? 'failure' : 'failure';
-            github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: context.sha,
-              state,
-              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              description: `${{ steps.generate-summary.outputs.total }} tests, ${{ steps.generate-summary.outputs.passed }} passed, ${{ steps.generate-summary.outputs.failed }} failed`,
-              context: 'test-validation/generated-tests'
-            });
-
-      - name: Final validation summary
+      - name: Mark readiness (job summary)
         if: always()
         run: |
-          echo "🏁 Test validation pipeline completed"
-          echo ""
-          echo "📊 FINAL RESULTS:"
-          echo "=================="
-          echo "Status: ${{ steps.generate-summary.outputs.status }}"
-          echo "Total Tests: ${{ steps.generate-summary.outputs.total }}"
-          echo "✅ Passed: ${{ steps.generate-summary.outputs.passed }}"
-          echo "❌ Failed: ${{ steps.generate-summary.outputs.failed }}"
-          echo "⚠️ Errors: ${{ steps.generate-summary.outputs.errors }}"
-          echo "⏭️ Skipped: ${{ steps.generate-summary.outputs.skipped }}"
-          echo "🤖 Generated Tests: ${{ steps.generate-summary.outputs.generated_tests }}"
-          echo "📝 Regular Tests: ${{ steps.generate-summary.outputs.regular_tests }}"
-          echo "📈 Coverage: ${{ steps.generate-summary.outputs.coverage }}%"
-          echo "🎯 Threshold: ${{ env.COVERAGE_THRESHOLD }}%"
-          echo ""
-          if [[ "${{ steps.generate-summary.outputs.status }}" == *"✅"* ]]; then
-            echo "🎉 All tests passed successfully!"
-          elif [[ "${{ steps.generate-summary.outputs.status }}" == *"⚠️"* ]]; then
-            echo "⚠️ Tests passed but with warnings (coverage/etc)"
+          echo "## CI Result" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ steps.gate.outputs.ready }}" == "true" ]]; then
+            echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold. **Ready to deploy to Kubernetes.**" >> $GITHUB_STEP_SUMMARY
           else
-            echo "❌ Test validation failed"
-            exit 1
+            echo "❌ Tests failed or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**). **Do NOT deploy.**" >> $GITHUB_STEP_SUMMARY
           fi

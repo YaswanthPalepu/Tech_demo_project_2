@@ -42,6 +42,7 @@ jobs:
       DB_URL: "sqlite:///:memory:"
       SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
       PYTHONUTF8: "1"
+      PIP_NO_CACHE_DIR: "1"   # avoid huge pip cache restores on self-hosted
 
     steps:
       - uses: actions/checkout@v4
@@ -83,10 +84,10 @@ jobs:
           echo "repo_path=$REPO_PATH"            >> "$GITHUB_OUTPUT"
           echo "default_branch=$DEFAULT_BRANCH"  >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
-          cache: pip
+          python-version: "3.10"   # do NOT enable built-in cache to avoid timeouts
 
       - name: Create repo-agnostic compatibility constraints
         run: |
@@ -123,7 +124,7 @@ jobs:
             echo "Skipping apt-get setup on this self-hosted runner."
           fi
 
-      # uses your repo-agnostic installer script
+      # Your repo-agnostic installer script (handles bad deps safely)
       - name: Install Python deps (tooling + target libs, constrained)
         run: ci/install_deps.sh
 
@@ -236,7 +237,7 @@ jobs:
           git pull --rebase origin "${DEFAULT_BRANCH}" || true
           git push origin HEAD:"${DEFAULT_BRANCH}" || true
 
-      # Handoff to the validation workflow
+      # Handoff for the validation workflow to auto-pick the repo and path
       - name: Upload handoff metadata
         if: always()
         run: |

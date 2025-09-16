@@ -6,10 +6,9 @@ on:
   #   types: [completed]
   #   branches: [ "test2" ]
 
-
   push:
     branches: [ "test2" ]
-    
+
   workflow_dispatch:
     inputs:
       repo_url:
@@ -28,7 +27,6 @@ jobs:
       contents: read
       actions: read
       checks: write
-      # needed to download artifacts from upstream workflow_run
       statuses: write
 
     env:
@@ -40,7 +38,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Try to pull repo_url from the upstream run's artifact (best way to chain automatically)
       - name: Download handoff artifact (from upstream run)
         if: github.event_name == 'workflow_run'
         uses: actions/download-artifact@v4
@@ -52,18 +49,29 @@ jobs:
 
       - name: Resolve target repository URL
         id: target
+        shell: bash
         run: |
           set -e
           HANDOFF="handoff/handoff.json"
+          INPUT_URL="${{ github.event.inputs.repo_url }}"
+          CURR_REPO="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+
           if [ -f "$HANDOFF" ]; then
             REPO_URL=$(python -c 'import json,sys;print(json.load(open(sys.argv[1])).get("repo_url",""))' "$HANDOFF")
-          else
-            REPO_URL="${{ inputs.repo_url }}"
           fi
+
+          # fallbacks: dispatch input -> current repo -> origin remote (as last resort)
+          if [ -z "${REPO_URL:-}" ]; then REPO_URL="$INPUT_URL"; fi
+          if [ -z "$REPO_URL" ]; then REPO_URL="$CURR_REPO"; fi
+          if [ -z "$REPO_URL" ] && git remote get-url origin >/dev/null 2>&1; then
+            REPO_URL="$(git remote get-url origin)"
+          fi
+
           if [ -z "$REPO_URL" ]; then
-            echo "No repo_url available. Provide it via workflow_dispatch input."
+            echo "No repo_url available from handoff, inputs, or context."
             exit 1
           fi
+
           echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
           echo "Resolved repo_url: $REPO_URL"
 
@@ -108,7 +116,6 @@ jobs:
         working-directory: target
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
-          # Baseline libs that many tests/frameworks expect
           pip install -c "$PIP_CONSTRAINT" "typing-extensions>=4.8" "uvicorn>=0.23" "pydantic>=2" "starlette>=0.37" || true
 
           sanitize_and_install() {
@@ -116,12 +123,10 @@ jobs:
             [ -f "$req_file" ] || return 0
             echo "Sanitizing $req_file"
 
-            # Normalize & remove problem deps (we force compatible Django/DRF separately)
             sed -E 's/^psycopg2([^a-zA-Z0-9]|$)/psycopg2-binary\1/i' "$req_file" \
             | grep -viE '^[[:space:]]*(django|djangorestframework)\b' \
             > /tmp/req.candidate.txt
 
-            # Drop VCS/local/editable and options
             awk '
               /^[[:space:]]*$/ {next}
               /^[[:space:]]*#/ {next}
@@ -136,7 +141,6 @@ jobs:
             : > /tmp/req.final.txt
             while IFS= read -r pkg; do
               [ -z "$pkg" ] && continue
-              # Quick resolvability probe
               if python - <<PY >/dev/null 2>&1
               import sys, subprocess, shlex
               pkg=sys.argv[1]
@@ -144,10 +148,10 @@ jobs:
               sys.exit(subprocess.call(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
               PY
               "$pkg"; then
-                              echo "$pkg" >> /tmp/req.final.txt
-                            else
-                              echo "⏭️  Skip non-resolvable: $pkg"
-                            fi
+                echo "$pkg" >> /tmp/req.final.txt
+              else
+                echo "⏭️  Skip non-resolvable: $pkg"
+              fi
             done < /tmp/req.clean.txt
 
             if [ -s /tmp/req.final.txt ]; then
@@ -172,7 +176,6 @@ jobs:
             [ -s /tmp/pdm.lock.req ] && sanitize_and_install /tmp/pdm.lock.req
           fi
 
-          # Force compatible Django/DRF if the project is Django
           if find . -name "settings.py" -type f | grep -q .; then
             pip install -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
           fi
@@ -191,7 +194,6 @@ jobs:
                   import django
                   from django.conf import settings
                   if not settings.configured:
-                      # try to find settings automatically
                       for s in ROOT.rglob('settings.py'):
                           if 'migration' not in str(s):
                               rel = s.relative_to(ROOT).with_suffix('')
@@ -239,13 +241,11 @@ jobs:
         id: run
         working-directory: target
         env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: ""   # allow repo plugins
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: ""
         run: |
           mkdir -p reports/tests
           test_targets=$(cat /tmp/test_targets.txt || echo '.')
           echo "Targets: $test_targets"
-
-          # Force-load plugins so flags are recognized even if repo disables autoload
           PLUGINS="-p pytest_cov -p pytest_html -p pytest_timeout"
           set +e
           pytest $PLUGINS -v --tb=short --maxfail=50 \

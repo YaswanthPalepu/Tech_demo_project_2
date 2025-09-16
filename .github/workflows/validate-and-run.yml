@@ -23,7 +23,7 @@ on:
         type: boolean
 
   push:
-    branches: [ "test" ]
+    branches: [ "test2" ]
 
 concurrency:
   group: validate-tests-${{ github.ref }}-${{ github.workflow }}

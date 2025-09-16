@@ -19,8 +19,8 @@ on:
         required: false
         default: "0"
         description: "Minimum coverage threshold (%)"
-  # push:
-  #   branches: ["test"]
+  push:
+    branches: ["test2"]
 
 concurrency:
   group: test-gen-${{ github.workflow }}
@@ -187,7 +187,7 @@ jobs:
         run: |
           python - <<'PY'
           import os, json
-          import src.generator as g
+          import src.gen as g
           analysis = json.load(open('/tmp/analysis.json'))
           outdir = os.environ['OUTDIR']
           if os.environ.get('TESTGEN_FORCE','false').lower() == 'true':

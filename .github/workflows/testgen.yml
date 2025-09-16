@@ -124,40 +124,7 @@ jobs:
           fi
 
       - name: Install Python deps (tooling + target libs, constrained)
-        run: |
-          python -m pip install --upgrade "pip<25" wheel setuptools
-          pip install -c "$PIP_CONSTRAINT" "openai>=1.51.0" pytest pytest-cov httpx requests \
-                      "fastapi>=0.110" "starlette>=0.37" "pydantic>=2" "annotated-types>=0.6" \
-                      "uvicorn>=0.23" "typing-extensions>=4.8" psycopg2-binary || true
-          install_requirements_file() {
-            local req_file="$1"
-            if [ -f "$req_file" ]; then
-              echo "Installing from $req_file (constrained via PIP_CONSTRAINT)..."
-              sed -i 's/^psycopg2\(\([^a-zA-Z0-9]\|$\)\)/psycopg2-binary\1/' "$req_file"
-              grep -viE '^[[:space:]]*(django|djangorestframework)\b' "$req_file" > /tmp/req.filtered.txt || true
-              pip install -c "$PIP_CONSTRAINT" -r /tmp/req.filtered.txt || echo "Some packages from $req_file failed to install"
-            fi
-          }
-          install_requirements_file "target/requirements.txt"
-          if compgen -G "target/requirements/*.txt" >/dev/null; then
-            for f in target/requirements/*.txt; do install_requirements_file "$f"; done
-          fi
-          if [ -f "target/pyproject.toml" ] && grep -q "\[tool.poetry\]" target/pyproject.toml; then
-            pip install -c "$PIP_CONSTRAINT" poetry || true
-            (cd target && poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req) || true
-            if [ -s /tmp/poetry.lock.req ]; then
-              grep -viE '^[[:space:]]*(django|djangorestframework)\b' /tmp/poetry.lock.req > /tmp/poetry.lock.filtered
-              pip install -c "$PIP_CONSTRAINT" -r /tmp/poetry.lock.filtered || true
-            fi
-          fi
-          if [ -f "target/pyproject.toml" ] && grep -q "\[tool.pdm\]" target/pyproject.toml; then
-            pip install -c "$PIP_CONSTRAINT" pdm || true
-            (cd target && pdm export -o /tmp/pdm.lock.req --without-hashes --dev) || true
-            if [ -s /tmp/pdm.lock.req ]; then
-              grep -viE '^[[:space:]]*(django|djangorestframework)\b' /tmp/pdm.lock.req > /tmp/pdm.lock.filtered
-              pip install -c "$PIP_CONSTRAINT" -r /tmp/pdm.lock.filtered || true
-            fi
-          fi
+        run: ci/install_deps.sh
 
       - name: Force compatible Django & DRF
         run: |
@@ -184,13 +151,16 @@ jobs:
           TESTGEN_STRICT_FAIL: "1"
           TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "0"
           TESTGEN_FIX_FLASK: "0"
+          TESTGEN_AUTO_PIP: "0"     
         run: |
           python - <<'PY'
           import os, json
-          import src.gen as g
+          import src.gen.generate as g
           analysis = json.load(open('/tmp/analysis.json'))
           outdir = os.environ['OUTDIR']
-          if os.environ.get('TESTGEN_FORCE','false').lower() == 'true':
+          force = os.environ.get('TESTGEN_FORCE', 'false').lower() == 'true'
+          if force:
+              print('Force flag ON (TESTGEN_FORCE) — generating regardless of change detection')
               os.environ['TESTGEN_FORCE'] = 'true'
           g.generate_all(analysis, outdir=outdir, focus_files=None)
           PY

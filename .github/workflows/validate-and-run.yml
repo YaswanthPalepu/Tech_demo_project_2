@@ -1,10 +1,10 @@
 name: Validate Generated Tests
 
 on:
-  workflow_run:
-    workflows: ["AI Test Generation"]
-    types: [completed]
-    branches: [ "*" ]
+  # workflow_run:
+  #   workflows: ["AI Test Generation"]
+  #   types: [completed]
+  #   branches: [ "*" ]
   workflow_dispatch:
     inputs:
       repo_url:

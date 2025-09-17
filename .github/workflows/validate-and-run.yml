@@ -1,7 +1,8 @@
 name: Validate Generated Tests (CI Gate)
 
 on:
-  # Trigger manually, or call this from your first workflow via workflow_run if you prefer.
+  push:
+    branches: ["test2"]  
   workflow_dispatch:
     inputs:
       repo_url:

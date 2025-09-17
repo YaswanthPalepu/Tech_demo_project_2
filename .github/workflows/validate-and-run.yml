@@ -201,13 +201,19 @@ jobs:
         id: run
         working-directory: target
         env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: ""
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
           mkdir -p reports/tests
-          # Let pytest discover using testpaths from pytest.ini (tests + tests/generated)
+
+          # Build plugin list explicitly; add pytest-django only if the project is Django
+          PLUGINS="-p pytest_cov -p pytest_html -p pytest_timeout"
+          if find . -name "settings.py" -type f | grep -q .; then
+            PLUGINS="$PLUGINS -p pytest_django"
+          fi
+
           set +e
           pytest -v --tb=short --maxfail=50 \
-            -p pytest_cov -p pytest_html -p pytest_timeout \
+            $PLUGINS \
             --cov=. \
             --cov-report=xml:reports/tests/coverage.xml \
             --cov-report=json:reports/tests/coverage.json \
@@ -218,6 +224,7 @@ jobs:
           set -e
           echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"
           exit $code
+
 
       - name: Parse coverage & set gate
         id: gate

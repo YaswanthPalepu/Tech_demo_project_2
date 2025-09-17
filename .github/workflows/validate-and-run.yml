@@ -217,8 +217,17 @@ jobs:
           if find . -name "settings.py" -type f | grep -q .; then
             PLUGINS="$PLUGINS -p pytest_django"
           fi
+
+          # Run only inside test dirs (exclude .venv, site-packages, etc.)
+          TEST_DIRS=$(find . -type d \( -name tests -o -name generated \) \
+            ! -path "*/.venv/*" ! -path "*/venv/*" ! -path "*/env/*" ! -path "*/site-packages/*")
+
+          if [ -z "$TEST_DIRS" ]; then
+            echo "❌ No test directories found"; exit 1
+          fi
+
+          echo "✅ Running pytest in: $TEST_DIRS"
           set +e
-          # Run only in directories that actually have tests (avoids empty-collection + coverage warnings)
           pytest -v --tb=short --maxfail=50 \
             $PLUGINS \
             --cov=. \
@@ -226,7 +235,7 @@ jobs:
             --cov-report=json:reports/tests/coverage.json \
             --cov-report=term-missing \
             --timeout=300 \
-            ${{ steps.discover.outputs.test_dirs }}
+            $TEST_DIRS
           code=$?
           set -e
           echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"

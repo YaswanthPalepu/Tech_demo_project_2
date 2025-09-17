@@ -113,15 +113,20 @@ jobs:
         working-directory: target
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
+          # Common libs many test suites expect
           pip install -c "$PIP_CONSTRAINT" "typing-extensions>=4.8" "uvicorn>=0.23" "pydantic>=2" "starlette>=0.37" || true
 
           sanitize_and_install() {
             local req_file="$1"
             [ -f "$req_file" ] || return 0
             echo "Sanitizing $req_file"
+
+            # Normalize & remove problem deps (we force Django/DRF separately)
             sed -E 's/^psycopg2([^a-zA-Z0-9]|$)/psycopg2-binary\1/i' "$req_file" \
               | grep -viE '^[[:space:]]*(django|djangorestframework)\b' \
               > /tmp/req.candidate.txt
+
+            # Drop VCS/local/editable and option lines
             awk '
               /^[[:space:]]*$/ {next}
               /^[[:space:]]*#/ {next}
@@ -136,16 +141,11 @@ jobs:
             : > /tmp/req.final.txt
             while IFS= read -r pkg; do
               [ -z "$pkg" ] && continue
-              if python - <<PY >/dev/null 2>&1
-              import sys, subprocess, shlex
-              pkg=sys.argv[1]
-              cmd=f"python -m pip index versions {shlex.quote(pkg)}"
-              sys.exit(subprocess.call(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-              PY
-              "$pkg"; then
-                              echo "$pkg" >> /tmp/req.final.txt
-                            else
-                              echo "⏭️  Skip non-resolvable: $pkg"
+              # Fast probe without heredoc: succeeds if pip knows the package
+              if python -m pip index versions "$pkg" >/dev/null 2>&1; then
+                echo "$pkg" >> /tmp/req.final.txt
+              else
+                echo "⏭️  Skip non-resolvable: $pkg"
               fi
             done < /tmp/req.clean.txt
 
@@ -236,7 +236,7 @@ jobs:
         id: run
         working-directory: target
         env:
-            PYTEST_DISABLE_PLUGIN_AUTOLOAD: ""
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: ""
         run: |
           mkdir -p reports/tests
           test_targets=$(cat /tmp/test_targets.txt || echo '.')
@@ -314,7 +314,7 @@ jobs:
             -Dsonar.qualitygate.wait=true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload reports
         if: always()

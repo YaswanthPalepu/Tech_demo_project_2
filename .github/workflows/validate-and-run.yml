@@ -12,11 +12,11 @@ on:
         required: false
         default: "main"
   push:
-    branches: [ "test" ]
+    branches: [ "test2" ]
 
 jobs:
   test-external-repo:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     env:
       COVERAGE_THRESHOLD: "70"
 

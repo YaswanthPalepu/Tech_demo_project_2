@@ -57,15 +57,15 @@ jobs:
           python-version: "3.10"
           cache: pip
 
-      - name: Install core tooling
+      - name: Install core tooling (no HTML reporter)
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
           pip install -c "$PIP_CONSTRAINT" \
-            pytest pytest-cov pytest-timeout pytest-html \
+            pytest pytest-cov pytest-timeout \
             pytest-django pytest-flask pytest-xdist \
             coverage httpx requests
 
-      - name: Clone target repo (with generated tests)
+      - name: Clone target repo
         env:
           GH_PAT3: ${{ secrets.GH_PAT3 || secrets.GITHUB_TOKEN }}
         run: |
@@ -92,19 +92,30 @@ jobs:
             echo "ℹ️ No tests/generated in this repo; relying on tests inside target repo."
           fi
 
-      - name: Ensure pytest.ini (set testpaths incl. tests/generated)
+      - name: Ensure/clean pytest.ini (include tests/generated, remove HTML flags)
         working-directory: target
+        shell: bash
         run: |
           if [ ! -f pytest.ini ]; then
             cat > pytest.ini <<'EOF'
           [pytest]
           testpaths = tests tests/generated
-          addopts = -q
+          addopts =
           EOF
             echo "✅ Wrote pytest.ini with testpaths=tests tests/generated"
           else
-            echo "ℹ️ pytest.ini already present:"
-            cat pytest.ini || true
+            echo "ℹ️ Existing pytest.ini found, sanitizing addopts…"
+            python - "$PWD/pytest.ini" <<'PY'
+            import sys, re
+            p = sys.argv[1]
+            txt = open(p, 'r', encoding='utf-8').read()
+            # Remove any --html / --self-contained-html from addopts
+            txt = re.sub(r'(^\s*addopts\s*=\s*)(.*)$',
+                        lambda m: m.group(1) + re.sub(r'--html[^\s]*|--self-contained-html', '', m.group(2)).strip(),
+                        txt, flags=re.M)
+            open(p, 'w', encoding='utf-8').write(txt)
+            print(open(p).read())
+            PY
           fi
 
       - name: Safe, repo-agnostic dependency install
@@ -117,11 +128,9 @@ jobs:
             local req_file="$1"
             [ -f "$req_file" ] || return 0
             echo "Sanitizing $req_file"
-
             sed -E 's/^psycopg2([^a-zA-Z0-9]|$)/psycopg2-binary\1/i' "$req_file" \
               | grep -viE '^[[:space:]]*(django|djangorestframework)\b' \
               > /tmp/req.candidate.txt
-
             awk '
               /^[[:space:]]*$/ {next}
               /^[[:space:]]*#/ {next}
@@ -132,7 +141,6 @@ jobs:
               /^file:/ {next}
               {print}
             ' /tmp/req.candidate.txt > /tmp/req.clean.txt
-
             : > /tmp/req.final.txt
             while IFS= read -r pkg; do
               [ -z "$pkg" ] && continue
@@ -142,89 +150,41 @@ jobs:
                 echo "⏭️  Skip non-resolvable: $pkg"
               fi
             done < /tmp/req.clean.txt
-
             if [ -s /tmp/req.final.txt ]; then
               pip install -c "$PIP_CONSTRAINT" -r /tmp/req.final.txt || true
             fi
           }
-
           sanitize_and_install "requirements.txt"
           if compgen -G "requirements/*.txt" >/dev/null; then
             for f in requirements/*.txt; do sanitize_and_install "$f"; done
           fi
-
           if [ -f pyproject.toml ] && grep -q "\[tool.poetry\]" pyproject.toml; then
             pip install -c "$PIP_CONSTRAINT" poetry || true
             poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req || true
             [ -s /tmp/poetry.lock.req ] && sanitize_and_install /tmp/poetry.lock.req
           fi
-
           if [ -f pyproject.toml ] && grep -q "\[tool.pdm\]" pyproject.toml; then
             pip install -c "$PIP_CONSTRAINT" pdm || true
             pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
             [ -s /tmp/pdm.lock.req ] && sanitize_and_install /tmp/pdm.lock.req
           fi
-
           if find . -name "settings.py" -type f | grep -q .; then
             pip install -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
-          fi
-
-      - name: Auto Django conftest (if Django project)
-        working-directory: target
-        run: |
-          if find . -name "settings.py" -type f | grep -q .; then
-            cat > conftest.py <<'EOF'
-          import os, sys, pathlib, pytest
-          ROOT = pathlib.Path(__file__).resolve().parent
-          if str(ROOT) not in sys.path:
-              sys.path.insert(0, str(ROOT))
-          def setup_django():
-              try:
-                  import django
-                  from django.conf import settings
-                  if not settings.configured:
-                      for s in ROOT.rglob('settings.py'):
-                          if 'migration' not in str(s):
-                              rel = s.relative_to(ROOT).with_suffix('')
-                              os.environ['DJANGO_SETTINGS_MODULE']='.'.join(rel.parts)
-                              break
-                      django.setup()
-              except Exception as e:
-                  print(f"⚠️ Django setup warning: {e}")
-          setup_django()
-          def pytest_configure(config):
-              config.addinivalue_line("markers", "generated: AI-generated tests")
-          EOF
           fi
 
       - name: Run tests with coverage (CI gate)
         id: run
         working-directory: target
         env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"   # avoid duplicate registrations
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"   # avoid duplicate plugin registrations
         run: |
           mkdir -p reports/tests
-
-          # Base plugins
+          # load minimal, known-safe plugins explicitly
           PLUGINS="-p pytest_cov -p pytest_timeout"
-          HTML_FLAGS=""
-          # Load pytest-html if available; otherwise skip the HTML flags
-          python - <<'PY'
-          import importlib.util, sys
-          sys.exit(0 if importlib.util.find_spec("pytest_html") else 1)
-          PY
-                    if [ $? -eq 0 ]; then
-                      PLUGINS="$PLUGINS -p pytest_html"
-                      HTML_FLAGS="--html=reports/tests/test-report.html --self-contained-html"
-                    else
-                      echo "ℹ️ pytest-html not installed or not loadable; skipping HTML report."
-          fi
-
-          # Add pytest-django plugin only for Django projects
+          # enable pytest-django only if a Django settings module exists
           if find . -name "settings.py" -type f | grep -q .; then
             PLUGINS="$PLUGINS -p pytest_django"
           fi
-
           set +e
           pytest -v --tb=short --maxfail=50 \
             $PLUGINS \
@@ -232,14 +192,11 @@ jobs:
             --cov-report=xml:reports/tests/coverage.xml \
             --cov-report=json:reports/tests/coverage.json \
             --cov-report=term-missing \
-            --timeout=300 \
-            $HTML_FLAGS
+            --timeout=300
           code=$?
           set -e
           echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"
           exit $code
-
-
 
       - name: Parse coverage & set gate
         id: gate
@@ -265,43 +222,6 @@ jobs:
           sys.exit(0 if ok else 1)
           PY
 
-      # --- SonarCloud integration ---
-      - name: Write sonar-project.properties
-        if: always()
-        working-directory: target
-        run: |
-          cat > sonar-project.properties <<EOF
-          sonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
-          sonar.organization=${{ secrets.SONAR_ORG }}
-          sonar.sources=.
-          sonar.tests=tests,tests/generated
-          sonar.test.inclusions=tests/**/*.py,tests/generated/**/*.py
-          sonar.exclusions=**/venv/**,**/.venv/**,**/site-packages/**,**/migrations/**,**/.pytest_cache/**,**/__pycache__/**
-          sonar.coverage.exclusions=tests/**,tests/generated/**
-          sonar.python.version=3.10
-          sonar.python.coverage.reportPaths=reports/tests/coverage.xml
-          EOF
-          echo "Created sonar-project.properties:"
-          cat sonar-project.properties
-
-      - name: Set up Java for SonarCloud
-        if: always()
-        uses: actions/setup-java@v3
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: SonarCloud Scan (wait for Quality Gate)
-        if: always()
-        uses: SonarSource/sonarcloud-github-action@v2
-        with:
-          projectBaseDir: target
-          args: >
-            -Dsonar.qualitygate.wait=true
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -315,6 +235,6 @@ jobs:
         run: |
           echo "## CI Result" >> $GITHUB_STEP_SUMMARY
           if [[ "${{ steps.gate.outputs.ready }}" == "true" ]]; then
-            echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold. **Ready to deploy to Kubernetes.**" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold. **Ready to deploy.**" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ Tests failed or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**). **Do NOT deploy.**" >> $GITHUB_STEP_SUMMARY

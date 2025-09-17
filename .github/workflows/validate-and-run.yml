@@ -37,6 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pull the handoff (Repo URL) from upstream generation run when triggered by workflow_run
       - name: Download handoff artifact (from upstream run)
         if: github.event_name == 'workflow_run'
         uses: actions/download-artifact@v4
@@ -56,19 +57,23 @@ jobs:
           CURR_REPO="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
 
           if [ -f "$HANDOFF" ]; then
-            REPO_URL=$(python -c 'import json,sys;print(json.load(open(sys.argv[1])).get("repo_url",""))' "$HANDOFF")
-          fi
-          if [ -z "${REPO_URL:-}" ]; then REPO_URL="$INPUT_URL"; fi
-          if [ -z "$REPO_URL" ]; then REPO_URL="$CURR_REPO"; fi
-          if [ -z "$REPO_URL" ] && git remote get-url origin >/dev/null 2>&1; then
-            REPO_URL="$(git remote get-url origin)"
-          fi
-          if [ -z "$REPO_URL" ]; then
-            echo "No repo_url available from handoff, inputs, or context."
-            exit 1
-          fi
-          echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
-          echo "Resolved repo_url: $REPO_URL"
+            REPO_URL=$(python - <<'PY'
+          import json,sys
+          print(json.load(open(sys.argv[1])).get("repo_url",""))
+          PY
+                      "$HANDOFF")
+                    fi
+                    if [ -z "${REPO_URL:-}" ]; then REPO_URL="$INPUT_URL"; fi
+                    if [ -z "$REPO_URL" ]; then REPO_URL="$CURR_REPO"; fi
+                    if [ -z "$REPO_URL" ] && git remote get-url origin >/dev/null 2>&1; then
+                      REPO_URL="$(git remote get-url origin)"
+                    fi
+                    if [ -z "$REPO_URL" ]; then
+                      echo "No repo_url available from handoff, inputs, or context."
+                      exit 1
+                    fi
+                    echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
+                    echo "Resolved repo_url: $REPO_URL"
 
       - name: Set compatibility constraints
         run: |
@@ -112,8 +117,8 @@ jobs:
         run: |
           if [ -d tests/generated ]; then
             mkdir -p target/tests/generated
-            cp -a tests/generated/. target/tests/generated/
-            echo "✅ Copied $(find target/tests/generated -type f -name 'test_*.py' -o -name '*_test.py' | wc -l) tests into target/"
+            rsync -a tests/generated/ target/tests/generated/
+            echo "✅ Copied $(find target/tests/generated -type f \( -name 'test_*.py' -o -name '*_test.py' \) | wc -l) tests into target/"
           else
             echo "ℹ️ No tests/generated in this repo; relying on tests inside target repo."
           fi
@@ -217,29 +222,44 @@ jobs:
         run: |
           python - <<'PY'
           import pathlib, ast, json, sys
-          def excluded(p):
-              ex={'venv','.venv','env','.env','site-packages','node_modules','.git','.pytest_cache','__pycache__','build','dist','.tox'}
-              return any(x in pathlib.Path(p).parts for x in ex)
-          root=pathlib.Path('.')
-          files=set()
-          for pat in ('tests/**/test_*.py','tests/**/*_test.py','test/**/test_*.py','test/**/*_test.py'):
-              for f in root.glob(pat):
-                  if f.is_file() and not excluded(f):
+          ROOT = pathlib.Path('.')
+
+          # Prefer standard locations
+          candidates = [p for p in [ROOT/'tests', ROOT/'test'] if p.exists() and p.is_dir()]
+          files = set()
+
+          def excluded(p: pathlib.Path) -> bool:
+              ex = {'venv','.venv','env','.env','site-packages','node_modules','.git','.pytest_cache','__pycache__','build','dist','.tox'}
+              return any(part in ex for part in p.parts)
+
+          # Try file-level discovery first
+          for base in candidates:
+              for f in base.rglob('*.py'):
+                  if excluded(f): continue
+                  name = f.name
+                  if name.startswith('test_') or name.endswith('_test.py'):
                       try:
                           ast.parse(f.read_text(encoding='utf-8', errors='ignore'))
                           files.add(str(f))
                       except SyntaxError:
                           pass
-          targets=sorted(files)
-          if not targets:
+
+          targets = sorted(files)
+          out = pathlib.Path('/tmp/test_targets.txt')
+          out.parent.mkdir(parents=True, exist_ok=True)
+
+          if targets:
+              out.write_text(' '.join(f'"{t}"' for t in targets))
+              print(f"✅ Collected {len(targets)} test files")
+              print(json.dumps(targets[:25], indent=2))
+          elif candidates:
+              # Fall back to passing the directories; let pytest discover inside them
+              out.write_text(' '.join(f'"{str(p)}"' for p in candidates))
+              print("ℹ️ No matching test files found; will pass test directories to pytest for discovery:")
+              for p in candidates: print(" -", p)
+          else:
               print("❌ No tests discovered under tests/ or test/")
-              for p in root.rglob('tests'):
-                  print("Found tests dir:", p)
               sys.exit(1)
-          pathlib.Path("reports/tests").mkdir(parents=True, exist_ok=True)
-          open('/tmp/test_targets.txt','w').write(' '.join(f'"{t}"' for t in targets))
-          print(f"✅ Collected {len(targets)} test files")
-          print(json.dumps(targets[:25], indent=2))
           PY
 
       - name: Run tests with coverage (CI gate)
@@ -249,7 +269,7 @@ jobs:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: ""
         run: |
           mkdir -p reports/tests
-          test_targets=$(cat /tmp/test_targets.txt || echo '.')
+          test_targets=$(cat /tmp/test_targets.txt || echo 'tests')
           echo "Targets: $test_targets"
           PLUGINS="-p pytest_cov -p pytest_html -p pytest_timeout"
           set +e
@@ -281,15 +301,16 @@ jobs:
               except Exception:
                   pass
           thr = float(os.environ.get("COVERAGE_THRESHOLD","70"))
-          ok = (coverage >= thr) and ('${{ steps.run.outputs.pytest_exit_code }}' == '0')
-          print(f"Coverage: {coverage:.2f}% (threshold {thr}%), tests_ok=${{ steps.run.outputs.pytest_exit_code == '0' }} => {'OK' if ok else 'NOT OK'}")
+          tests_ok = ('${{ steps.run.outcome }}' == 'success')
+          ok = (coverage >= thr) and tests_ok
+          print(f"Coverage: {coverage:.2f}% (threshold {thr}%), tests_ok={tests_ok} => {'OK' if ok else 'NOT OK'}")
           with open(os.environ["GITHUB_OUTPUT"],"a") as f:
               f.write(f"coverage={coverage:.2f}\n")
               f.write(f"ready={( 'true' if ok else 'false')}\n")
           sys.exit(0 if ok else 1)
           PY
 
-      # --- SonarCloud integration ---
+      # --- SonarCloud integration (runs in repo root of 'target') ---
       - name: Write sonar-project.properties
         if: always()
         working-directory: target

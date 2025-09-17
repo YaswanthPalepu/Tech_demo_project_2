@@ -92,34 +92,119 @@ jobs:
             echo "ℹ️ No tests/generated in this repo; relying on tests inside target repo."
           fi
 
-      - name: Ensure/clean pytest.ini
+      - name: Ensure/clean pytest.ini (include tests/generated, remove HTML flags)
         working-directory: target
+        shell: bash
         run: |
+          set -e
           if [ ! -f pytest.ini ]; then
-            cat > pytest.ini <<'EOF'
-          [pytest]
-          testpaths = tests tests/generated
-          addopts =
-          EOF
+            {
+              echo "[pytest]"
+              echo "testpaths = tests tests/generated"
+              echo "addopts ="
+            } > pytest.ini
             echo "✅ Wrote pytest.ini with testpaths=tests tests/generated"
           else
             echo "ℹ️ Existing pytest.ini found, sanitizing addopts…"
-            python - "$PWD/pytest.ini" <<'PY'
-            import sys, re
-            p = sys.argv[1]
-            txt = open(p, 'r', encoding='utf-8').read()
-            txt = re.sub(r'--html[^\s]*|--self-contained-html', '', txt)
-            open(p, 'w', encoding='utf-8').write(txt)
-            print(open(p).read())
-            PY
-                      fi
+            python -c "import re,io,sys; p='pytest.ini'; s=io.open(p,'r',encoding='utf-8').read(); s=re.sub(r'--html\\S*|--self-contained-html','',s); io.open(p,'w',encoding='utf-8').write(s); print(s)"
+          fi
+
+      - name: Safe, repo-agnostic dependency install
+        working-directory: target
+        shell: bash
+        run: |
+          set -e
+          python -m pip install --upgrade "pip<25" wheel setuptools
+          pip install -c "$PIP_CONSTRAINT" "typing-extensions>=4.8" "uvicorn>=0.23" "pydantic>=2" "starlette>=0.37" || true
+
+          sanitize_and_install() {
+            local req_file="$1"
+            [ -f "$req_file" ] || return 0
+            echo "Sanitizing $req_file"
+            sed -E 's/^psycopg2([^a-zA-Z0-9]|$)/psycopg2-binary\1/i' "$req_file" \
+              | grep -viE '^[[:space:]]*(django|djangorestframework)\b' \
+              > /tmp/req.candidate.txt
+            awk '
+              /^[[:space:]]*$/ {next}
+              /^[[:space:]]*#/ {next}
+              /^[[:space:]]*-/ {next}
+              /^[[:space:]]*--/ {next}
+              /^\-e[[:space:]]/ {next}
+              /^git\+|^hg\+|^svn\+|^bzr\+/ {next}
+              /^file:/ {next}
+              {print}
+            ' /tmp/req.candidate.txt > /tmp/req.clean.txt
+            : > /tmp/req.final.txt
+            while IFS= read -r pkg; do
+              [ -z "$pkg" ] && continue
+              if python -m pip index versions "$pkg" >/dev/null 2>&1; then
+                echo "$pkg" >> /tmp/req.final.txt
+              else
+                echo "⏭️  Skip non-resolvable: $pkg"
+              fi
+            done < /tmp/req.clean.txt
+            if [ -s /tmp/req.final.txt ]; then
+              pip install -c "$PIP_CONSTRAINT" -r /tmp/req.final.txt || true
+            fi
+          }
+
+          sanitize_and_install "requirements.txt"
+          if compgen -G "requirements/*.txt" >/dev/null; then
+            for f in requirements/*.txt; do sanitize_and_install "$f"; done
+          fi
+
+          if [ -f pyproject.toml ] && grep -q "\[tool.poetry\]" pyproject.toml; then
+            pip install -c "$PIP_CONSTRAINT" poetry || true
+            poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req || true
+            [ -s /tmp/poetry.lock.req ] && sanitize_and_install /tmp/poetry.lock.req
+          fi
+
+          if [ -f pyproject.toml ] && grep -q "\[tool.pdm\]" pyproject.toml; then
+            pip install -c "$PIP_CONSTRAINT" pdm || true
+            pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
+            [ -s /tmp/pdm.lock.req ] && sanitize_and_install /tmp/pdm.lock.req
+          fi
+
+          if find . -name "settings.py" -type f | grep -q .; then
+            pip install -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
+          fi
+
+      - name: Auto Django conftest (if Django project)
+        working-directory: target
+        shell: bash
+        run: |
+          if find . -name "settings.py" -type f | grep -q .; then
+            cat > conftest.py <<'EOF'
+          import os, sys, pathlib, pytest
+          ROOT = pathlib.Path(__file__).resolve().parent
+          if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
+          def setup_django():
+              try:
+                  import django
+                  from django.conf import settings
+                  if not settings.configured:
+                      for s in ROOT.rglob('settings.py'):
+                          if 'migration' not in str(s):
+                              rel = s.relative_to(ROOT).with_suffix('')
+                              os.environ['DJANGO_SETTINGS_MODULE']='.'.join(rel.parts)
+                              break
+                      django.setup()
+              except Exception as e:
+                  print(f"⚠️ Django setup warning: {e}")
+          setup_django()
+          def pytest_configure(config):
+              config.addinivalue_line("markers", "generated: AI-generated tests")
+          EOF
+          fi
 
       - name: Run tests with coverage (CI gate)
         id: run
         working-directory: target
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        shell: bash
         run: |
+          set -e
           mkdir -p reports/tests
           PLUGINS="-p pytest_cov -p pytest_timeout"
           if find . -name "settings.py" -type f | grep -q .; then
@@ -142,25 +227,17 @@ jobs:
         id: gate
         if: always()
         working-directory: target
+        shell: bash
         run: |
-          python - <<'PY'
-          import json, pathlib, os, sys
-          covp = pathlib.Path("reports/tests/coverage.json")
-          coverage = 0.0
-          if covp.exists():
-              try:
-                  coverage = float(json.load(open(covp)).get("totals",{}).get("percent_covered",0.0))
-              except Exception:
-                  pass
-          thr = float(os.environ.get("COVERAGE_THRESHOLD","70"))
-          tests_ok = ('${{ steps.run.outcome }}' == 'success')
-          ok = (coverage >= thr) and tests_ok
-          print(f"Coverage: {coverage:.2f}% (threshold {thr}%), tests_ok={tests_ok} => {'OK' if ok else 'NOT OK'}")
-          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
-              f.write(f"coverage={coverage:.2f}\n")
-              f.write(f"ready={( 'true' if ok else 'false')}\n")
-          sys.exit(0 if ok else 1)
-          PY
+          python -c "import json, pathlib, os, sys; p=pathlib.Path('reports/tests/coverage.json'); cov=0.0
+          if p.exists():
+              cov=float(json.load(open(p)).get('totals',{}).get('percent_covered',0.0))
+          thr=float(os.environ.get('COVERAGE_THRESHOLD','70'))
+          tests_ok=('${{ steps.run.outcome }}'=='success')
+          ok=(cov>=thr) and tests_ok
+          print(f'Coverage: {cov:.2f}% (threshold {thr}%), tests_ok={tests_ok} => {'OK' if ok else 'NOT OK'}')
+          open(os.environ['GITHUB_OUTPUT'],'a').write(f'coverage={cov:.2f}\nready={'true' if ok else 'false'}\n')
+          sys.exit(0 if ok else 1)"
 
       - name: Upload reports
         if: always()
@@ -172,9 +249,10 @@ jobs:
 
       - name: Mark readiness (job summary)
         if: always()
+        shell: bash
         run: |
-          echo "## CI Result" >> $GITHUB_STEP_SUMMARY
+          echo "## CI Result" >> "$GITHUB_STEP_SUMMARY"
           if [[ "${{ steps.gate.outputs.ready }}" == "true" ]]; then
-            echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold. **Ready to deploy.**" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold. **Ready to deploy.**" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "❌ Tests failed or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**). **Do NOT deploy.**" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Tests failed or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**). **Do NOT deploy.**" >> "$GITHUB_STEP_SUMMARY"

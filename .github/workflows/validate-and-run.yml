@@ -1,8 +1,7 @@
 name: Validate Generated Tests (CI Gate)
 
 on:
-  push:
-    branches: [test2]
+  # Trigger manually, or call this from your first workflow via workflow_run if you prefer.
   workflow_dispatch:
     inputs:
       repo_url:
@@ -94,7 +93,7 @@ jobs:
             echo "ℹ️ No tests/generated in this repo; relying on tests inside target repo."
           fi
 
-      - name: Write pytest.ini (broad discovery; CLI will still pass dirs)
+      - name: Write pytest.ini (broad discovery)
         working-directory: target
         shell: bash
         run: |
@@ -105,12 +104,12 @@ jobs:
           python_functions = test_* *_test test*
           addopts =
           INI
-          cat pytest.ini
+                    cat pytest.ini
 
-      - name: Write .coveragerc (omit venv/vendor)
-        working-directory: target
-        shell: bash
-        run: |
+                - name: Write .coveragerc (omit venv/vendor)
+                  working-directory: target
+                  shell: bash
+                  run: |
           cat > .coveragerc <<'EOF'
           [run]
           omit =
@@ -122,37 +121,37 @@ jobs:
               */.pytest_cache/*
               */__pycache__/*
           EOF
-          cat .coveragerc
+                    cat .coveragerc
 
-      - name: Auto Django conftest (if Django project)
-        working-directory: target
-        shell: bash
-        run: |
-          if find . -name "settings.py" -type f | grep -q .; then
-            python - <<'PY'
+                - name: Auto Django conftest (if Django project)
+                  working-directory: target
+                  shell: bash
+                  run: |
+                    if find . -name "settings.py" -type f | grep -q .; then
+          cat > conftest.py <<'PY'
           import os, sys, pathlib
           ROOT = pathlib.Path(__file__).resolve().parent
           if str(ROOT) not in sys.path:
               sys.path.insert(0, str(ROOT))
 
-          def setup_django():
-              try:
-                  import django
-                  from django.conf import settings
-                  if not settings.configured:
-                      for s in ROOT.rglob('settings.py'):
-                          if 'migration' not in str(s):
-                              rel = s.relative_to(ROOT).with_suffix('')
-                              os.environ['DJANGO_SETTINGS_MODULE'] = '.'.join(rel.parts)
-                              break
-                      django.setup()
-              except Exception as e:
-                  print(f"⚠️ Django setup warning: {e}")
+            def setup_django():
+                try:
+                    import django
+                    from django.conf import settings
+                    if not settings.configured:
+                        for s in ROOT.rglob('settings.py'):
+                            if 'migration' not in str(s):
+                                rel = s.relative_to(ROOT).with_suffix('')
+                                os.environ['DJANGO_SETTINGS_MODULE'] = '.'.join(rel.parts)
+                                break
+                        django.setup()
+                except Exception as e:
+                    print(f"⚠️ Django setup warning: {e}")
 
-          setup_django()
-          PY
-            echo "✅ Wrote Django conftest.py"
-          fi
+            setup_django()
+            PY
+                        echo "✅ Wrote Django conftest.py"
+                      fi
 
       - name: Find test roots (path-agnostic; exclude vendor/venv)
         id: discover
@@ -219,7 +218,7 @@ jobs:
         working-directory: target
         shell: bash
         run: |
-          python - <<'PY'
+          cat > parse_cov.py <<'PY'
           import json, pathlib, os, sys
           p = pathlib.Path("reports/tests/coverage.json")
           cov = 0.0
@@ -237,6 +236,7 @@ jobs:
               f.write(f"ready={'true' if ok else 'false'}\n")
           sys.exit(0 if ok else 1)
           PY
+          python parse_cov.py
 
       - name: Upload reports
         if: always()

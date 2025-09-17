@@ -154,32 +154,32 @@ jobs:
         run: |
           if find . -name "settings.py" -type f | grep -q .; then
             cat > conftest.py <<'EOF'
-            import os, sys, pathlib
-            ROOT = pathlib.Path(__file__).resolve().parent
-            if str(ROOT) not in sys.path:
-                sys.path.insert(0, str(ROOT))
+          import os, sys, pathlib
+          ROOT = pathlib.Path(__file__).resolve().parent
+          if str(ROOT) not in sys.path:
+              sys.path.insert(0, str(ROOT))
 
-            def setup_django():
-                try:
-                    import django
-                    from django.conf import settings
-                    if not settings.configured:
-                        for s in ROOT.rglob("settings.py"):
-                            if "migration" not in str(s):
-                                rel = s.relative_to(ROOT).with_suffix("")
-                                os.environ["DJANGO_SETTINGS_MODULE"] = ".".join(rel.parts)
-                                break
-                        django.setup()
-                except Exception as e:
-                    print(f"⚠️ Django setup warning: {e}")
+          def setup_django():
+              try:
+                  import django
+                  from django.conf import settings
+                  if not settings.configured:
+                      for s in ROOT.rglob("settings.py"):
+                          if "migration" not in str(s):
+                              rel = s.relative_to(ROOT).with_suffix("")
+                              os.environ["DJANGO_SETTINGS_MODULE"] = ".".join(rel.parts)
+                              break
+                      django.setup()
+              except Exception as e:
+                  print(f"⚠️ Django setup warning: {e}")
 
-            setup_django()
+          setup_django()
 
-            def pytest_configure(config):
-                config.addinivalue_line("markers", "generated: AI-generated tests")
-            EOF
-                        echo "✅ Wrote Django conftest.py"
-                      fi
+          def pytest_configure(config):
+              config.addinivalue_line("markers", "generated: AI-generated tests")
+          EOF
+                      echo "✅ Wrote Django conftest.py"
+                    fi
 
       - name: Run tests with coverage (CI gate)
         id: run
@@ -235,13 +235,13 @@ jobs:
           sys.exit(0 if ok else 1)
           PY
 
-                - name: Upload reports
-                  if: always()
-                  uses: actions/upload-artifact@v4
-                  with:
-                    name: test-reports-${{ github.run_number }}
-                    path: target/reports/tests/
-                    retention-days: 14
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ github.run_number }}
+          path: target/reports/tests/
+          retention-days: 14
 
       - name: Mark readiness (job summary)
         if: always()

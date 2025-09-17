@@ -2,14 +2,13 @@ name: Validate Generated Tests (CI Gate)
 
 on:
   push:
-    branches: ["test2"]   
+    branches: ["test2"]
   workflow_dispatch:
     inputs:
       repo_url:
         description: "Repo to validate"
         required: false
         default: "https://github.com/DeviPrasad372002/django-test-app.git"
-
 
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
@@ -94,7 +93,6 @@ jobs:
             done
           fi
           if [ -f pyproject.toml ]; then
-            # try editable install if it’s a package
             pip install -c "$PIP_CONSTRAINT" -e . || true
           fi
 
@@ -109,7 +107,7 @@ jobs:
           python_functions = test_* *_test test*
           addopts =
           INI
-          cat pytest.ini
+                    cat pytest.ini
 
       - name: Write .coveragerc
         working-directory: target
@@ -126,7 +124,7 @@ jobs:
               */.pytest_cache/*
               */__pycache__/*
           EOF
-          cat .coveragerc
+                    cat .coveragerc
 
       - name: Auto Django conftest (if Django project)
         working-directory: target
@@ -134,29 +132,29 @@ jobs:
         run: |
           if find . -name "settings.py" -type f | grep -q .; then
             cat > conftest.py <<'PY'
-            import os, sys, pathlib
-            ROOT = pathlib.Path(__file__).resolve().parent
-            if str(ROOT) not in sys.path:
-                sys.path.insert(0, str(ROOT))
+          import os, sys, pathlib
+          ROOT = pathlib.Path(__file__).resolve().parent
+          if str(ROOT) not in sys.path:
+              sys.path.insert(0, str(ROOT))
 
-            def setup_django():
-                try:
-                    import django
-                    from django.conf import settings
-                    if not settings.configured:
-                        for s in ROOT.rglob('settings.py'):
-                            if 'migration' not in str(s):
-                                rel = s.relative_to(ROOT).with_suffix('')
-                                os.environ['DJANGO_SETTINGS_MODULE'] = '.'.join(rel.parts)
-                                break
-                        django.setup()
-                except Exception as e:
-                    print(f"⚠️ Django setup warning: {e}")
+          def setup_django():
+              try:
+                  import django
+                  from django.conf import settings
+                  if not settings.configured:
+                      for s in ROOT.rglob('settings.py'):
+                          if 'migration' not in str(s):
+                              rel = s.relative_to(ROOT).with_suffix('')
+                              os.environ['DJANGO_SETTINGS_MODULE'] = '.'.join(rel.parts)
+                              break
+                      django.setup()
+              except Exception as e:
+                  print(f"⚠️ Django setup warning: {e}")
 
-            setup_django()
-            PY
-            echo "Wrote Django conftest.py"
-          fi
+          setup_django()
+          PY
+                      echo "Wrote Django conftest.py"
+                    fi
 
       - name: Find test roots
         id: discover
@@ -238,7 +236,7 @@ jobs:
               f.write(f"ready={'true' if ok else 'false'}\n")
           sys.exit(0 if ok else 1)
           PY
-          python parse_cov.py
+                    python parse_cov.py
 
       - name: Upload reports
         if: always()

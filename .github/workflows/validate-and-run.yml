@@ -175,27 +175,28 @@ jobs:
         run: |
           if find . -name "settings.py" -type f | grep -q .; then
             cat > conftest.py <<'EOF'
-          import os, sys, pathlib, pytest
-          ROOT = pathlib.Path(__file__).resolve().parent
-          if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
-          def setup_django():
-              try:
-                  import django
-                  from django.conf import settings
-                  if not settings.configured:
-                      for s in ROOT.rglob('settings.py'):
-                          if 'migration' not in str(s):
-                              rel = s.relative_to(ROOT).with_suffix('')
-                              os.environ['DJANGO_SETTINGS_MODULE']='.'.join(rel.parts)
-                              break
-                      django.setup()
-              except Exception as e:
-                  print(f"⚠️ Django setup warning: {e}")
-          setup_django()
-          def pytest_configure(config):
-              config.addinivalue_line("markers", "generated: AI-generated tests")
-          EOF
-          fi
+            import os, sys, pathlib, pytest
+            ROOT = pathlib.Path(__file__).resolve().parent
+            if str(ROOT) not in sys.path:
+                sys.path.insert(0, str(ROOT))
+            def setup_django():
+                try:
+                    import django
+                    from django.conf import settings
+                    if not settings.configured:
+                        for s in ROOT.rglob('settings.py'):
+                            if 'migration' not in str(s):
+                                rel = s.relative_to(ROOT).with_suffix('')
+                                os.environ['DJANGO_SETTINGS_MODULE'] = '.'.join(rel.parts)
+                                break
+                        django.setup()
+                except Exception as e:
+                    print(f"⚠️ Django setup warning: {e}")
+            setup_django()
+            def pytest_configure(config):
+                config.addinivalue_line("markers", "generated: AI-generated tests")
+            EOF
+                fi
 
       - name: Run tests with coverage (CI gate)
         id: run

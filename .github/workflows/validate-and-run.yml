@@ -2,7 +2,7 @@ name: Validate Generated Tests (CI Gate)
 
 on:
   push:
-    branches: ["test2"]
+    branches: [" test2 "]
   workflow_dispatch:
     inputs:
       repo_url:

@@ -201,12 +201,26 @@ jobs:
         id: run
         working-directory: target
         env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"   # avoid duplicate registrations
         run: |
           mkdir -p reports/tests
 
-          # Build plugin list explicitly; add pytest-django only if the project is Django
-          PLUGINS="-p pytest_cov -p pytest_html -p pytest_timeout"
+          # Base plugins
+          PLUGINS="-p pytest_cov -p pytest_timeout"
+          HTML_FLAGS=""
+          # Load pytest-html if available; otherwise skip the HTML flags
+          python - <<'PY'
+          import importlib.util, sys
+          sys.exit(0 if importlib.util.find_spec("pytest_html") else 1)
+          PY
+                    if [ $? -eq 0 ]; then
+                      PLUGINS="$PLUGINS -p pytest_html"
+                      HTML_FLAGS="--html=reports/tests/test-report.html --self-contained-html"
+                    else
+                      echo "ℹ️ pytest-html not installed or not loadable; skipping HTML report."
+          fi
+
+          # Add pytest-django plugin only for Django projects
           if find . -name "settings.py" -type f | grep -q .; then
             PLUGINS="$PLUGINS -p pytest_django"
           fi
@@ -218,12 +232,13 @@ jobs:
             --cov-report=xml:reports/tests/coverage.xml \
             --cov-report=json:reports/tests/coverage.json \
             --cov-report=term-missing \
-            --html=reports/tests/test-report.html --self-contained-html \
-            --timeout=300
+            --timeout=300 \
+            $HTML_FLAGS
           code=$?
           set -e
           echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"
           exit $code
+
 
 
       - name: Parse coverage & set gate

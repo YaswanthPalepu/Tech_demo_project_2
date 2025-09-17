@@ -91,7 +91,7 @@ jobs:
           if [ -d tests/generated ]; then
             mkdir -p target/tests/generated
             rsync -a tests/generated/ target/tests/generated/
-            echo "✅ Copied $(find target/tests/generated -type f \( -name 'test_*.py' -o -name '*_test.py' -o -name '*test*.py' \) | wc -l) tests into target/"
+            echo "✅ Copied $(find target/tests/generated -type f \( -name 'test_*.py' -o -name '*_test.py' -o -name '*.test.py' \) | wc -l) tests into target/"
           else
             echo "ℹ️ No tests/generated in this repo; relying on tests inside target repo."
           fi
@@ -149,7 +149,7 @@ jobs:
           if [ -f pyproject.toml ] && grep -q "\[tool.pdm\]" pyproject.toml; then
             pip install -c "$PIP_CONSTRAINT" pdm || true
             pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
-            [ -s /tmp/pdm.lock.req ] && sanitize_and_install /tmp/pdm.lock.req
+            [ -s /tmp/pdm.lock.req ] && sanitize_and_install /tmp/req.lock.req
           fi
 
           if find . -name "settings.py" -type f | grep -q .; then
@@ -185,30 +185,53 @@ jobs:
             echo "✅ Wrote Django conftest.py"
           fi
 
-      - name: Discover test directories dynamically
+      - name: Write .coveragerc (omit venvs/tests)
+        working-directory: target
+        shell: bash
+        run: |
+          cat > .coveragerc <<'EOF'
+          [run]
+          omit =
+              */.venv/*
+              */venv/*
+              */env/*
+              */site-packages/*
+              */.tox/*
+              */.pytest_cache/*
+              */__pycache__/*
+              tests/*
+              */tests/*
+          EOF
+          cat .coveragerc
+
+      - name: Discover test directories dynamically (path-agnostic)
         id: discover
         working-directory: target
         shell: bash
         run: |
           set -e
-          # Find any directories that contain python test files, anywhere in the repo.
-          mapfile -t DIRS < <(find . -type f \( -name 'test_*.py' -o -name '*_test.py' -o -name '*test*.py' \) -printf '%h\n' | sort -u)
+          # Exclude common virtualenv/vendor dirs, then find any python test files anywhere.
+          mapfile -t DIRS < <( \
+            find . \
+              \( -path "./.git" -o -path "./.venv" -o -path "./venv" -o -path "./env" -o -path "./.tox" \) -prune -o \
+              -type f \( -name "test_*.py" -o -name "*_test.py" -o -name "*.test.py" \) \
+              -printf '%h\n' | sort -u \
+          )
           if [ ${#DIRS[@]} -eq 0 ]; then
             echo "❌ No test files found anywhere under the repository."
-            echo "Top-level tree:"
-            find . -maxdepth 2 -type d -print
+            find . -maxdepth 3 -type d | sed 's/^/ - /'
             exit 1
           fi
-          echo "Found test dirs:"
-          printf ' - %s\n' "${DIRS[@]}"
-          # Export a space-separated list for the next step
-          echo "test_dirs=${DIRS[*]}" >> "$GITHUB_OUTPUT"
+          printf 'Found test dirs:\n'; printf ' - %s\n' "${DIRS[@]}"
+          # Persist to a file for robust consumption next step
+          printf '%s\n' "${DIRS[@]}" > /tmp/test_dirs.txt
+          echo "test_dirs_file=/tmp/test_dirs.txt" >> "$GITHUB_OUTPUT"
 
       - name: Run tests with coverage (CI gate)
         id: run
         working-directory: target
         env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"  # avoid duplicate plugin registration
         shell: bash
         run: |
           set -e
@@ -218,24 +241,21 @@ jobs:
             PLUGINS="$PLUGINS -p pytest_django"
           fi
 
-          # Run only inside test dirs (exclude .venv, site-packages, etc.)
-          TEST_DIRS=$(find . -type d \( -name tests -o -name generated \) \
-            ! -path "*/.venv/*" ! -path "*/venv/*" ! -path "*/env/*" ! -path "*/site-packages/*")
+          # Build list of target directories to pass to pytest
+          mapfile -t TEST_DIRS < "${{ steps.discover.outputs.test_dirs_file }}"
+          echo "✅ Running pytest in:"
+          printf ' - %s\n' "${TEST_DIRS[@]}"
 
-          if [ -z "$TEST_DIRS" ]; then
-            echo "❌ No test directories found"; exit 1
-          fi
-
-          echo "✅ Running pytest in: $TEST_DIRS"
           set +e
           pytest -v --tb=short --maxfail=50 \
             $PLUGINS \
             --cov=. \
+            --cov-config=.coveragerc \
             --cov-report=xml:reports/tests/coverage.xml \
             --cov-report=json:reports/tests/coverage.json \
             --cov-report=term-missing \
             --timeout=300 \
-            $TEST_DIRS
+            "${TEST_DIRS[@]}"
           code=$?
           set -e
           echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"
@@ -247,7 +267,7 @@ jobs:
         working-directory: target
         shell: bash
         run: |
-          python -c "
+          python - <<'PY'
           import json, pathlib, os, sys
           p=pathlib.Path('reports/tests/coverage.json')
           cov=0.0
@@ -259,10 +279,12 @@ jobs:
           thr=float(os.environ.get('COVERAGE_THRESHOLD','70'))
           tests_ok=('${{ steps.run.outcome }}'=='success')
           ok=(cov>=thr) and tests_ok
-          print(f'Coverage: {cov:.2f}% (threshold {thr}%), tests_ok={tests_ok} => {\"OK\" if ok else \"NOT OK\"}')
-          open(os.environ['GITHUB_OUTPUT'],'a').write(f'coverage={cov:.2f}\\nready={\"true\" if ok else \"false\"}\\n')
+          print(f"Coverage: {cov:.2f}% (threshold {thr}%), tests_ok={tests_ok} => {'OK' if ok else 'NOT OK'}")
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write(f"coverage={cov:.2f}\n")
+              f.write(f"ready={'true' if ok else 'false'}\n")
           sys.exit(0 if ok else 1)
-                    "
+          PY
 
       - name: Upload reports
         if: always()

@@ -24,6 +24,19 @@ jobs:
       - name: Checkout CI pipeline code
         uses: actions/checkout@v4
 
+      - name: Resolve target repository URL
+        id: target_repo
+        run: |
+          # Handle both workflow_dispatch and push triggers
+          if [ -n "${{ github.event.inputs.target_repo }}" ]; then
+            REPO_URL="${{ github.event.inputs.target_repo }}"
+          else
+            # Default repo for push events
+            REPO_URL="https://github.com/DeviPrasad372002/django-test-app.git"
+          fi
+          echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
+          echo "Using repo: $REPO_URL"
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -32,9 +45,9 @@ jobs:
 
       - name: Clone target repository
         run: |
-          echo "Cloning target repository: ${{ github.event.inputs.target_repo }}"
+          echo "Cloning target repository: ${{ steps.target_repo.outputs.repo_url }}"
           git clone --depth 1 --branch "${{ github.event.inputs.branch || 'main' }}" \
-            "${{ github.event.inputs.target_repo }}" target-repo
+            "${{ steps.target_repo.outputs.repo_url }}" target-repo
           echo "✅ Successfully cloned target repository"
 
       - name: Install dependencies for target repo
@@ -136,7 +149,7 @@ jobs:
       - name: Upload test reports
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports-${{ github.event.inputs.target_repo}}-${{ github.run_number }}
+          name: test-reports-${{ steps.target_repo.outputs.repo_url##*/}}-${{ github.run_number }}
           path: target-repo/reports/
           retention-days: 7
 
@@ -147,7 +160,7 @@ jobs:
           echo "🎉 EXTERNAL REPOSITORY CI COMPLETED SUCCESSFULLY!"
           echo "=========================================="
           echo ""
-          echo "📦 Target Repository: ${{ github.event.inputs.target_repo }}"
+          echo "📦 Target Repository: ${{ steps.target_repo.outputs.repo_url }}"
           echo "🌿 Branch: ${{ github.event.inputs.branch || 'main' }}"
           echo "✅ All tests passed"
           echo "📊 Code coverage: ${{ steps.coverage_check.outputs.coverage_percent }}%"
@@ -162,7 +175,7 @@ jobs:
         if: failure()
         run: |
           echo "❌ External Repository CI Pipeline Failed!"
-          echo "Target Repository: ${{ github.event.inputs.target_repo }}"
+          echo "Target Repository: ${{ steps.target_repo.outputs.repo_url }}"
           echo "Coverage: ${{ steps.coverage_check.outputs.coverage_percent || '0' }}% (required: $COVERAGE_THRESHOLD%)"
           echo "Please check the test results and fix the issues."
           echo "Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

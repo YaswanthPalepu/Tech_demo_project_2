@@ -91,26 +91,9 @@ jobs:
           if [ -d tests/generated ]; then
             mkdir -p target/tests/generated
             rsync -a tests/generated/ target/tests/generated/
-            echo "✅ Copied $(find target/tests/generated -type f \( -name 'test_*.py' -o -name '*_test.py' \) | wc -l) tests into target/"
+            echo "✅ Copied $(find target/tests/generated -type f \( -name 'test_*.py' -o -name '*_test.py' -o -name '*test*.py' \) | wc -l) tests into target/"
           else
             echo "ℹ️ No tests/generated in this repo; relying on tests inside target repo."
-          fi
-
-      - name: Ensure/clean pytest.ini (include tests/generated, remove HTML flags)
-        working-directory: target
-        shell: bash
-        run: |
-          set -e
-          if [ ! -f pytest.ini ]; then
-            {
-              echo "[pytest]"
-              echo "testpaths = tests tests/generated"
-              echo "addopts ="
-            } > pytest.ini
-            echo "✅ Wrote pytest.ini with testpaths=tests tests/generated"
-          else
-            echo "ℹ️ Existing pytest.ini found, sanitizing addopts…"
-            python -c "import re,io; p='pytest.ini'; s=io.open(p,'r',encoding='utf-8').read(); s=re.sub(r'--html\\S*|--self-contained-html','',s); io.open(p,'w',encoding='utf-8').write(s); print(s)"
           fi
 
       - name: Safe, repo-agnostic dependency install
@@ -202,6 +185,25 @@ jobs:
             echo "✅ Wrote Django conftest.py"
           fi
 
+      - name: Discover test directories dynamically
+        id: discover
+        working-directory: target
+        shell: bash
+        run: |
+          set -e
+          # Find any directories that contain python test files, anywhere in the repo.
+          mapfile -t DIRS < <(find . -type f \( -name 'test_*.py' -o -name '*_test.py' -o -name '*test*.py' \) -printf '%h\n' | sort -u)
+          if [ ${#DIRS[@]} -eq 0 ]; then
+            echo "❌ No test files found anywhere under the repository."
+            echo "Top-level tree:"
+            find . -maxdepth 2 -type d -print
+            exit 1
+          fi
+          echo "Found test dirs:"
+          printf ' - %s\n' "${DIRS[@]}"
+          # Export a space-separated list for the next step
+          echo "test_dirs=${DIRS[*]}" >> "$GITHUB_OUTPUT"
+
       - name: Run tests with coverage (CI gate)
         id: run
         working-directory: target
@@ -216,13 +218,15 @@ jobs:
             PLUGINS="$PLUGINS -p pytest_django"
           fi
           set +e
+          # Run only in directories that actually have tests (avoids empty-collection + coverage warnings)
           pytest -v --tb=short --maxfail=50 \
             $PLUGINS \
             --cov=. \
             --cov-report=xml:reports/tests/coverage.xml \
             --cov-report=json:reports/tests/coverage.json \
             --cov-report=term-missing \
-            --timeout=300
+            --timeout=300 \
+            ${{ steps.discover.outputs.test_dirs }}
           code=$?
           set -e
           echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"
@@ -239,14 +243,17 @@ jobs:
           p=pathlib.Path('reports/tests/coverage.json')
           cov=0.0
           if p.exists():
-              cov=float(json.load(open(p)).get('totals',{}).get('percent_covered',0.0))
+              try:
+                  cov=float(json.load(open(p)).get('totals',{}).get('percent_covered',0.0))
+              except Exception:
+                  cov=0.0
           thr=float(os.environ.get('COVERAGE_THRESHOLD','70'))
           tests_ok=('${{ steps.run.outcome }}'=='success')
           ok=(cov>=thr) and tests_ok
           print(f'Coverage: {cov:.2f}% (threshold {thr}%), tests_ok={tests_ok} => {\"OK\" if ok else \"NOT OK\"}')
           open(os.environ['GITHUB_OUTPUT'],'a').write(f'coverage={cov:.2f}\\nready={\"true\" if ok else \"false\"}\\n')
           sys.exit(0 if ok else 1)
-          "
+                    "
 
       - name: Upload reports
         if: always()

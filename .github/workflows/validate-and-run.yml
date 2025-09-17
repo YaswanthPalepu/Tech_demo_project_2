@@ -4,6 +4,11 @@ on:
   push:
     branches: [test2]
   workflow_dispatch:
+    inputs:
+      repo_url:
+        description: "Repo to validate (fallback if no handoff artifact)"
+        required: false
+        default: "https://github.com/DeviPrasad372002/django-test-app.git"
 
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
@@ -23,12 +28,22 @@ jobs:
       COVERAGE_THRESHOLD: "70"
       TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "1"
       PIP_CONSTRAINT: /tmp/compat-constraints.txt
-      FIXED_REPO_URL: "https://github.com/DeviPrasad372002/django-test-app.git"
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve target repository URL
+        id: target
+        shell: bash
+        run: |
+          REPO_URL="${{ github.event.inputs.repo_url }}"
+          if [ -z "$REPO_URL" ]; then
+            REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          fi
+          echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
+
       - name: Set compatibility constraints
+        shell: bash
         run: |
           cat > /tmp/compat-constraints.txt <<'EOF'
           Django>=3.2,<4.3
@@ -42,6 +57,7 @@ jobs:
           cache: pip
 
       - name: Install core tooling
+        shell: bash
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
           pip install -c "$PIP_CONSTRAINT" \
@@ -49,20 +65,24 @@ jobs:
             pytest-django pytest-flask pytest-xdist \
             coverage httpx requests
 
-      - name: Clone fixed target repo
+      - name: Clone target repo
         env:
           GH_PAT3: ${{ secrets.GH_PAT3 || secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          CLEAN_URL="$FIXED_REPO_URL"
+          REPO_URL='${{ steps.target.outputs.repo_url }}'
+          CLEAN_URL="$REPO_URL"
+          [[ "$CLEAN_URL" == git@* ]] && CLEAN_URL="https://github.com/${CLEAN_URL#git@github.com:}"
+          [[ "$CLEAN_URL" != https://* ]] && CLEAN_URL="https://github.com/$CLEAN_URL"
           [[ "$CLEAN_URL" != *.git ]] && CLEAN_URL="${CLEAN_URL}.git"
           if [ -n "$GH_PAT3" ]; then
             CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
           fi
-          echo "Cloning: $CLEAN_URL"
           git clone --depth=1 "$CLEAN_URL" target
           echo "✅ cloned into ./target"
 
       - name: Copy tests from this repo into target (if present)
+        shell: bash
         run: |
           if [ -d tests/generated ]; then
             mkdir -p target/tests/generated
@@ -72,8 +92,9 @@ jobs:
             echo "ℹ️ No tests/generated in this repo; relying on tests inside target repo."
           fi
 
-      - name: Write pytest.ini
+      - name: Write pytest.ini (broaden discovery)
         working-directory: target
+        shell: bash
         run: |
           cat > pytest.ini <<'INI'
           [pytest]
@@ -82,9 +103,11 @@ jobs:
           python_functions = test_* *_test test*
           addopts =
           INI
+          cat pytest.ini
 
-      - name: Write .coveragerc
+      - name: Write .coveragerc (omit venv/vendor)
         working-directory: target
+        shell: bash
         run: |
           cat > .coveragerc <<'EOF'
           [run]
@@ -97,61 +120,73 @@ jobs:
               */.pytest_cache/*
               */__pycache__/*
           EOF
+          cat .coveragerc
 
-      - name: Find test roots
+      - name: Find test roots (path-agnostic; exclude vendor/venv)
         id: discover
         working-directory: target
+        shell: bash
         run: |
           set -e
-          mapfile -t DIRS < <( \
+          mapfile -t PREFERRED < <( \
             find . \
               \( -path "*/.git*" -o -path "*/.venv*" -o -path "*/venv*" -o -path "*/env*" -o -path "*/site-packages*" -o -path "*/.tox*" -o -path "*/__pycache__*" \) -prune -o \
-              -type f -name "*test*.py" -printf '%h\n' | sort -u \
+              -type d \( -iname "tests" -o -iname "test" \) -print | sort -u \
           )
-          if [ ${#DIRS[@]} -eq 0 ]; then
-            echo "❌ No repo test files found."
+          if [ ${#PREFERRED[@]} -eq 0 ]; then
+            mapfile -t PREFERRED < <( \
+              find . \
+                \( -path "*/.git*" -o -path "*/.venv*" -o -path "*/venv*" -o -path "*/env*" -o -path "*/site-packages*" -o -path "*/.tox*" -o -path "*/__pycache__*" \) -prune -o \
+                -type f -name "*test*.py" -printf '%h\n' | sort -u \
+            )
+          fi
+          if [ ${#PREFERRED[@]} -eq 0 ]; then
+            echo "❌ No repo test files found (outside vendor/venv)."
             find . -maxdepth 3 -type d | sed 's/^/ - /'
             exit 1
           fi
-          printf '%s\n' "${DIRS[@]}" > /tmp/test_dirs.txt
+          printf '%s\n' "${PREFERRED[@]}" > /tmp/test_dirs.txt
           echo "✅ Found test roots:"; sed 's/^/ - /' /tmp/test_dirs.txt
 
       - name: Auto Django conftest (if Django project)
         working-directory: target
+        shell: bash
         run: |
           if find . -name "settings.py" -type f | grep -q .; then
-            python - <<'PY'
+            cat > conftest.py <<'EOF'
             import os, sys, pathlib
-            p = pathlib.Path("conftest.py")
-            p.write_text(
-                "import os, sys, pathlib\n"
-                "ROOT = pathlib.Path(__file__).resolve().parent\n"
-                "if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))\n"
-                "def setup_django():\n"
-                "    try:\n"
-                "        import django\n"
-                "        from django.conf import settings\n"
-                "        if not settings.configured:\n"
-                "            for s in ROOT.rglob('settings.py'):\n"
-                "                if 'migration' not in str(s):\n"
-                "                    rel = s.relative_to(ROOT).with_suffix('')\n"
-                "                    os.environ['DJANGO_SETTINGS_MODULE']='.'.join(rel.parts)\n"
-                "                    break\n"
-                "            django.setup()\n"
-                "    except Exception as e:\n"
-                "        print(f'⚠️ Django setup warning: {e}')\n"
-                "setup_django()\n",
-                encoding="utf-8"
-            )
-            print("✅ Wrote Django conftest.py")
-            PY
-          fi
+            ROOT = pathlib.Path(__file__).resolve().parent
+            if str(ROOT) not in sys.path:
+                sys.path.insert(0, str(ROOT))
 
-      - name: Run tests with coverage
+            def setup_django():
+                try:
+                    import django
+                    from django.conf import settings
+                    if not settings.configured:
+                        for s in ROOT.rglob("settings.py"):
+                            if "migration" not in str(s):
+                                rel = s.relative_to(ROOT).with_suffix("")
+                                os.environ["DJANGO_SETTINGS_MODULE"] = ".".join(rel.parts)
+                                break
+                        django.setup()
+                except Exception as e:
+                    print(f"⚠️ Django setup warning: {e}")
+
+            setup_django()
+
+            def pytest_configure(config):
+                config.addinivalue_line("markers", "generated: AI-generated tests")
+            EOF
+                        echo "✅ Wrote Django conftest.py"
+                      fi
+
+      - name: Run tests with coverage (CI gate)
         id: run
         working-directory: target
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        shell: bash
         run: |
           set -e
           mkdir -p reports/tests
@@ -200,16 +235,17 @@ jobs:
           sys.exit(0 if ok else 1)
           PY
 
-      - name: Upload reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-reports-${{ github.run_number }}
-          path: target/reports/tests/
-          retention-days: 14
+                - name: Upload reports
+                  if: always()
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: test-reports-${{ github.run_number }}
+                    path: target/reports/tests/
+                    retention-days: 14
 
-      - name: Mark readiness
+      - name: Mark readiness (job summary)
         if: always()
+        shell: bash
         run: |
           {
             echo "## CI Result"

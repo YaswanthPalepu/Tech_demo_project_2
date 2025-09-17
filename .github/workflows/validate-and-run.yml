@@ -57,7 +57,7 @@ jobs:
           python-version: "3.10"
           cache: pip
 
-      - name: Install core tooling (no HTML reporter)
+      - name: Install core tooling
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
           pip install -c "$PIP_CONSTRAINT" \
@@ -92,9 +92,8 @@ jobs:
             echo "ℹ️ No tests/generated in this repo; relying on tests inside target repo."
           fi
 
-      - name: Ensure/clean pytest.ini (include tests/generated, remove HTML flags)
+      - name: Ensure/clean pytest.ini
         working-directory: target
-        shell: bash
         run: |
           if [ ! -f pytest.ini ]; then
             cat > pytest.ini <<'EOF'
@@ -109,79 +108,20 @@ jobs:
             import sys, re
             p = sys.argv[1]
             txt = open(p, 'r', encoding='utf-8').read()
-            # Remove any --html / --self-contained-html from addopts
-            txt = re.sub(r'(^\s*addopts\s*=\s*)(.*)$',
-                        lambda m: m.group(1) + re.sub(r'--html[^\s]*|--self-contained-html', '', m.group(2)).strip(),
-                        txt, flags=re.M)
+            txt = re.sub(r'--html[^\s]*|--self-contained-html', '', txt)
             open(p, 'w', encoding='utf-8').write(txt)
             print(open(p).read())
             PY
-          fi
-
-      - name: Safe, repo-agnostic dependency install
-        working-directory: target
-        run: |
-          python -m pip install --upgrade "pip<25" wheel setuptools
-          pip install -c "$PIP_CONSTRAINT" "typing-extensions>=4.8" "uvicorn>=0.23" "pydantic>=2" "starlette>=0.37" || true
-
-          sanitize_and_install() {
-            local req_file="$1"
-            [ -f "$req_file" ] || return 0
-            echo "Sanitizing $req_file"
-            sed -E 's/^psycopg2([^a-zA-Z0-9]|$)/psycopg2-binary\1/i' "$req_file" \
-              | grep -viE '^[[:space:]]*(django|djangorestframework)\b' \
-              > /tmp/req.candidate.txt
-            awk '
-              /^[[:space:]]*$/ {next}
-              /^[[:space:]]*#/ {next}
-              /^[[:space:]]*-/ {next}
-              /^[[:space:]]*--/ {next}
-              /^\-e[[:space:]]/ {next}
-              /^git\+|^hg\+|^svn\+|^bzr\+/ {next}
-              /^file:/ {next}
-              {print}
-            ' /tmp/req.candidate.txt > /tmp/req.clean.txt
-            : > /tmp/req.final.txt
-            while IFS= read -r pkg; do
-              [ -z "$pkg" ] && continue
-              if python -m pip index versions "$pkg" >/dev/null 2>&1; then
-                echo "$pkg" >> /tmp/req.final.txt
-              else
-                echo "⏭️  Skip non-resolvable: $pkg"
-              fi
-            done < /tmp/req.clean.txt
-            if [ -s /tmp/req.final.txt ]; then
-              pip install -c "$PIP_CONSTRAINT" -r /tmp/req.final.txt || true
-            fi
-          }
-          sanitize_and_install "requirements.txt"
-          if compgen -G "requirements/*.txt" >/dev/null; then
-            for f in requirements/*.txt; do sanitize_and_install "$f"; done
-          fi
-          if [ -f pyproject.toml ] && grep -q "\[tool.poetry\]" pyproject.toml; then
-            pip install -c "$PIP_CONSTRAINT" poetry || true
-            poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req || true
-            [ -s /tmp/poetry.lock.req ] && sanitize_and_install /tmp/poetry.lock.req
-          fi
-          if [ -f pyproject.toml ] && grep -q "\[tool.pdm\]" pyproject.toml; then
-            pip install -c "$PIP_CONSTRAINT" pdm || true
-            pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
-            [ -s /tmp/pdm.lock.req ] && sanitize_and_install /tmp/pdm.lock.req
-          fi
-          if find . -name "settings.py" -type f | grep -q .; then
-            pip install -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
-          fi
+                      fi
 
       - name: Run tests with coverage (CI gate)
         id: run
         working-directory: target
         env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"   # avoid duplicate plugin registrations
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
           mkdir -p reports/tests
-          # load minimal, known-safe plugins explicitly
           PLUGINS="-p pytest_cov -p pytest_timeout"
-          # enable pytest-django only if a Django settings module exists
           if find . -name "settings.py" -type f | grep -q .; then
             PLUGINS="$PLUGINS -p pytest_django"
           fi

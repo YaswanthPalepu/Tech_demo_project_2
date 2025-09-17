@@ -1,254 +1,168 @@
-name: Validate Generated Tests (CI Gate)
+name: External Repository CI Pipeline
 
 on:
-  push:
-    branches: ["test2"]
   workflow_dispatch:
     inputs:
-      repo_url:
-        description: "Repo to validate"
-        required: false
+      target_repo:
+        description: "Target repository URL to test"
+        required: true
         default: "https://github.com/DeviPrasad372002/django-test-app.git"
-
-concurrency:
-  group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
-  cancel-in-progress: true
+      branch:
+        description: "Branch to test"
+        required: false
+        default: "main"
+  push:
+    branches: [ "test" ]
 
 jobs:
-  validate:
-    runs-on: self-hosted
-    permissions:
-      contents: read
-      actions: read
-      checks: write
-      statuses: write
-
+  test-external-repo:
+    runs-on: ubuntu-latest
     env:
-      PYTHONUTF8: "1"
       COVERAGE_THRESHOLD: "70"
-      PIP_CONSTRAINT: /tmp/compat-constraints.txt
 
     steps:
-      - name: Resolve target repository URL
-        id: target
-        shell: bash
-        run: |
-          REPO_URL="${{ github.event.inputs.repo_url }}"
-          if [ -z "$REPO_URL" ]; then
-            REPO_URL="https://github.com/DeviPrasad372002/django-test-app.git"
-          fi
-          echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
-          echo "Using repo: $REPO_URL"
+      - name: Checkout CI pipeline code
+        uses: actions/checkout@v4
 
-      - name: Set compatibility constraints
-        shell: bash
-        run: |
-          cat > /tmp/compat-constraints.txt <<'EOF'
-          Django>=3.2,<4.3
-          djangorestframework>=3.12,<3.15
-          EOF
-
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-          cache: pip
+          cache: 'pip'
 
-      - name: Install core tooling
-        shell: bash
+      - name: Clone target repository
         run: |
-          python -m pip install --upgrade "pip<25" wheel setuptools
-          pip install -c "$PIP_CONSTRAINT" \
-            pytest pytest-cov pytest-timeout pytest-django pytest-xdist coverage requests httpx
+          echo "Cloning target repository: ${{ github.event.inputs.target_repo }}"
+          git clone --depth 1 --branch "${{ github.event.inputs.branch || 'main' }}" \
+            "${{ github.event.inputs.target_repo }}" target-repo
+          echo "✅ Successfully cloned target repository"
 
-      - name: Clone target repo
-        env:
-          GH_PAT3: ${{ secrets.GH_PAT3 || secrets.GITHUB_TOKEN }}
-        shell: bash
+      - name: Install dependencies for target repo
+        working-directory: target-repo
         run: |
-          REPO_URL='${{ steps.target.outputs.repo_url }}'
-          CLEAN_URL="$REPO_URL"
-          [[ "$CLEAN_URL" == git@* ]] && CLEAN_URL="https://github.com/${CLEAN_URL#git@github.com:}"
-          [[ "$CLEAN_URL" != https://* ]] && CLEAN_URL="https://github.com/$CLEAN_URL"
-          [[ "$CLEAN_URL" != *.git ]] && CLEAN_URL="${CLEAN_URL}.git"
-          if [ -n "$GH_PAT3" ]; then
-            CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
-          fi
-          rm -rf target
-          git clone --depth=1 "$CLEAN_URL" target
-          echo "Cloned into ./target"
+          python -m pip install --upgrade pip
+          
+          # Install dependencies from various possible requirement files
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+          if [ -f dev-requirements.txt ]; then pip install -r dev-requirements.txt; fi
+          if [ -f test-requirements.txt ]; then pip install -r test-requirements.txt; fi
+          
+          # Install testing tools
+          pip install pytest pytest-cov coverage
 
-      - name: Install target repo dependencies
-        working-directory: target
-        shell: bash
+      - name: Discover test structure
+        working-directory: target-repo
         run: |
-          set -e
-          if [ -f requirements.txt ]; then
-            pip install -c "$PIP_CONSTRAINT" -r requirements.txt || true
-          fi
-          if ls requirements*.txt 1>/dev/null 2>&1; then
-            for f in requirements*.txt; do
-              [ "$f" = "requirements.txt" ] && continue
-              pip install -c "$PIP_CONSTRAINT" -r "$f" || true
-            done
-          fi
-          if [ -f pyproject.toml ]; then
-            pip install -c "$PIP_CONSTRAINT" -e . || true
-          fi
-
-      - name: Write pytest.ini
-        working-directory: target
-        shell: bash
-        run: |
-          cat > pytest.ini <<'INI'
-          [pytest]
-          python_files = test_*.py *_test.py *test*.py
-          python_classes = Test* *Tests
-          python_functions = test_* *_test test*
-          markers =
-              django_db: mark tests that access the Django DB
-          addopts =
-          INI
-                    cat pytest.ini
-
-      - name: Write .coveragerc
-        working-directory: target
-        shell: bash
-        run: |
-          cat > .coveragerc <<'EOF'
-            [run]
-            omit =
-                */.venv/*
-                */venv/*
-                */env/*
-                */site-packages/*
-                */.tox/*
-                */.pytest_cache/*
-                */__pycache__/*
-            EOF
-                      cat .coveragerc
-
-      - name: Auto Django conftest (if Django project)
-        working-directory: target
-        shell: bash
-        run: |
-          if find . -name "settings.py" -type f | grep -q .; then
-            cat > conftest.py <<'PY'
-            import os, sys, pathlib
-            ROOT = pathlib.Path(__file__).resolve().parent
-            if str(ROOT) not in sys.path:
-                sys.path.insert(0, str(ROOT))
-
-            # Only set DJANGO_SETTINGS_MODULE. Do NOT call django.setup() here.
-            # Some repos or generated tests call django.setup() themselves.
-            for s in ROOT.rglob('settings.py'):
-                if 'migration' not in str(s):
-                    rel = s.relative_to(ROOT).with_suffix('')
-                    os.environ.setdefault('DJANGO_SETTINGS_MODULE', '.'.join(rel.parts))
-                    break
-            PY
-                        echo "Wrote Django conftest.py"
-                      fi
-
-      - name: Find test roots
-        id: discover
-        working-directory: target
-        shell: bash
-        run: |
-          set -e
-          mapfile -t PREFERRED < <(
-            find . \
-              \( -path "*/.git*" -o -path "*/.venv*" -o -path "*/venv*" -o -path "*/env*" -o -path "*/site-packages*" -o -path "*/.tox*" -o -path "*/__pycache__*" \) -prune -o \
-              -type d \( -iname "tests" -o -iname "test" \) -print | sort -u
-          )
-          if [ ${#PREFERRED[@]} -eq 0 ]; then
-            mapfile -t PREFERRED < <(
-              find . \
-                \( -path "*/.git*" -o -path "*/.venv*" -o -path "*/venv*" -o -path "*/env*" -o -path "*/site-packages*" -o -path "*/.tox*" -o -path "*/__pycache__*" \) -prune -o \
-                -type f \( -name "test_*.py" -o -name "*_test.py" -o -name "*test*.py" \) \
-                -printf '%h\n' | sort -u
-            )
-          fi
-          if [ ${#PREFERRED[@]} -eq 0 ]; then
-            echo "No repo test files found."
-            exit 1
-          fi
-          printf '%s\n' "${PREFERRED[@]}" > /tmp/test_dirs.txt
-          echo "Found test roots:"; sed 's/^/ - /' /tmp/test_dirs.txt
+          echo "🔍 Searching for test files and directories..."
+          
+          # Find all test directories (any depth)
+          echo "Test directories found:"
+          find . -type d \( -name "tests" -o -name "test" \) -not -path "*/.*" | head -10
+          
+          # Find test files in any directory
+          echo "Test files found:"
+          find . -name "test_*.py" -o -name "*_test.py" -o -name "*test*.py" | grep -v "/\." | head -15
+          
+          # Count total test files
+          TEST_FILE_COUNT=$(find . -name "test_*.py" -o -name "*_test.py" -o -name "*test*.py" | grep -v "/\." | wc -l)
+          echo "Total test files found: $TEST_FILE_COUNT"
 
       - name: Run tests with coverage
-        id: run
-        working-directory: target
-        env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
-        shell: bash
+        id: run_tests
+        working-directory: target-repo
         run: |
-          set -e
-          mkdir -p reports/tests
-          PLUGINS="-p pytest_cov -p pytest_timeout"
-          if find . -name "settings.py" -type f | grep -q .; then
-            PLUGINS="$PLUGINS -p pytest_django.plugin"
+          mkdir -p reports
+          
+          # Find all test directories recursively
+          TEST_DIRS=()
+          while IFS= read -r dir; do
+            TEST_DIRS+=("$dir")
+          done < <(find . -type d \( -name "tests" -o -name "test" \) -not -path "*/.*" 2>/dev/null || true)
+          
+          # If no test directories found, find directories containing test files
+          if [ ${#TEST_DIRS[@]} -eq 0 ]; then
+            while IFS= read -r dir; do
+              TEST_DIRS+=("$dir")
+            done < <(find . -name "test_*.py" -o -name "*_test.py" -o -name "*test*.py" | grep -v "/\." | xargs -n1 dirname 2>/dev/null | sort -u || true)
           fi
-          mapfile -t TEST_DIRS < /tmp/test_dirs.txt
-          echo "Running pytest in:"; printf ' - %s\n' "${TEST_DIRS[@]}"
-          set +e
-          pytest -v --tb=short --maxfail=50 \
-            $PLUGINS \
+          
+          # If still no test directories, use current directory
+          if [ ${#TEST_DIRS[@]} -eq 0 ]; then
+            TEST_DIRS=(".")
+            echo "⚠️  No specific test directories found, running tests from root directory"
+          fi
+          
+          echo "📁 Test directories to run:"
+          printf '  - %s\n' "${TEST_DIRS[@]}"
+          
+          # Run pytest on all discovered test directories
+          python -m pytest "${TEST_DIRS[@]}" -v --tb=short \
             --cov=. \
-            --cov-config=.coveragerc \
-            --cov-report=xml:reports/tests/coverage.xml \
-            --cov-report=json:reports/tests/coverage.json \
+            --cov-report=xml:reports/coverage.xml \
+            --cov-report=html:reports/coverage-html \
             --cov-report=term-missing \
-            --timeout=300 \
-            "${TEST_DIRS[@]}"
-          code=$?
-          set -e
-          echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"
-          exit $code
+            --junitxml=reports/test-results.xml
 
-      - name: Parse coverage & set gate
-        id: gate
-        if: always()
-        working-directory: target
-        shell: bash
+      - name: Check coverage
+        id: coverage_check
+        working-directory: target-repo
         run: |
-          cat > parse_cov.py <<'PY'
-          import json, pathlib, os, sys
-          p = pathlib.Path("reports/tests/coverage.json")
-          cov = 0.0
-          if p.exists():
-              try:
-                  cov = float(json.load(open(p)).get("totals", {}).get("percent_covered", 0.0))
-              except Exception:
-                  cov = 0.0
-          thr = float(os.environ.get("COVERAGE_THRESHOLD", "70"))
-          tests_ok = ('${{ steps.run.outcome }}' == 'success')
-          ok = (cov >= thr) and tests_ok
-          print(f"Coverage: {cov:.2f}% (threshold {thr}%), tests_ok={tests_ok} => {'OK' if ok else 'NOT OK'}")
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write(f"coverage={cov:.2f}\n")
-              f.write(f"ready={'true' if ok else 'false'}\n")
-          sys.exit(0 if ok else 1)
-          PY
-                    python parse_cov.py
+          # Extract coverage percentage from the XML report
+          coverage_percent=$(python -c "
+          import xml.etree.ElementTree as ET
+          try:
+              tree = ET.parse('reports/coverage.xml')
+              root = tree.getroot()
+              coverage_rate = float(root.get('line-rate', '0'))
+              print(f'{coverage_rate * 100:.2f}')
+          except Exception as e:
+              print('0.00')
+          ")
+          
+          echo "Coverage: $coverage_percent%"
+          echo "coverage_percent=$coverage_percent" >> $GITHUB_OUTPUT
+          
+          # Check if coverage meets threshold
+          if (( $(echo "$coverage_percent >= $COVERAGE_THRESHOLD" | bc -l) )); then
+            echo "✅ Coverage meets threshold of $COVERAGE_THRESHOLD%"
+            echo "coverage_met=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Coverage below threshold of $COVERAGE_THRESHOLD%"
+            echo "coverage_met=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
 
-      - name: Upload reports
-        if: always()
+      - name: Upload test reports
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports-${{ github.run_number }}
-          path: target/reports/tests/
-          retention-days: 14
+          name: test-reports-${{ github.event.inputs.target_repo}}-${{ github.run_number }}
+          path: target-repo/reports/
+          retention-days: 7
 
-      - name: Job summary
-        if: always()
-        shell: bash
+      - name: Project ready for deployment
+        if: success()
         run: |
-          {
-            echo "## CI Result"
-            if [[ "${{ steps.gate.outputs.ready }}" == "true" ]]; then
-              echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold."
-            else
-              echo "❌ Tests failed or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**)."
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "=========================================="
+          echo "🎉 EXTERNAL REPOSITORY CI COMPLETED SUCCESSFULLY!"
+          echo "=========================================="
+          echo ""
+          echo "📦 Target Repository: ${{ github.event.inputs.target_repo }}"
+          echo "🌿 Branch: ${{ github.event.inputs.branch || 'main' }}"
+          echo "✅ All tests passed"
+          echo "📊 Code coverage: ${{ steps.coverage_check.outputs.coverage_percent }}%"
+          echo "🎯 Coverage threshold: $COVERAGE_THRESHOLD% met"
+          echo "🚀 PROJECT IS READY FOR DEPLOYMENT"
+          echo ""
+          echo "📋 Tested at: $(date)"
+          echo "🔗 Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "=========================================="
+
+      - name: Notify failure
+        if: failure()
+        run: |
+          echo "❌ External Repository CI Pipeline Failed!"
+          echo "Target Repository: ${{ github.event.inputs.target_repo }}"
+          echo "Coverage: ${{ steps.coverage_check.outputs.coverage_percent || '0' }}% (required: $COVERAGE_THRESHOLD%)"
+          echo "Please check the test results and fix the issues."
+          echo "Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

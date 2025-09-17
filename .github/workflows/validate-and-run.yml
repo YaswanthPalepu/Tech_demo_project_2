@@ -149,7 +149,7 @@ jobs:
           if [ -f pyproject.toml ] && grep -q "\[tool.pdm\]" pyproject.toml; then
             pip install -c "$PIP_CONSTRAINT" pdm || true
             pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
-            [ -s /tmp/pdm.lock.req ] && sanitize_and_install /tmp/req.lock.req
+            [ -s /tmp/pdm.lock.req ] && sanitize_and_install /tmp/pdm.lock.req
           fi
 
           if find . -name "settings.py" -type f | grep -q .; then
@@ -210,10 +210,10 @@ jobs:
         shell: bash
         run: |
           set -e
-          # Exclude common virtualenv/vendor dirs, then find any python test files anywhere.
+          # Prune ANY nested env/vendor dirs with wildcards, then find test files anywhere.
           mapfile -t DIRS < <( \
             find . \
-              \( -path "./.git" -o -path "./.venv" -o -path "./venv" -o -path "./env" -o -path "./.tox" \) -prune -o \
+              \( -path "*/.git/*" -o -path "*/.venv/*" -o -path "*/venv/*" -o -path "*/env/*" -o -path "*/site-packages/*" -o -path "*/.tox/*" -o -path "*/.pytest_cache/*" -o -path "*/__pycache__/*" \) -prune -o \
               -type f \( -name "test_*.py" -o -name "*_test.py" -o -name "*.test.py" \) \
               -printf '%h\n' | sort -u \
           )
@@ -223,9 +223,7 @@ jobs:
             exit 1
           fi
           printf 'Found test dirs:\n'; printf ' - %s\n' "${DIRS[@]}"
-          # Persist to a file for robust consumption next step
           printf '%s\n' "${DIRS[@]}" > /tmp/test_dirs.txt
-          echo "test_dirs_file=/tmp/test_dirs.txt" >> "$GITHUB_OUTPUT"
 
       - name: Run tests with coverage (CI gate)
         id: run
@@ -241,8 +239,7 @@ jobs:
             PLUGINS="$PLUGINS -p pytest_django"
           fi
 
-          # Build list of target directories to pass to pytest
-          mapfile -t TEST_DIRS < "${{ steps.discover.outputs.test_dirs_file }}"
+          mapfile -t TEST_DIRS < /tmp/test_dirs.txt
           echo "✅ Running pytest in:"
           printf ' - %s\n' "${TEST_DIRS[@]}"
 
@@ -298,8 +295,11 @@ jobs:
         if: always()
         shell: bash
         run: |
-          echo "## CI Result" >> "$GITHUB_STEP_SUMMARY"
-          if [[ "${{ steps.gate.outputs.ready }}" == "true" ]]; then
-            echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold. **Ready to deploy.**" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "❌ Tests failed or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**). **Do NOT deploy.**" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## CI Result"
+            if [[ "${{ steps.gate.outputs.ready }}" == "true" ]]; then
+              echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold. **Ready to deploy.**"
+            else
+              echo "❌ Tests failed or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**). **Do NOT deploy.**"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

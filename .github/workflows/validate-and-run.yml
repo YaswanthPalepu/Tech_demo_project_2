@@ -1,13 +1,8 @@
 name: Validate Generated Tests (CI Gate)
 
 on:
-  # workflow_run:
-  #   workflows: ["AI Test Generation"]
-  #   types: [completed]
-  #   branches: ["test2"]
   push:
-    branches:
-      - test2
+    branches: [test2]
   workflow_dispatch:
     inputs:
       repo_url:
@@ -37,43 +32,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pull the handoff (Repo URL) from upstream generation run when triggered by workflow_run
-      - name: Download handoff artifact (from upstream run)
-        if: github.event_name == 'workflow_run'
-        uses: actions/download-artifact@v4
-        with:
-          name: handoff-meta
-          run-id: ${{ github.event.workflow_run.id }}
-          path: handoff
-        continue-on-error: true
-
       - name: Resolve target repository URL
         id: target
         shell: bash
         run: |
           set -e
-          HANDOFF="handoff/handoff.json"
-          INPUT_URL="${{ github.event.inputs.repo_url }}"
-          CURR_REPO="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
-
-          if [ -f "$HANDOFF" ]; then
-            REPO_URL=$(python - <<'PY'
-          import json,sys
-          print(json.load(open(sys.argv[1])).get("repo_url",""))
-          PY
-                      "$HANDOFF")
-                    fi
-                    if [ -z "${REPO_URL:-}" ]; then REPO_URL="$INPUT_URL"; fi
-                    if [ -z "$REPO_URL" ]; then REPO_URL="$CURR_REPO"; fi
-                    if [ -z "$REPO_URL" ] && git remote get-url origin >/dev/null 2>&1; then
-                      REPO_URL="$(git remote get-url origin)"
-                    fi
-                    if [ -z "$REPO_URL" ]; then
-                      echo "No repo_url available from handoff, inputs, or context."
-                      exit 1
-                    fi
-                    echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
-                    echo "Resolved repo_url: $REPO_URL"
+          REPO_URL="${{ github.event.inputs.repo_url }}"
+          if [ -z "$REPO_URL" ]; then
+            REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          fi
+          echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
+          echo "Resolved repo_url: $REPO_URL"
 
       - name: Set compatibility constraints
         run: |
@@ -123,11 +92,25 @@ jobs:
             echo "ℹ️ No tests/generated in this repo; relying on tests inside target repo."
           fi
 
+      - name: Ensure pytest.ini (set testpaths incl. tests/generated)
+        working-directory: target
+        run: |
+          if [ ! -f pytest.ini ]; then
+            cat > pytest.ini <<'EOF'
+          [pytest]
+          testpaths = tests tests/generated
+          addopts = -q
+          EOF
+            echo "✅ Wrote pytest.ini with testpaths=tests tests/generated"
+          else
+            echo "ℹ️ pytest.ini already present:"
+            cat pytest.ini || true
+          fi
+
       - name: Safe, repo-agnostic dependency install
         working-directory: target
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
-          # Common libs many test suites expect
           pip install -c "$PIP_CONSTRAINT" "typing-extensions>=4.8" "uvicorn>=0.23" "pydantic>=2" "starlette>=0.37" || true
 
           sanitize_and_install() {
@@ -135,12 +118,10 @@ jobs:
             [ -f "$req_file" ] || return 0
             echo "Sanitizing $req_file"
 
-            # Normalize & remove problem deps (we force Django/DRF separately)
             sed -E 's/^psycopg2([^a-zA-Z0-9]|$)/psycopg2-binary\1/i' "$req_file" \
               | grep -viE '^[[:space:]]*(django|djangorestframework)\b' \
               > /tmp/req.candidate.txt
 
-            # Drop VCS/local/editable and option lines
             awk '
               /^[[:space:]]*$/ {next}
               /^[[:space:]]*#/ {next}
@@ -184,7 +165,6 @@ jobs:
             [ -s /tmp/pdm.lock.req ] && sanitize_and_install /tmp/pdm.lock.req
           fi
 
-          # If Django project, force a compatible pair
           if find . -name "settings.py" -type f | grep -q .; then
             pip install -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
           fi
@@ -196,7 +176,8 @@ jobs:
             cat > conftest.py <<'EOF'
           import os, sys, pathlib, pytest
           ROOT = pathlib.Path(__file__).resolve().parent
-          if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
+          if str(ROOT) not in sys.path:
+              sys.path.insert(0, str(ROOT))
           def setup_django():
               try:
                   import django
@@ -216,52 +197,6 @@ jobs:
           EOF
           fi
 
-      - name: Discover tests
-        id: collect
-        working-directory: target
-        run: |
-          python - <<'PY'
-          import pathlib, ast, json, sys
-          ROOT = pathlib.Path('.')
-
-          # Prefer standard locations
-          candidates = [p for p in [ROOT/'tests', ROOT/'test'] if p.exists() and p.is_dir()]
-          files = set()
-
-          def excluded(p: pathlib.Path) -> bool:
-              ex = {'venv','.venv','env','.env','site-packages','node_modules','.git','.pytest_cache','__pycache__','build','dist','.tox'}
-              return any(part in ex for part in p.parts)
-
-          # Try file-level discovery first
-          for base in candidates:
-              for f in base.rglob('*.py'):
-                  if excluded(f): continue
-                  name = f.name
-                  if name.startswith('test_') or name.endswith('_test.py'):
-                      try:
-                          ast.parse(f.read_text(encoding='utf-8', errors='ignore'))
-                          files.add(str(f))
-                      except SyntaxError:
-                          pass
-
-          targets = sorted(files)
-          out = pathlib.Path('/tmp/test_targets.txt')
-          out.parent.mkdir(parents=True, exist_ok=True)
-
-          if targets:
-              out.write_text(' '.join(f'"{t}"' for t in targets))
-              print(f"✅ Collected {len(targets)} test files")
-              print(json.dumps(targets[:25], indent=2))
-          elif candidates:
-              # Fall back to passing the directories; let pytest discover inside them
-              out.write_text(' '.join(f'"{str(p)}"' for p in candidates))
-              print("ℹ️ No matching test files found; will pass test directories to pytest for discovery:")
-              for p in candidates: print(" -", p)
-          else:
-              print("❌ No tests discovered under tests/ or test/")
-              sys.exit(1)
-          PY
-
       - name: Run tests with coverage (CI gate)
         id: run
         working-directory: target
@@ -269,18 +204,16 @@ jobs:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: ""
         run: |
           mkdir -p reports/tests
-          test_targets=$(cat /tmp/test_targets.txt || echo 'tests')
-          echo "Targets: $test_targets"
-          PLUGINS="-p pytest_cov -p pytest_html -p pytest_timeout"
+          # Let pytest discover using testpaths from pytest.ini (tests + tests/generated)
           set +e
-          pytest $PLUGINS -v --tb=short --maxfail=50 \
+          pytest -v --tb=short --maxfail=50 \
+            -p pytest_cov -p pytest_html -p pytest_timeout \
             --cov=. \
             --cov-report=xml:reports/tests/coverage.xml \
             --cov-report=json:reports/tests/coverage.json \
             --cov-report=term-missing \
             --html=reports/tests/test-report.html --self-contained-html \
-            --timeout=300 \
-            $test_targets
+            --timeout=300
           code=$?
           set -e
           echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"
@@ -310,7 +243,7 @@ jobs:
           sys.exit(0 if ok else 1)
           PY
 
-      # --- SonarCloud integration (runs in repo root of 'target') ---
+      # --- SonarCloud integration ---
       - name: Write sonar-project.properties
         if: always()
         working-directory: target
@@ -319,10 +252,10 @@ jobs:
           sonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
           sonar.organization=${{ secrets.SONAR_ORG }}
           sonar.sources=.
-          sonar.tests=tests
-          sonar.test.inclusions=tests/**/*.py
+          sonar.tests=tests,tests/generated
+          sonar.test.inclusions=tests/**/*.py,tests/generated/**/*.py
           sonar.exclusions=**/venv/**,**/.venv/**,**/site-packages/**,**/migrations/**,**/.pytest_cache/**,**/__pycache__/**
-          sonar.coverage.exclusions=tests/**
+          sonar.coverage.exclusions=tests/**,tests/generated/**
           sonar.python.version=3.10
           sonar.python.coverage.reportPaths=reports/tests/coverage.xml
           EOF

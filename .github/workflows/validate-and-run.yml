@@ -1,11 +1,13 @@
-#
 name: Validate Generated Tests (CI Gate)
 
 on:
-  workflow_run:
-    workflows: ["AI Test Generation"]
-    types: [completed]
-    branches: [ "test2" ]
+  # workflow_run:
+  #   workflows: ["AI Test Generation"]
+  #   types: [completed]
+  #   branches: ["test2"]
+  push:
+    branches:
+      - test2
 
   workflow_dispatch:
     inputs:
@@ -36,6 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pull the handoff (Repo URL) from upstream generation run when triggered by workflow_run
       - name: Download handoff artifact (from upstream run)
         if: github.event_name == 'workflow_run'
         uses: actions/download-artifact@v4
@@ -57,19 +60,15 @@ jobs:
           if [ -f "$HANDOFF" ]; then
             REPO_URL=$(python -c 'import json,sys;print(json.load(open(sys.argv[1])).get("repo_url",""))' "$HANDOFF")
           fi
-
-          # fallbacks: dispatch input -> current repo -> origin remote (as last resort)
           if [ -z "${REPO_URL:-}" ]; then REPO_URL="$INPUT_URL"; fi
           if [ -z "$REPO_URL" ]; then REPO_URL="$CURR_REPO"; fi
           if [ -z "$REPO_URL" ] && git remote get-url origin >/dev/null 2>&1; then
             REPO_URL="$(git remote get-url origin)"
           fi
-
           if [ -z "$REPO_URL" ]; then
             echo "No repo_url available from handoff, inputs, or context."
             exit 1
           fi
-
           echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
           echo "Resolved repo_url: $REPO_URL"
 
@@ -120,11 +119,9 @@ jobs:
             local req_file="$1"
             [ -f "$req_file" ] || return 0
             echo "Sanitizing $req_file"
-
             sed -E 's/^psycopg2([^a-zA-Z0-9]|$)/psycopg2-binary\1/i' "$req_file" \
-            | grep -viE '^[[:space:]]*(django|djangorestframework)\b' \
-            > /tmp/req.candidate.txt
-
+              | grep -viE '^[[:space:]]*(django|djangorestframework)\b' \
+              > /tmp/req.candidate.txt
             awk '
               /^[[:space:]]*$/ {next}
               /^[[:space:]]*#/ {next}
@@ -146,9 +143,9 @@ jobs:
               sys.exit(subprocess.call(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
               PY
               "$pkg"; then
-                echo "$pkg" >> /tmp/req.final.txt
-              else
-                echo "⏭️  Skip non-resolvable: $pkg"
+                              echo "$pkg" >> /tmp/req.final.txt
+                            else
+                              echo "⏭️  Skip non-resolvable: $pkg"
               fi
             done < /tmp/req.clean.txt
 
@@ -174,6 +171,7 @@ jobs:
             [ -s /tmp/pdm.lock.req ] && sanitize_and_install /tmp/pdm.lock.req
           fi
 
+          # If Django project, force a compatible pair
           if find . -name "settings.py" -type f | grep -q .; then
             pip install -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
           fi
@@ -185,8 +183,7 @@ jobs:
             cat > conftest.py <<'EOF'
           import os, sys, pathlib, pytest
           ROOT = pathlib.Path(__file__).resolve().parent
-          if str(ROOT) not in sys.path:
-              sys.path.insert(0, str(ROOT))
+          if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
           def setup_django():
               try:
                   import django
@@ -239,7 +236,7 @@ jobs:
         id: run
         working-directory: target
         env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: ""
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD: ""
         run: |
           mkdir -p reports/tests
           test_targets=$(cat /tmp/test_targets.txt || echo '.')
@@ -248,6 +245,7 @@ jobs:
           set +e
           pytest $PLUGINS -v --tb=short --maxfail=50 \
             --cov=. \
+            --cov-report=xml:reports/tests/coverage.xml \
             --cov-report=json:reports/tests/coverage.json \
             --cov-report=term-missing \
             --html=reports/tests/test-report.html --self-contained-html \
@@ -281,6 +279,43 @@ jobs:
           sys.exit(0 if ok else 1)
           PY
 
+      # --- SonarCloud integration (runs in repo root of 'target') ---
+      - name: Write sonar-project.properties
+        if: always()
+        working-directory: target
+        run: |
+          cat > sonar-project.properties <<EOF
+          sonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+          sonar.organization=${{ secrets.SONAR_ORG }}
+          sonar.sources=.
+          sonar.tests=tests
+          sonar.test.inclusions=tests/**/*.py
+          sonar.exclusions=**/venv/**,**/.venv/**,**/site-packages/**,**/migrations/**,**/.pytest_cache/**,**/__pycache__/**
+          sonar.coverage.exclusions=tests/**
+          sonar.python.version=3.10
+          sonar.python.coverage.reportPaths=reports/tests/coverage.xml
+          EOF
+          echo "Created sonar-project.properties:"
+          cat sonar-project.properties
+
+      - name: Set up Java for SonarCloud
+        if: always()
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: SonarCloud Scan (wait for Quality Gate)
+        if: always()
+        uses: SonarSource/sonarcloud-github-action@v2
+        with:
+          projectBaseDir: target
+          args: >
+            -Dsonar.qualitygate.wait=true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -297,4 +332,3 @@ jobs:
             echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold. **Ready to deploy to Kubernetes.**" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ Tests failed or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**). **Do NOT deploy.**" >> $GITHUB_STEP_SUMMARY
-          fi

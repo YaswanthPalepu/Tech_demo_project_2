@@ -20,7 +20,15 @@ SYSTEM_MIN = (
 
 UNIT  = "Write 3–6 focused UNIT tests that target public functions/classes in the focus list."
 INTEG = "Write 2–5 INTEGRATION tests that cross modules; mock external boundaries."
-E2E   = "Write 2–4 black-box E2E tests via the public API only; deterministic."
+E2E   = (
+    "Write 2–4 black-box E2E tests that hit real HTTP endpoints only.\n"
+    "If +Django/DRF detected: use rest_framework.test.APIClient; never import views or serializers directly.\n"
+    "If +FastAPI detected: use fastapi.testclient.TestClient against the app object.\n"
+    "Create only the minimal data via the ORM or public services; authenticate via login/token endpoints when needed.\n"
+    "Assert status codes, JSON schemas/keys, and critical business invariants; include at least one negative/permission case.\n"
+    "No network calls; keep deterministic (seed randomness, freeze time via monkeypatch)."
+)
+
 
 def targets_count(compact: Dict[str,Any], kind: str) -> int:
     if kind == "unit":
@@ -28,41 +36,58 @@ def targets_count(compact: Dict[str,Any], kind: str) -> int:
     n = len(compact.get("routes",[]) or [])
     return n or len(compact.get("functions",[])) + len(compact.get("classes",[]))
 
+
 def files_per_kind(compact: Dict[str,Any], kind: str) -> int:
     n = targets_count(compact, kind)
-    if n <= 0: return 0
+    if n <= 0:
+        return 0
     base = 3 if n <= 8 else 4 if n <= 20 else 6 if n <= 40 else 8 if n <= 100 else 12
     cap = int(os.getenv("TESTGEN_FILES_PER_KIND_MAX","6"))
     return min(base, max(1, min(n, cap)))
 
+
 def _partition(lst: List[Dict[str,Any]], total: int, idx: int) -> List[str]:
-    if not lst: return []
+    if not lst:
+        return []
     size = max(1, (len(lst)+total-1)//total)
-    return [d.get("name") or d.get("handler")
-            for d in lst[idx*size:(idx+1)*size] if d.get("name") or d.get("handler")]
+    return [
+        d.get("name") or d.get("handler")
+        for d in lst[idx*size:(idx+1)*size]
+        if d.get("name") or d.get("handler")
+    ]
+
 
 def focus_for(compact: Dict[str,Any], kind: str, shard_idx: int, total: int) -> Tuple[str,List[str]]:
     if kind=="unit":
         L = (compact.get("functions") or []) + (compact.get("classes") or [])
-        names = _partition(L,total,shard_idx)
+        names = _partition(L, total, shard_idx)
         return (", ".join(names) if names else "(none)"), names
     routes = compact.get("routes") or []
     if routes:
-        names = _partition(routes,total,shard_idx)
+        names = _partition(routes, total, shard_idx)
         return (", ".join(set(names)) or "(none)"), names
     L = (compact.get("functions") or []) + (compact.get("classes") or [])
-    names = _partition(L,total,shard_idx)
+    names = _partition(L, total, shard_idx)
     return (", ".join(names) or "(none)"), names
+
 
 def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int, compact: Dict[str,Any]):
     fn = [f.get("name") for f in (compact.get("functions") or []) if f.get("name")]
     cn = [c.get("name") for c in (compact.get("classes")  or []) if c.get("name")]
     rn = [r.get("handler") for r in (compact.get("routes")  or []) if r.get("handler")]
-    picks = sorted(random.sample(fn+cn+rn, k=min(len(fn+cn+rn), 16))) if (fn or cn or rn) else []
-    brief = json.dumps({"focus": focus_label or "(none)", "suggested_targets": picks}, ensure_ascii=False)
+    pool = fn + cn + rn
+    picks = sorted(random.sample(pool, k=min(len(pool), 16))) if pool else []
+    brief = json.dumps(
+        {"focus": focus_label or "(none)", "suggested_targets": picks},
+        ensure_ascii=False
+    )
     dev = UNIT if kind=="unit" else INTEG if kind=="integ" else E2E
     user = f"[{kind.upper()} shard {shard}/{total}] {dev}\nContext: {brief}\nAnalysis: {compact_json[:12000]}"
-    return [{"role":"system","content":SYSTEM_MIN},{"role":"user","content":user}]
+    return [
+        {"role":"system","content": SYSTEM_MIN},
+        {"role":"user","content":   user}
+    ]
+
 
 def runtime_guard(compact: Dict[str,Any]) -> str:
     crit = {"fastapi","flask","django","sqlalchemy","starlette","pydantic"}
@@ -71,17 +96,20 @@ def runtime_guard(compact: Dict[str,Any]) -> str:
     checks = ""
     if need:
         checks = "\n".join([
-            f"import importlib.util, pytest\nif importlib.util.find_spec('{m}') is None:\n"
+            f"import importlib.util, pytest\n"
+            f"if importlib.util.find_spec('{m}') is None:\n"
             f"    pytest.skip('{m} not installed; skipping module', allow_module_level=True)"
             for m in need
         ]) + "\n"
+
     # Minimal import path bootstrap for the checked-out target
-    return checks + "\n" + \
-        "import os, sys, types as _types, pytest as _pytest, warnings\n" \
-        "warnings.filterwarnings('ignore', category=DeprecationWarning)\n" \
-        "warnings.filterwarnings('ignore', category=PendingDeprecationWarning)\n" \
-        "_t = os.environ.get('TARGET_ROOT') or 'target'\n" \
-        "if _t and os.path.isdir(_t):\n" \
-        "    _p = os.path.abspath(os.path.join(_t, os.pardir))\n" \
-        "    [sys.path.insert(0, p) for p in (_p,_t) if p not in sys.path]\n" \
+    return checks + "\n" + (
+        "import os, sys, types as _types, pytest as _pytest, warnings\n"
+        "warnings.filterwarnings('ignore', category=DeprecationWarning)\n"
+        "warnings.filterwarnings('ignore', category=PendingDeprecationWarning)\n"
+        "_t = os.environ.get('TARGET_ROOT') or 'target'\n"
+        "if _t and os.path.isdir(_t):\n"
+        "    _p = os.path.abspath(os.path.join(_t, os.pardir))\n"
+        "    [sys.path.insert(0, p) for p in (_p,_t) if p not in sys.path]\n"
         "    _pkg=_types.ModuleType('target'); _pkg.__path__=[_t]; sys.modules.setdefault('target', _pkg)\n\n"
+    )

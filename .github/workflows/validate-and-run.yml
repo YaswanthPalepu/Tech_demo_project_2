@@ -105,6 +105,8 @@ jobs:
           python_files = test_*.py *_test.py *test*.py
           python_classes = Test* *Tests
           python_functions = test_* *_test test*
+          markers =
+              django_db: mark tests that access the Django DB
           addopts =
           INI
                     cat pytest.ini
@@ -114,17 +116,17 @@ jobs:
         shell: bash
         run: |
           cat > .coveragerc <<'EOF'
-          [run]
-          omit =
-              */.venv/*
-              */venv/*
-              */env/*
-              */site-packages/*
-              */.tox/*
-              */.pytest_cache/*
-              */__pycache__/*
-          EOF
-                    cat .coveragerc
+            [run]
+            omit =
+                */.venv/*
+                */venv/*
+                */env/*
+                */site-packages/*
+                */.tox/*
+                */.pytest_cache/*
+                */__pycache__/*
+            EOF
+                      cat .coveragerc
 
       - name: Auto Django conftest (if Django project)
         working-directory: target
@@ -132,29 +134,21 @@ jobs:
         run: |
           if find . -name "settings.py" -type f | grep -q .; then
             cat > conftest.py <<'PY'
-          import os, sys, pathlib
-          ROOT = pathlib.Path(__file__).resolve().parent
-          if str(ROOT) not in sys.path:
-              sys.path.insert(0, str(ROOT))
+            import os, sys, pathlib
+            ROOT = pathlib.Path(__file__).resolve().parent
+            if str(ROOT) not in sys.path:
+                sys.path.insert(0, str(ROOT))
 
-          def setup_django():
-              try:
-                  import django
-                  from django.conf import settings
-                  if not settings.configured:
-                      for s in ROOT.rglob('settings.py'):
-                          if 'migration' not in str(s):
-                              rel = s.relative_to(ROOT).with_suffix('')
-                              os.environ['DJANGO_SETTINGS_MODULE'] = '.'.join(rel.parts)
-                              break
-                      django.setup()
-              except Exception as e:
-                  print(f"⚠️ Django setup warning: {e}")
-
-          setup_django()
-          PY
-                      echo "Wrote Django conftest.py"
-                    fi
+            # Only set DJANGO_SETTINGS_MODULE. Do NOT call django.setup() here.
+            # Some repos or generated tests call django.setup() themselves.
+            for s in ROOT.rglob('settings.py'):
+                if 'migration' not in str(s):
+                    rel = s.relative_to(ROOT).with_suffix('')
+                    os.environ.setdefault('DJANGO_SETTINGS_MODULE', '.'.join(rel.parts))
+                    break
+            PY
+                        echo "Wrote Django conftest.py"
+                      fi
 
       - name: Find test roots
         id: discover
@@ -193,7 +187,7 @@ jobs:
           mkdir -p reports/tests
           PLUGINS="-p pytest_cov -p pytest_timeout"
           if find . -name "settings.py" -type f | grep -q .; then
-            PLUGINS="$PLUGINS -p pytest_django"
+            PLUGINS="$PLUGINS -p pytest_django.plugin"
           fi
           mapfile -t TEST_DIRS < /tmp/test_dirs.txt
           echo "Running pytest in:"; printf ' - %s\n' "${TEST_DIRS[@]}"

@@ -36,13 +36,13 @@ jobs:
         id: target
         shell: bash
         run: |
-          set -e
-          REPO_URL="${{ github.event.inputs.repo_url }}"
-          if [ -z "$REPO_URL" ]; then
-            REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
-          fi
-          echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
-          echo "Resolved repo_url: $REPO_URL"
+                set -e
+                REPO_URL="${{ github.event.inputs.repo_url }}"
+                if [ -z "$REPO_URL" ]; then
+                  REPO_URL="https://github.com/DeviPrasad372002/django-test-app.git"
+                fi
+                echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
+                echo "Resolved repo_url: $REPO_URL""
 
       - name: Set compatibility constraints
         shell: bash

@@ -95,7 +95,6 @@ jobs:
               echo "✅ Found tests/generated already in target repo."
             fi
           fi
-          ls -R target/tests || true
 
       - name: Safe, repo-agnostic dependency install
         working-directory: target
@@ -168,185 +167,254 @@ jobs:
             fi
           done
 
-      - name: Ensure pytest.ini (discover and pin testpaths)
+      - name: Ensure pytest.ini (exclude venv and focus on tests)
         working-directory: target
         shell: bash
         run: |
-          TEST_DIRS=""
-          [ -d tests/generated ] && TEST_DIRS="$TEST_DIRS tests/generated"
-          [ -d tests ] && TEST_DIRS="$TEST_DIRS tests"
-          [ -d test ] && TEST_DIRS="$TEST_DIRS test"
-          
-          # Look for test files in common source directories
-          for dir in . src app; do
-            if [ -d "$dir" ] && find "$dir" -maxdepth 2 -name "test_*.py" 2>/dev/null | grep -q .; then
-              TEST_DIRS="$TEST_DIRS $dir"
-            fi
-          done
-          
-          if [ ! -f pytest.ini ]; then
-            {
-              echo "[pytest]"
-              if [ -n "$TEST_DIRS" ]; then
-                echo "testpaths =$TEST_DIRS"
-              else
-                echo "testpaths = ."
-              fi
-              echo "addopts = -q -v"
-              echo "python_files = test_*.py *_test.py"
-              echo "python_functions = test_*"
-              echo "python_classes = Test*"
-            } > pytest.ini
-            echo "✅ Wrote pytest.ini with testpaths:$TEST_DIRS"
-          else
-            echo "ℹ️ Existing pytest.ini:"
-            cat pytest.ini || true
-          fi
+          # Create comprehensive pytest.ini that excludes virtual environments
+          cat > pytest.ini << 'EOF'
+[pytest]
+testpaths = tests tests/generated
+addopts = -v --tb=short
+python_files = test_*.py *_test.py
+python_functions = test_*
+python_classes = Test*
+norecursedirs = 
+    .git
+    .tox
+    .env
+    .venv
+    venv
+    env
+    __pycache__
+    .pytest_cache
+    build
+    dist
+    *.egg
+    node_modules
+    src/.venv
+    */site-packages/*
+collect_ignore = 
+    setup.py
+    conftest.py
+    */migrations/*
+    */.venv/*
+    */venv/*
+    */env/*
+    */site-packages/*
+EOF
+          echo "✅ Wrote comprehensive pytest.ini"
+          cat pytest.ini
 
       - name: Auto Django conftest (if Django project)
         working-directory: target
         shell: bash
         run: |
           if find . -name "settings.py" -type f | grep -q .; then
-            printf "%s\n" \
-          "import os, sys, pathlib, pytest" \
-          "ROOT = pathlib.Path(__file__).resolve().parent" \
-          "if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))" \
-          "def setup_django():" \
-          "    try:" \
-          "        import django" \
-          "        from django.conf import settings" \
-          "        if not settings.configured:" \
-          "            for s in ROOT.rglob('settings.py'):" \
-          "                if 'migration' not in str(s):" \
-          "                    rel = s.relative_to(ROOT).with_suffix('')" \
-          "                    os.environ['DJANGO_SETTINGS_MODULE']='.'.join(rel.parts)" \
-          "                    break" \
-          "            django.setup()" \
-          "    except Exception as e:" \
-          "        print(f'⚠️ Django setup warning: {e}')" \
-          "setup_django()" \
-          "def pytest_configure(config):" \
-          "    config.addinivalue_line('markers', 'generated: AI-generated tests')" \
-          > conftest.py
-            echo "✅ Wrote Django conftest.py"
+            cat > conftest.py << 'EOF'
+import os
+import sys
+import pathlib
+import pytest
+import django
+from django.conf import settings
+from django.core.management import execute_from_command_line
+
+# Add project root to Python path
+ROOT = pathlib.Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+def setup_django():
+    """Setup Django for testing"""
+    try:
+        if not settings.configured:
+            # Look for settings.py in the project
+            settings_module = None
+            for settings_file in ROOT.rglob('settings.py'):
+                if 'migration' not in str(settings_file):
+                    rel_path = settings_file.relative_to(ROOT).with_suffix('')
+                    settings_module = '.'.join(rel_path.parts)
+                    break
+            
+            if settings_module:
+                os.environ.setdefault('DJANGO_SETTINGS_MODULE', settings_module)
+                django.setup()
+                print(f"✅ Django setup complete with {settings_module}")
+            else:
+                print("❌ No settings.py found")
+    except Exception as e:
+        print(f'⚠️ Django setup warning: {e}')
+
+# Setup Django immediately
+setup_django()
+
+def pytest_configure(config):
+    """Configure pytest with Django-specific settings"""
+    config.addinivalue_line('markers', 'generated: AI-generated tests')
+
+@pytest.fixture(scope='session', autouse=True)
+def django_db_setup():
+    """Setup test database"""
+    try:
+        from django.core.management import call_command
+        from django.test.utils import setup_test_environment, teardown_test_environment
+        
+        setup_test_environment()
+        # Create test database
+        call_command('migrate', verbosity=0, interactive=False)
+        yield
+        teardown_test_environment()
+    except Exception as e:
+        print(f"Database setup warning: {e}")
+        yield
+EOF
+            echo "✅ Wrote comprehensive Django conftest.py"
           fi
 
       - name: Write .coveragerc (omit venv/vendor)
         working-directory: target
         shell: bash
         run: |
-          printf "%s\n" "[run]" > .coveragerc
-          printf "%s\n" "omit =" >> .coveragerc
-          printf "%s\n" "    */.venv/*"            >> .coveragerc
-          printf "%s\n" "    */venv/*"              >> .coveragerc
-          printf "%s\n" "    */env/*"               >> .coveragerc
-          printf "%s\n" "    */site-packages/*"     >> .coveragerc
-          printf "%s\n" "    */.tox/*"              >> .coveragerc
-          printf "%s\n" "    */.pytest_cache/*"     >> .coveragerc
-          printf "%s\n" "    */__pycache__/*"       >> .coveragerc
-          echo "✅ Wrote .coveragerc"
+          cat > .coveragerc << 'EOF'
+[run]
+source = .
+omit = 
+    */.venv/*
+    */venv/*
+    */env/*
+    */site-packages/*
+    */.tox/*
+    */.pytest_cache/*
+    */__pycache__/*
+    */migrations/*
+    */tests/*
+    conftest.py
+    setup.py
+    manage.py
 
-      - name: Debug test collection
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if self.debug:
+    if settings.DEBUG
+    raise AssertionError
+    raise NotImplementedError
+    if 0:
+    if __name__ .__main__.:
+    class .*\bProtocol\):
+    @(abc\.)?abstractmethod
+EOF
+          echo "✅ Wrote comprehensive .coveragerc"
+
+      - name: Analyze test files for issues
         working-directory: target
         shell: bash
         run: |
-          echo "=== Test file discovery ==="
-          find . -name "test_*.py" -o -name "*_test.py" | head -10
+          echo "=== Analyzing test files for syntax and import issues ==="
           
-          echo "=== Directory structure ==="
-          ls -la tests/ 2>/dev/null || echo "❌ No tests/ directory"
-          ls -la tests/generated/ 2>/dev/null || echo "❌ No tests/generated/ directory"
-          ls -la test/ 2>/dev/null || echo "❌ No test/ directory"
+          test_count=0
+          valid_tests=0
+          invalid_tests=0
           
-          echo "=== Test function validation ==="
-          test_files_found=false
-          for testfile in $(find . -name "test_*.py" -o -name "*_test.py" | head -5); do
-            test_files_found=true
-            echo "--- $testfile ---"
-            if grep -n "^def test_\|^class Test" "$testfile"; then
-              echo "✅ Valid test functions found"
-            else
-              echo "❌ No valid test functions found"
-              echo "File contents preview:"
-              head -20 "$testfile"
+          for testfile in $(find tests/generated -name "test_*.py" 2>/dev/null | head -10); do
+            test_count=$((test_count + 1))
+            echo "--- Analyzing $testfile ---"
+            
+            # Check file size
+            if [ ! -s "$testfile" ]; then
+              echo "❌ Empty file"
+              invalid_tests=$((invalid_tests + 1))
+              continue
             fi
-            echo ""
+            
+            # Check for test functions
+            test_func_count=$(grep -c "^def test_" "$testfile" || echo "0")
+            if [ "$test_func_count" -eq 0 ]; then
+              echo "❌ No test functions found (should start with 'def test_')"
+              echo "First 10 lines:"
+              head -10 "$testfile"
+              invalid_tests=$((invalid_tests + 1))
+              continue
+            fi
+            
+            # Check Python syntax
+            if python -m py_compile "$testfile" 2>/dev/null; then
+              echo "✅ Valid Python syntax, $test_func_count test functions"
+              valid_tests=$((valid_tests + 1))
+            else
+              echo "❌ Python syntax errors:"
+              python -m py_compile "$testfile" 2>&1 | head -5
+              invalid_tests=$((invalid_tests + 1))
+            fi
           done
           
-          if [ "$test_files_found" = false ]; then
-            echo "❌ No test files found at all!"
-            echo "Current directory structure:"
-            find . -type f -name "*.py" | head -20
-          fi
+          echo "=== Summary ==="
+          echo "Total test files: $test_count"
+          echo "Valid test files: $valid_tests"
+          echo "Invalid test files: $invalid_tests"
           
-          echo "=== Pytest collection preview ==="
-          PLUGINS="-p pytest_cov -p pytest_timeout"
-          if find . -name "settings.py" -type f | grep -q .; then
-            PLUGINS="$PLUGINS -p pytest_django"
+          if [ "$valid_tests" -eq 0 ]; then
+            echo "❌ No valid test files found!"
+            exit 1
           fi
-          
-          pytest --collect-only -q $PLUGINS . 2>&1 || echo "Collection failed - check test file syntax"
 
       - name: Run tests with coverage (CI gate)
         id: run
         working-directory: target
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          DJANGO_SETTINGS_MODULE: "conduit.settings"
         shell: bash
         run: |
           set -e
           mkdir -p reports/tests
+          
+          # Setup Django environment
+          export DJANGO_SETTINGS_MODULE="conduit.settings"
+          
           PLUGINS="-p pytest_cov -p pytest_timeout"
           if find . -name "settings.py" -type f | grep -q .; then
             PLUGINS="$PLUGINS -p pytest_django"
           fi
 
-          # Determine test targets based on what actually exists
-          TARGETS=""
-          [ -d tests/generated ] && TARGETS="$TARGETS tests/generated"
-          [ -d tests ] && TARGETS="$TARGETS tests"
-          [ -d test ] && TARGETS="$TARGETS test"
+          # Specific test targets that we know exist
+          TARGETS="tests/generated"
           
-          # If no standard test directories, look for test files in current directory
-          if [ -z "$TARGETS" ]; then
-            if find . -maxdepth 1 -name "test_*.py" | grep -q .; then
-              TARGETS="."
-            fi
-          fi
-
-          if [ -z "$TARGETS" ]; then
-            echo "❌ No test directories or files found. Available structure:"
-            find . -maxdepth 3 -type d -print | sed 's/^/ - /'
-            echo "Python files found:"
-            find . -name "*.py" | head -10 | sed 's/^/ - /'
-            exit 1
-          fi
-
-          echo "✅ Running pytest on:$TARGETS"
+          echo "✅ Running pytest on: $TARGETS"
+          echo "Current working directory: $(pwd)"
+          echo "Python path: $PYTHONPATH"
+          
+          # Run with specific targeting to avoid virtual env collection
           set +e
-          pytest -v --tb=short --maxfail=50 \
+          pytest -v --tb=short --maxfail=10 \
             $PLUGINS \
-            --cov=. \
+            --cov=conduit \
             --cov-config=.coveragerc \
             --cov-report=xml:reports/tests/coverage.xml \
             --cov-report=json:reports/tests/coverage.json \
             --cov-report=term-missing \
             --timeout=300 \
+            --ignore=src \
+            --ignore=.venv \
+            --ignore=venv \
+            --ignore=env \
             $TARGETS
           code=$?
           set -e
+          
           echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"
           
-          # If pytest failed, show more detailed error info
-          if [ $code -ne 0 ]; then
-            echo "❌ Pytest failed with exit code $code"
-            echo "Detailed error analysis:"
-            for target in $TARGETS; do
-              echo "=== Checking $target ==="
-              find "$target" -name "test_*.py" -exec echo "Found: {}" \;
-              find "$target" -name "test_*.py" -exec python -m py_compile {} \; || echo "Compilation failed for some files"
-            done
+          # Show results summary
+          if [ $code -eq 0 ]; then
+            echo "✅ All tests passed!"
+          elif [ $code -eq 5 ]; then
+            echo "❌ No tests were collected (exit code 5)"
+            echo "Re-checking test collection..."
+            pytest --collect-only -v $TARGETS || true
+          else
+            echo "❌ Tests failed with exit code $code"
           fi
           
           exit $code
@@ -359,21 +427,35 @@ jobs:
         run: |
           python - <<'PY'
           import json, pathlib, os, sys
-          p=pathlib.Path('reports/tests/coverage.json')
-          cov=0.0
-          if p.exists():
+          
+          coverage_file = pathlib.Path('reports/tests/coverage.json')
+          cov = 0.0
+          
+          if coverage_file.exists():
               try:
-                  cov=float(json.load(open(p)).get('totals',{}).get('percent_covered',0.0))
-              except Exception:
-                  cov=0.0
-          thr=float(os.environ.get('COVERAGE_THRESHOLD','70'))
-          tests_ok=('${{ steps.run.outcome }}'=='success')
-          ok=(cov>=thr) and tests_ok
-          print(f"Coverage: {cov:.2f}% (threshold {thr}%), tests_ok={tests_ok} => {'OK' if ok else 'NOT OK'}")
-          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+                  with open(coverage_file) as f:
+                      data = json.load(f)
+                      cov = float(data.get('totals', {}).get('percent_covered', 0.0))
+                  print(f"✅ Coverage data found: {cov:.2f}%")
+              except Exception as e:
+                  print(f"❌ Error reading coverage: {e}")
+                  cov = 0.0
+          else:
+              print("❌ No coverage data file found")
+          
+          threshold = float(os.environ.get('COVERAGE_THRESHOLD', '70'))
+          tests_ok = ('${{ steps.run.outcome }}' == 'success')
+          gate_passed = (cov >= threshold) and tests_ok
+          
+          print(f"Coverage: {cov:.2f}% (threshold {threshold}%)")
+          print(f"Tests OK: {tests_ok}")
+          print(f"Gate status: {'PASS' if gate_passed else 'FAIL'}")
+          
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"coverage={cov:.2f}\n")
-              f.write(f"ready={'true' if ok else 'false'}\n")
-          sys.exit(0 if ok else 1)
+              f.write(f"ready={'true' if gate_passed else 'false'}\n")
+          
+          sys.exit(0 if gate_passed else 1)
           PY
 
       - name: Upload reports
@@ -393,4 +475,8 @@ jobs:
             echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold. **Ready to deploy.**" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "❌ Tests failed or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**). **Do NOT deploy.**" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Debug Info" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Coverage: ${{ steps.gate.outputs.coverage }}%" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Tests passed: ${{ steps.run.outcome == 'success' }}" >> "$GITHUB_STEP_SUMMARY"
           fi

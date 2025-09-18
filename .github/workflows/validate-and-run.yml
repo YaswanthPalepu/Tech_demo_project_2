@@ -153,6 +153,22 @@ jobs:
             pip install -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
           fi
 
+      - name: Ensure pytest.ini (pin testpaths)
+        working-directory: target
+        shell: bash
+        run: |
+          if [ ! -f pytest.ini ]; then
+            {
+              echo "[pytest]"
+              echo "testpaths = tests tests/generated"
+              echo "addopts = -q"
+            } > pytest.ini
+            echo "✅ Wrote pytest.ini with testpaths=tests tests/generated"
+          else
+            echo "ℹ️ Existing pytest.ini:"
+            cat pytest.ini || true
+          fi
+
       - name: Auto Django conftest (if Django project)
         working-directory: target
         shell: bash
@@ -182,54 +198,21 @@ jobs:
             echo "✅ Wrote Django conftest.py"
           fi
 
-      - name: Write .coveragerc (omit venvs/tests)
+      - name: Write .coveragerc (omit venv/vendor)
         working-directory: target
         shell: bash
         run: |
-          if [ ! -f .coveragerc ]; then
-            printf "%s\n" "[run]" > .coveragerc
-            printf "%s\n" "omit =" >> .coveragerc
-            printf "%s\n" "    */.venv/*"            >> .coveragerc
-            printf "%s\n" "    */venv/*"              >> .coveragerc
-            printf "%s\n" "    */env/*"               >> .coveragerc
-            printf "%s\n" "    */site-packages/*"     >> .coveragerc
-            printf "%s\n" "    */.tox/*"              >> .coveragerc
-            printf "%s\n" "    */.pytest_cache/*"     >> .coveragerc
-            printf "%s\n" "    */__pycache__/*"       >> .coveragerc
-            printf "%s\n" "    tests/*"               >> .coveragerc
-            printf "%s\n" "    */tests/*"             >> .coveragerc
-            echo "✅ Wrote .coveragerc"
-          else
-            echo "ℹ️ Using existing .coveragerc"
-          fi
+          printf "%s\n" "[run]" > .coveragerc
+          printf "%s\n" "omit =" >> .coveragerc
+          printf "%s\n" "    */.venv/*"            >> .coveragerc
+          printf "%s\n" "    */venv/*"              >> .coveragerc
+          printf "%s\n" "    */env/*"               >> .coveragerc
+          printf "%s\n" "    */site-packages/*"     >> .coveragerc
+          printf "%s\n" "    */.tox/*"              >> .coveragerc
+          printf "%s\n" "    */.pytest_cache/*"     >> .coveragerc
+          printf "%s\n" "    */__pycache__/*"       >> .coveragerc
+          echo "✅ Wrote .coveragerc"
           cat .coveragerc
-
-      - name: Discover test directories dynamically (path-agnostic)
-        id: discover
-        working-directory: target
-        shell: bash
-        run: |
-          set -e
-          # Find any python test files anywhere, EXCLUDING common venv/vendor dirs.
-          mapfile -t DIRS < <( \
-            find . -type f \( -name "test_*.py" -o -name "*_test.py" -o -name "*.test.py" \) \
-              ! -path "*/.git/*" \
-              ! -path "*/.venv/*" \
-              ! -path "*/venv/*" \
-              ! -path "*/env/*" \
-              ! -path "*/site-packages/*" \
-              ! -path "*/.tox/*" \
-              ! -path "*/.pytest_cache/*" \
-              ! -path "*/__pycache__/*" \
-              -printf '%h\n' | sort -u \
-          )
-          if [ ${#DIRS[@]} -eq 0 ]; then
-            echo "❌ No test files found anywhere under the repository."
-            exit 1
-          fi
-          echo "Found test dirs:"
-          printf ' - %s\n' "${DIRS[@]}"
-          printf '%s\n' "${DIRS[@]}" > /tmp/test_dirs.txt
 
       - name: Run tests with coverage (CI gate)
         id: run
@@ -245,10 +228,17 @@ jobs:
             PLUGINS="$PLUGINS -p pytest_django"
           fi
 
-          mapfile -t TEST_DIRS < /tmp/test_dirs.txt
-          echo "✅ Running pytest in:"
-          printf ' - %s\n' "${TEST_DIRS[@]}"
+          TARGETS=""
+          [ -d tests/generated ] && TARGETS="$TARGETS tests/generated"
+          [ -d tests ] && TARGETS="$TARGETS tests"
 
+          if [ -z "$TARGETS" ]; then
+            echo "❌ Neither 'tests/generated' nor 'tests' exists. Listing tree to help debug:"
+            find . -maxdepth 3 -type d -print | sed 's/^/ - /'
+            exit 1
+          fi
+
+          echo "✅ Running pytest on:$TARGETS"
           set +e
           pytest -v --tb=short --maxfail=50 \
             $PLUGINS \
@@ -258,7 +248,7 @@ jobs:
             --cov-report=json:reports/tests/coverage.json \
             --cov-report=term-missing \
             --timeout=300 \
-            "${TEST_DIRS[@]}"
+            $TARGETS
           code=$?
           set -e
           echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"

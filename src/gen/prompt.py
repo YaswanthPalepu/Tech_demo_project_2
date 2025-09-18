@@ -29,13 +29,17 @@ E2E   = (
     "No network calls; keep deterministic (seed randomness, freeze time via monkeypatch)."
 )
 
-
 def targets_count(compact: Dict[str,Any], kind: str) -> int:
     if kind == "unit":
         return len(compact.get("functions",[])) + len(compact.get("classes",[]))
-    n = len(compact.get("routes",[]) or [])
-    return n or len(compact.get("functions",[])) + len(compact.get("classes",[]))
-
+    if kind == "e2e":
+        # strict: only generate E2E when real routes exist
+        return len(compact.get("routes",[]) or [])
+    # integ uses broader surface
+    return max(
+        len(compact.get("functions",[]) or []) + len(compact.get("classes",[]) or []),
+        len(compact.get("routes",[]) or []),
+    )
 
 def files_per_kind(compact: Dict[str,Any], kind: str) -> int:
     n = targets_count(compact, kind)
@@ -44,7 +48,6 @@ def files_per_kind(compact: Dict[str,Any], kind: str) -> int:
     base = 3 if n <= 8 else 4 if n <= 20 else 6 if n <= 40 else 8 if n <= 100 else 12
     cap = int(os.getenv("TESTGEN_FILES_PER_KIND_MAX","6"))
     return min(base, max(1, min(n, cap)))
-
 
 def _partition(lst: List[Dict[str,Any]], total: int, idx: int) -> List[str]:
     if not lst:
@@ -55,7 +58,6 @@ def _partition(lst: List[Dict[str,Any]], total: int, idx: int) -> List[str]:
         for d in lst[idx*size:(idx+1)*size]
         if d.get("name") or d.get("handler")
     ]
-
 
 def focus_for(compact: Dict[str,Any], kind: str, shard_idx: int, total: int) -> Tuple[str,List[str]]:
     if kind=="unit":
@@ -69,7 +71,6 @@ def focus_for(compact: Dict[str,Any], kind: str, shard_idx: int, total: int) -> 
     L = (compact.get("functions") or []) + (compact.get("classes") or [])
     names = _partition(L, total, shard_idx)
     return (", ".join(names) or "(none)"), names
-
 
 def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int, compact: Dict[str,Any]):
     fn = [f.get("name") for f in (compact.get("functions") or []) if f.get("name")]
@@ -88,7 +89,6 @@ def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, tot
         {"role":"user","content":   user}
     ]
 
-
 def runtime_guard(compact: Dict[str,Any]) -> str:
     crit = {"fastapi","flask","django","sqlalchemy","starlette","pydantic"}
     mods = { (m.split(".")[0] or "").lower() for m in (compact.get("modules") or []) }
@@ -101,8 +101,6 @@ def runtime_guard(compact: Dict[str,Any]) -> str:
             f"    pytest.skip('{m} not installed; skipping module', allow_module_level=True)"
             for m in need
         ]) + "\n"
-
-    # Minimal import path bootstrap for the checked-out target
     return checks + "\n" + (
         "import os, sys, types as _types, pytest as _pytest, warnings\n"
         "warnings.filterwarnings('ignore', category=DeprecationWarning)\n"

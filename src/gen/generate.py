@@ -2,7 +2,10 @@ import os, re, ast, json, pathlib, datetime, time
 from typing import Dict, Any, List, Optional, Set
 from . import env
 from .change import detect_changes
-from .analysis_utils import compact_analysis, filter_by_files, infer_required_packages, pip_install
+from .analysis_utils import (
+    compact_analysis, filter_by_files, infer_required_packages, pip_install,
+    prune_unavailable_targets,
+)
 from .conftest_text import conftest_text
 from .prompt import build_prompt, files_per_kind, focus_for, runtime_guard
 from .postprocess import extract_python_only, validate_code, skip_brittle_functions, header_guard_banned, massage
@@ -45,44 +48,52 @@ def _gen_validated(messages, attempts=3, backoff=(3,7,15)):
 
 def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files: Optional[List[str]] = None):
     out = pathlib.Path(outdir)
+    out.mkdir(parents=True, exist_ok=True)
     manifest = out / "_manifest.json"
 
     print("📝 Creating conftest.py...")
     _create_conftest(out)
 
     target_root = pathlib.Path(os.environ.get("TARGET_ROOT", "target"))
-    added_or_modified, deleted, unchanged = detect_changes(target_root, manifest)
+
+    # Correct order from detect_changes: (deleted, added_or_modified, unchanged_bool)
+    deleted, added_or_modified, unchanged = detect_changes(target_root, manifest)
+
     summary = {
         "added_or_modified": len(added_or_modified),
         "deleted": len(deleted),
-        "unchanged": len(unchanged),
-        "files_analyzed": len(added_or_modified)+len(deleted)+len(unchanged),
+        "no_changes": bool(unchanged),
+        "files_analyzed": len(added_or_modified)+len(deleted),
     }
-    print(f"📊 Changes: +/Δ={summary['added_or_modified']}  −={summary['deleted']}  = {summary['unchanged']}")
+    print(f"📊 Changes: +/Δ={summary['added_or_modified']}  −={summary['deleted']}  no_changes={summary['no_changes']}")
 
     force = os.getenv("TESTGEN_FORCE","false").lower() == "true"
-    if not force and not added_or_modified and not deleted and unchanged:
+    if not force and unchanged:
         if list(out.rglob("test_*.py")):
             print("✅ No code changes and tests exist. Skipping generation.")
             return
         else:
             print("📝 No tests found. Will attempt initial generation.")
-    elif not force and not added_or_modified and not deleted:
-        print("✅ No code changes. Skipping generation.")
-        return
-    if force: print("🔧 Force generation enabled.")
+    if force:
+        print("🔧 Force generation enabled.")
 
     cleanup_deleted_and_modified(out, deleted, added_or_modified)
 
     ts = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
     raw_focus: Set[str] = set(focus_files or env.load_list(os.getenv("FOCUS_FILES_JSON_PATH")) or [])
-    if not raw_focus and not force: raw_focus = added_or_modified
+    if not raw_focus and not force:
+        raw_focus = set(added_or_modified)
 
-    # filter analysis by changed files
+    # Filter, compact, then prune targets that require unavailable GUI/heavy libs
     filtered, _ = filter_by_files(analysis, raw_focus if raw_focus else None)
     compact = compact_analysis(filtered)
+    before = sum(len(compact.get(k,[])) for k in ("functions","classes","routes"))
+    compact = prune_unavailable_targets(compact)
+    after = sum(len(compact.get(k,[])) for k in ("functions","classes","routes"))
+    if after < before:
+        print(f"⏭️  Pruned {before - after} targets requiring unavailable GUI/heavy libs")
 
-    # install third-party requirements inferred from imports
+    # Install inferred deps to help imports in generated tests
     pkgs = infer_required_packages(compact)
     if pkgs:
         print("📦 Installing inferred packages…")
@@ -92,7 +103,7 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
     kinds = ["unit","integ","e2e"]
     created: List[str] = []
 
-    total_targets = len(compact.get("functions",[])) + len(compact.get("classes",[])) + len(compact.get("routes",[]))
+    total_targets = sum(len(compact.get(k,[])) for k in ("functions","classes","routes"))
     if total_targets == 0:
         raise RuntimeError("No test targets found in analysis.")
 
@@ -109,7 +120,7 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
             code = _gen_validated(msgs)
             fname = f"test_{kind}_{ts}_{i+1:02d}.py"
             final_code = guard + code
-            ast.parse(final_code, filename=fname)  # safety check
+            ast.parse(final_code, filename=fname)
             path = out / fname
             write_text(path, final_code)
             created.append(str(path))
@@ -117,7 +128,8 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
     if os.getenv("GENERATED_LIST_PATH"):
         try:
             pathlib.Path(os.getenv("GENERATED_LIST_PATH")).write_text(json.dumps(created, indent=2), encoding="utf-8")
-        except Exception: pass
+        except Exception:
+            pass
 
     update_manifest(out, created, summary)
     if created:

@@ -1,4 +1,4 @@
-import os, re, math, pathlib, random, json, subprocess, sys
+import os, re, math, pathlib, random, json, subprocess, sys, importlib.util
 from typing import Dict, Any, List, Tuple, Optional, Set
 from .env import norm_rel
 
@@ -68,6 +68,48 @@ def filter_by_files(analysis: Dict[str, Any], focus_files: Optional[Set[str]]):
         return analysis, True
     return f, False
 
+# --- Skip GUI/heavy deps when not installed ---
+_HEAVY = {
+    "PyQt5": ("import PyQt5", "from PyQt5"),
+    "PySide6": ("import PySide6", "from PySide6"),
+    "PySide2": ("import PySide2", "from PySide2"),
+    "tkinter": ("import tkinter", "from tkinter"),
+    "wx": ("import wx", "from wx"),
+    "cv2": ("import cv2", "from cv2"),
+}
+
+def _missing(mod: str) -> bool:
+    try:
+        return importlib.util.find_spec(mod) is None
+    except Exception:
+        return True
+
+def _file_has_marker(path: str, needles) -> bool:
+    try:
+        txt = pathlib.Path(path).read_text(encoding="utf-8", errors="ignore")
+        return any(n in txt for n in needles)
+    except Exception:
+        return False
+
+def prune_unavailable_targets(compact: Dict[str, Any]) -> Dict[str, Any]:
+    bad_files = set()
+    for mod, needles in _HEAVY.items():
+        if _missing(mod):
+            for coll in ("functions","classes","routes"):
+                for d in compact.get(coll, []) or []:
+                    f = d.get("file")
+                    if f and _file_has_marker(f, needles):
+                        bad_files.add(f)
+    if not bad_files:
+        return compact
+    def keep(d): return d.get("file") not in bad_files
+    return {
+        "functions":[d for d in (compact.get("functions") or []) if keep(d)],
+        "classes":[d for d in (compact.get("classes") or []) if keep(d)],
+        "routes":[d for d in (compact.get("routes") or []) if keep(d)],
+        "modules": compact.get("modules", []),
+    }
+
 def infer_required_packages(compact: Dict[str, Any]) -> List[str]:
     mods = compact.get("modules") or []
     needed = set()
@@ -77,7 +119,6 @@ def infer_required_packages(compact: Dict[str, Any]) -> List[str]:
         if _is_stdlib(top) or _is_local(top): continue
         needed.add(COMMON_PKG_ALIASES.get(top, top))
     out = sorted(needed, key=str.lower)
-    # minimal ecosystem add-ons
     if "fastapi" in {x.lower() for x in out}:
         for extra in ("starlette","pydantic"):
             if extra not in out: out.append(extra)

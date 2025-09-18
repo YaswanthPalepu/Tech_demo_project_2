@@ -2,13 +2,13 @@ name: Validate Generated Tests (CI Gate)
 
 on:
   push:
-    branches: ["test2"]
+    branches: [test2]
   workflow_dispatch:
     inputs:
       repo_url:
-        description: "Repo to validate"
+        description: "Repo to validate (fallback: current repo)"
         required: false
-        default: "https://github.com/DeviPrasad372002/django-test-app.git"
+        default: ""
 
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
@@ -26,7 +26,8 @@ jobs:
     env:
       PYTHONUTF8: "1"
       COVERAGE_THRESHOLD: "70"
-      PASS_THRESHOLD: "80"
+      TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "1"
+      PIP_CONSTRAINT: /tmp/compat-constraints.txt
 
     steps:
       - uses: actions/checkout@v4
@@ -35,10 +36,18 @@ jobs:
         id: target
         shell: bash
         run: |
+          set -e
           REPO_URL="${{ github.event.inputs.repo_url }}"
-          [ -z "$REPO_URL" ] && REPO_URL="https://github.com/DeviPrasad372002/django-test-app.git"
+          if [ -z "$REPO_URL" ]; then
+            REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          fi
           echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
-          echo "Using repo: $REPO_URL"
+          echo "Resolved repo_url: $REPO_URL"
+
+      - name: Set compatibility constraints
+        shell: bash
+        run: |
+          printf "%s\n%s\n" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15" > /tmp/compat-constraints.txt
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -50,24 +59,28 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
-          pip install pytest pytest-cov pytest-timeout junitparser
+          pip install -c "$PIP_CONSTRAINT" \
+            pytest pytest-cov pytest-timeout \
+            pytest-django pytest-flask pytest-xdist \
+            coverage httpx requests
 
       - name: Clone target repo
         env:
           GH_PAT3: ${{ secrets.GH_PAT3 || secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
+          set -e
           REPO_URL='${{ steps.target.outputs.repo_url }}'
-          URL="$REPO_URL"
-          [[ "$URL" == git@* ]] && URL="https://github.com/${URL#git@github.com:}"
-          [[ "$URL" != https://* ]] && URL="https://github.com/$URL"
-          [[ "$URL" != *.git ]] && URL="${URL}.git"
+          echo "Cloning: $REPO_URL"
+          CLEAN_URL="$REPO_URL"
+          [[ "$CLEAN_URL" == git@* ]] && CLEAN_URL="https://github.com/${CLEAN_URL#git@github.com:}"
+          [[ "$CLEAN_URL" != https://* ]] && CLEAN_URL="https://github.com/$CLEAN_URL"
+          [[ "$CLEAN_URL" != *.git ]] && CLEAN_URL="${CLEAN_URL}.git"
           if [ -n "$GH_PAT3" ]; then
-            URL="${URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
+            CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
           fi
-          rm -rf target
-          git clone --depth=1 "$URL" target
-          echo "Cloned into ./target"
+          git clone --depth=1 "$CLEAN_URL" target
+          echo "✅ cloned into ./target"
 
       - name: Copy tests from this repo into target (if present)
         shell: bash
@@ -75,211 +88,205 @@ jobs:
           if [ -d tests/generated ]; then
             mkdir -p target/tests/generated
             rsync -a tests/generated/ target/tests/generated/
-            echo "Copied $(find target/tests/generated -type f -name 'test*.py' | wc -l) tests"
+            echo "✅ Copied $(find target/tests/generated -type f \( -name 'test_*.py' -o -name '*_test.py' -o -name '*.test.py' \) | wc -l) tests into target/"
           else
-            echo "No tests/generated here; will use tests in target"
+            echo "ℹ️ No tests/generated in this repo; relying on tests inside target repo."
           fi
 
-      - name: Install target dependencies (manager-agnostic)
+      - name: Safe, repo-agnostic dependency install
         working-directory: target
         shell: bash
         run: |
           set -e
           python -m pip install --upgrade "pip<25" wheel setuptools
-          found=0
-          for f in requirements-dev.txt requirements_test.txt requirements-tests.txt requirements.txt; do
-            if [ -f "$f" ]; then
-              echo "pip install -r $f"
-              pip install -r "$f" || true
-              found=1
+          pip install -c "$PIP_CONSTRAINT" "typing-extensions>=4.8" "uvicorn>=0.23" "pydantic>=2" "starlette>=0.37" || true
+
+          sanitize_and_install() {
+            local req_file="$1"
+            [ -f "$req_file" ] || return 0
+            echo "Sanitizing $req_file"
+            sed -E 's/^psycopg2([^a-zA-Z0-9]|$)/psycopg2-binary\1/i' "$req_file" \
+              | grep -viE '^[[:space:]]*(django|djangorestframework)\b' \
+              > /tmp/req.candidate.txt
+            awk '
+              /^[[:space:]]*$/ {next}
+              /^[[:space:]]*#/ {next}
+              /^[[:space:]]*-/ {next}
+              /^[[:space:]]*--/ {next}
+              /^\-e[[:space:]]/ {next}
+              /^git\+|^hg\+|^svn\+|^bzr\+/ {next}
+              /^file:/ {next}
+              {print}
+            ' /tmp/req.candidate.txt > /tmp/req.clean.txt
+            : > /tmp/req.final.txt
+            while IFS= read -r pkg; do
+              [ -z "$pkg" ] && continue
+              if python -m pip index versions "$pkg" >/dev/null 2>&1; then
+                echo "$pkg" >> /tmp/req.final.txt
+              else
+                echo "⏭️  Skip non-resolvable: $pkg"
+              fi
+            done < /tmp/req.clean.txt
+            if [ -s /tmp/req.final.txt ]; then
+              pip install -c "$PIP_CONSTRAINT" -r /tmp/req.final.txt || true
             fi
-          done
-          pip install ".[test]" ".[tests]" ".[dev]" 2>/dev/null || true
-          if [ -f pyproject.toml ]; then
-            echo "pip install . (pyproject)"
-            pip install . || true
-            found=1
-          fi
-          if [ -f setup.cfg ] || [ -f setup.py ]; then
-            echo "pip install -e . (setuptools)"
-            pip install -e . || true
-            found=1
-          fi
-          if grep -qi 'django' requirements*.txt 2>/dev/null || grep -qi 'django' pyproject.toml 2>/dev/null; then
-            pip install pytest-django || true
-          fi
-          # Common native deps that often unblock builds
-          pip install psycopg2-binary mysqlclient pillow lxml 2>/dev/null || true
+          }
 
-      - name: Write pytest.ini (broad discovery + safe markers)
-        working-directory: target
-        shell: bash
-        run: |
-          if [ ! -f pytest.ini ] && [ ! -f tox.ini ] && ! grep -q "\[tool.pytest.ini_options\]" pyproject.toml 2>/dev/null; then
-            cat > pytest.ini <<'INI'
-          [pytest]
-          python_files = test_*.py *_test.py *test*.py
-          python_classes = Test* *Tests
-          python_functions = test_* *_test test*
-          markers =
-              django_db: Django DB access
-          addopts =
-          INI
+          sanitize_and_install "requirements.txt"
+          if compgen -G "requirements/*.txt" >/dev/null; then
+            for f in requirements/*.txt; do sanitize_and_install "$f"; done
           fi
-          cat pytest.ini 2>/dev/null || true
 
-      - name: Write .coveragerc (omit venv/vendor)
-        working-directory: target
-        shell: bash
-        run: |
-          if [ ! -f .coveragerc ]; then
-            cat > .coveragerc <<'EOF'
-            [run]
-            omit =
-                */.venv/*
-                */venv/*
-                */env/*
-                */site-packages/*
-                */.tox/*
-                */.pytest_cache/*
-                */__pycache__/*
-            EOF
+          if [ -f pyproject.toml ] && grep -q "\[tool.poetry\]" pyproject.toml; then
+            pip install -c "$PIP_CONSTRAINT" poetry || true
+            poetry export -f requirements.txt --without-hashes -o /tmp/poetry.lock.req || true
+            [ -s /tmp/poetry.lock.req ] && sanitize_and_install /tmp/poetry.lock.req
           fi
-          cat .coveragerc
 
-      - name: Auto Django conftest (only if project uses Django)
+          if [ -f pyproject.toml ] && grep -q "\[tool.pdm\]" pyproject.toml; then
+            pip install -c "$PIP_CONSTRAINT" pdm || true
+            pdm export -o /tmp/pdm.lock.req --without-hashes --dev || true
+            [ -s /tmp/pdm.lock.req ] && sanitize_and_install /tmp/pdm.lock.req
+          fi
+
+          if find . -name "settings.py" -type f | grep -q .; then
+            pip install -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
+          fi
+
+      - name: Auto Django conftest (if Django project)
         working-directory: target
         shell: bash
         run: |
           if find . -name "settings.py" -type f | grep -q .; then
-            cat > conftest.py <<'PY'
-            import os, sys, pathlib
-            ROOT = pathlib.Path(__file__).resolve().parent
-            if str(ROOT) not in sys.path:
-                sys.path.insert(0, str(ROOT))
-
-            def setup_django():
-                try:
-                    import django
-                    from django.conf import settings
-                    if not settings.configured:
-                        candidates = []
-                        for s in ROOT.rglob('settings.py'):
-                            if 'migration' in str(s):
-                                continue
-                            if any(p in s.parts for p in ('.venv','venv','env','site-packages','.tox')):
-                                continue
-                            candidates.append(s)
-                        candidates.sort(key=lambda p: len(p.parts))
-                        if candidates:
-                            rel = candidates[0].relative_to(ROOT).with_suffix('')
-                            os.environ['DJANGO_SETTINGS_MODULE'] = '.'.join(rel.parts)
-                        django.setup()
-                except Exception as e:
-                    print(f"Django setup warning: {e}")
-
-            setup_django()
-            PY
-            echo "Wrote Django conftest.py"
-          else
-            echo "No Django settings detected; skipping conftest."
+            printf "%s\n" \
+          "import os, sys, pathlib, pytest" \
+          "ROOT = pathlib.Path(__file__).resolve().parent" \
+          "if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))" \
+          "def setup_django():" \
+          "    try:" \
+          "        import django" \
+          "        from django.conf import settings" \
+          "        if not settings.configured:" \
+          "            for s in ROOT.rglob('settings.py'):" \
+          "                if 'migration' not in str(s):" \
+          "                    rel = s.relative_to(ROOT).with_suffix('')" \
+          "                    os.environ['DJANGO_SETTINGS_MODULE']='.'.join(rel.parts)" \
+          "                    break" \
+          "            django.setup()" \
+          "    except Exception as e:" \
+          "        print(f'⚠️ Django setup warning: {e}')" \
+          "setup_django()" \
+          "def pytest_configure(config):" \
+          "    config.addinivalue_line('markers', 'generated: AI-generated tests')" \
+          > conftest.py
+            echo "✅ Wrote Django conftest.py"
           fi
 
-      - name: Discover test roots
+      - name: Write .coveragerc (omit venvs/tests)
+        working-directory: target
+        shell: bash
+        run: |
+          if [ ! -f .coveragerc ]; then
+            printf "%s\n" "[run]" > .coveragerc
+            printf "%s\n" "omit =" >> .coveragerc
+            printf "%s\n" "    */.venv/*"            >> .coveragerc
+            printf "%s\n" "    */venv/*"              >> .coveragerc
+            printf "%s\n" "    */env/*"               >> .coveragerc
+            printf "%s\n" "    */site-packages/*"     >> .coveragerc
+            printf "%s\n" "    */.tox/*"              >> .coveragerc
+            printf "%s\n" "    */.pytest_cache/*"     >> .coveragerc
+            printf "%s\n" "    */__pycache__/*"       >> .coveragerc
+            printf "%s\n" "    tests/*"               >> .coveragerc
+            printf "%s\n" "    */tests/*"             >> .coveragerc
+            echo "✅ Wrote .coveragerc"
+          else
+            echo "ℹ️ Using existing .coveragerc"
+          fi
+          cat .coveragerc
+
+      - name: Discover test directories dynamically (path-agnostic)
         id: discover
         working-directory: target
         shell: bash
         run: |
           set -e
-          mapfile -t ROOTS < <( \
-            find . \
-              \( -path "*/.git*" -o -path "*/.venv*" -o -path "*/venv*" -o -path "*/env*" -o -path "*/site-packages*" -o -path "*/.tox*" -o -path "*/__pycache__*" \) -prune -o \
-              -type d \( -iname "tests" -o -iname "test" \) -print | sort -u \
+          # Find any python test files anywhere, EXCLUDING common venv/vendor dirs.
+          mapfile -t DIRS < <( \
+            find . -type f \( -name "test_*.py" -o -name "*_test.py" -o -name "*.test.py" \) \
+              ! -path "*/.git/*" \
+              ! -path "*/.venv/*" \
+              ! -path "*/venv/*" \
+              ! -path "*/env/*" \
+              ! -path "*/site-packages/*" \
+              ! -path "*/.tox/*" \
+              ! -path "*/.pytest_cache/*" \
+              ! -path "*/__pycache__/*" \
+              -printf '%h\n' | sort -u \
           )
-          if [ ${#ROOTS[@]} -eq 0 ]; then
-            mapfile -t ROOTS < <( \
-              find . \
-                \( -path "*/.git*" -o -path "*/.venv*" -o -path "*/venv*" -o -path "*/env*" -o -path "*/site-packages*" -o -path "*/.tox*" -o -path "*/__pycache__*" \) -prune -o \
-                -type f \( -name "test_*.py" -o -name "*_test.py" -o -name "*test*.py" \) \
-                -printf '%h\n' | sort -u \
-            )
-          fi
-          if [ ${#ROOTS[@]} -eq 0 ]; then
-            echo "No tests found."
+          if [ ${#DIRS[@]} -eq 0 ]; then
+            echo "❌ No test files found anywhere under the repository."
             exit 1
           fi
-          printf '%s\n' "${ROOTS[@]}" > /tmp/test_dirs.txt
-          echo "Test roots:"; sed 's/^/ - /' /tmp/test_dirs.txt
+          echo "Found test dirs:"
+          printf ' - %s\n' "${DIRS[@]}"
+          printf '%s\n' "${DIRS[@]}" > /tmp/test_dirs.txt
 
-      - name: Run tests with coverage
+      - name: Run tests with coverage (CI gate)
         id: run
         working-directory: target
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         shell: bash
-        continue-on-error: true
         run: |
           set -e
           mkdir -p reports/tests
+          PLUGINS="-p pytest_cov -p pytest_timeout"
+          if find . -name "settings.py" -type f | grep -q .; then
+            PLUGINS="$PLUGINS -p pytest_django"
+          fi
+
           mapfile -t TEST_DIRS < /tmp/test_dirs.txt
+          echo "✅ Running pytest in:"
+          printf ' - %s\n' "${TEST_DIRS[@]}"
+
           set +e
           pytest -v --tb=short --maxfail=50 \
+            $PLUGINS \
             --cov=. \
             --cov-config=.coveragerc \
             --cov-report=xml:reports/tests/coverage.xml \
             --cov-report=json:reports/tests/coverage.json \
-            --junitxml=reports/tests/report.junit.xml \
+            --cov-report=term-missing \
             --timeout=300 \
             "${TEST_DIRS[@]}"
           code=$?
           set -e
-          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit $code
 
-      - name: Compute pass% and coverage gates
+      - name: Parse coverage & set gate
         id: gate
         if: always()
         working-directory: target
         shell: bash
         run: |
           python - <<'PY'
-          import os, json, xml.etree.ElementTree as ET, pathlib, sys
-          thr_pass = float(os.environ.get("PASS_THRESHOLD","80"))
-          thr_cov  = float(os.environ.get("COVERAGE_THRESHOLD","70"))
-
-          xmlp = pathlib.Path("reports/tests/report.junit.xml")
-          tot=sk=fl=er=0
-          if xmlp.exists():
-              root = ET.parse(xmlp).getroot()
-              suites = [root] if root.tag=="testsuite" else root.findall("testsuite")
-              for s in suites:
-                  tot += int(s.attrib.get("tests",0))
-                  sk  += int(s.attrib.get("skipped",0))
-                  fl  += int(s.attrib.get("failures",0))
-                  er  += int(s.attrib.get("errors",0))
-          eff = max(tot - sk, 0)
-          passed = max(eff - fl - er, 0)
-          pct = (passed/eff*100.0) if eff>0 else 0.0
-
-          cov = 0.0
-          covj = pathlib.Path("reports/tests/coverage.json")
-          if covj.exists():
+          import json, pathlib, os, sys
+          p=pathlib.Path('reports/tests/coverage.json')
+          cov=0.0
+          if p.exists():
               try:
-                  cov = float(json.load(open(covj)).get("totals", {}).get("percent_covered", 0.0))
+                  cov=float(json.load(open(p)).get('totals',{}).get('percent_covered',0.0))
               except Exception:
-                  cov = 0.0
-
-          cov_ok  = (cov >= thr_cov)
-          pass_ok = (pct >= thr_pass) and (fl==0 and er==0)
-          ready = pass_ok and cov_ok
-
-          print(f"Total={tot} Skipped={sk} Failures={fl} Errors={er}")
-          print(f"Pass%={pct:.2f} (thr {thr_pass}%)  Coverage={cov:.2f}% (thr {thr_cov}%)")
-          print("READY TO DEPLOY" if ready else "NOT READY TO DEPLOY")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write(f"pass_pct={pct:.2f}\n")
+                  cov=0.0
+          thr=float(os.environ.get('COVERAGE_THRESHOLD','70'))
+          tests_ok=('${{ steps.run.outcome }}'=='success')
+          ok=(cov>=thr) and tests_ok
+          print(f"Coverage: {cov:.2f}% (threshold {thr}%), tests_ok={tests_ok} => {'OK' if ok else 'NOT OK'}")
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
               f.write(f"coverage={cov:.2f}\n")
-              f.write(f"status={'READY TO DEPLOY' if ready else 'NOT READY TO DEPLOY'}\n")
-
-          sys.exit(0 if ready else 1)
+              f.write(f"ready={'true' if ok else 'false'}\n")
+          sys.exit(0 if ok else 1)
           PY
 
       - name: Upload reports
@@ -287,19 +294,15 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-reports-${{ github.run_number }}
-          path: |
-            target/reports/tests/coverage.xml
-            target/reports/tests/coverage.json
-            target/reports/tests/report.junit.xml
-          if-no-files-found: ignore
+          path: target/reports/tests/
           retention-days: 14
 
-      - name: Summary
+      - name: Mark readiness (job summary)
         if: always()
+        shell: bash
         run: |
-          {
-            echo "## CI Result"
-            echo "**Status:** ${{ steps.gate.outputs.status }}"
-            echo "**Coverage:** ${{ steps.gate.outputs.coverage }}% (thr ${COVERAGE_THRESHOLD}%)"
-            echo "**Pass %:** ${{ steps.gate.outputs.pass_pct }}% (thr ${PASS_THRESHOLD}%)"
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "## CI Result" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${{ steps.gate.outputs.ready }}" == "true" ]]; then
+            echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold. **Ready to deploy.**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "❌ Tests failed or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**). **Do NOT deploy.**" >> "$GITHUB_STEP_SUMMARY"

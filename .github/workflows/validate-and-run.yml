@@ -69,7 +69,39 @@ jobs:
             [ -s /tmp/req.clean.txt ] && pip install -r /tmp/req.clean.txt || true
           fi
 
-      - name: Write pytest.ini (repo-agnostic)
+      - name: Detect Django settings module (if any)
+        id: detect
+        working-directory: target
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, pathlib, json
+          EXC={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','__pycache__'}
+          cands=[]
+          for root,dirs,files in os.walk('.', topdown=True):
+              dirs[:]=[d for d in dirs if d not in EXC and 'site-packages' not in d]
+              if 'settings.py' in files and 'migrations' not in root:
+                  p=pathlib.Path(root,'settings.py').resolve()
+                  rel=p.relative_to(pathlib.Path('.').resolve())
+                  mod='.'.join(rel.with_suffix('').parts)
+                  cands.append((len(rel.parts),mod))
+          ds = sorted(cands)[0][1] if cands else ''
+          print("Detected DS:", ds or '(none)')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write(f"is_django={'true' if ds else 'false'}\n")
+              f.write(f"ds_module={ds or 'conduit.settings'}\n")
+          PY
+
+      - name: Enable pytest-django and set DJANGO_SETTINGS_MODULE
+        if: steps.detect.outputs.is_django == 'true'
+        working-directory: target
+        shell: bash
+        run: |
+          pip install -c "$PIP_CONSTRAINT" pytest-django
+          echo "DJANGO_SETTINGS_MODULE=${{ steps.detect.outputs.ds_module }}" >> $GITHUB_ENV
+          echo "✅ Using Django settings: ${{ steps.detect.outputs.ds_module }}"
+
+      - name: Prepare pytest.ini (agnostic)
         working-directory: target
         shell: bash
         run: |
@@ -83,26 +115,41 @@ jobs:
           printf "[run]\nomit = */.venv/* */venv/* */env/* */site-packages/* */.tox/* */.pytest_cache/* */__pycache__/* */migrations/*\n" > .coveragerc
           echo "✅ Wrote .coveragerc"
 
-      - name: Discover test files
+      - name: Run migrations if Django
+        if: steps.detect.outputs.is_django == 'true'
+        working-directory: target
+        shell: bash
+        run: |
+          set -e
+          echo "Running Django migrations for ${DJANGO_SETTINGS_MODULE}"
+          python - <<'PY'
+          import os, sys, django
+          from django.core.management import call_command
+          django.setup()
+          call_command('migrate', interactive=False, verbosity=0)
+          print("✅ migrate done")
+          PY
+
+      - name: Discover test files (exclude venv/vendor)
         id: discover
         working-directory: target
         shell: bash
         run: |
-          python - <<'PYCODE'
+          python - <<'PY'
           import os, sys
-          exclude={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','site-packages','__pycache__'}
+          EXC={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','site-packages','__pycache__'}
           tests=[]
-          for root, dirs, files in os.walk('.', topdown=True):
-              dirs[:]=[d for d in dirs if d not in exclude and 'site-packages' not in d]
+          for root,dirs,files in os.walk('.', topdown=True):
+              dirs[:]=[d for d in dirs if d not in EXC and 'site-packages' not in d]
               for f in files:
                   if f.endswith('.py') and (f.startswith('test_') or f.endswith('_test.py') or f.endswith('.test.py')):
                       tests.append(os.path.join(root,f))
           if not tests:
               print("❌ No test files found"); sys.exit(1)
-          tests = sorted(set(tests))
-          print(f"✅ Found {len(tests)} test files")
+          tests=sorted(set(tests))
           open('/tmp/test_files.txt','w').write('\n'.join(tests))
-          PYCODE
+          print(f"✅ Running pytest on {len(tests)} files")
+          PY
           echo "test_files=/tmp/test_files.txt" >> "$GITHUB_OUTPUT"
 
       - name: Run tests with coverage
@@ -114,12 +161,16 @@ jobs:
         run: |
           mkdir -p reports/tests
           PLUGINS="-p pytest_cov -p pytest_timeout"
+          if [ -n "${DJANGO_SETTINGS_MODULE:-}" ]; then
+            PLUGINS="$PLUGINS -p pytest_django"
+            DS_OPT="--ds=${DJANGO_SETTINGS_MODULE}"
+          else
+            DS_OPT=""
+          fi
           mapfile -t FILES < /tmp/test_files.txt
-          echo "✅ Running pytest on ${#FILES[@]} files"
           set +e
-          pytest -v --tb=short $PLUGINS \
-            --cov=. \
-            --cov-config=.coveragerc \
+          pytest -v --tb=short $PLUGINS $DS_OPT \
+            --cov=. --cov-config=.coveragerc \
             --cov-report=xml:reports/tests/coverage.xml \
             --cov-report=json:reports/tests/coverage.json \
             --cov-report=term-missing \
@@ -136,21 +187,21 @@ jobs:
         working-directory: target
         shell: bash
         run: |
-          python - <<'PYCODE'
+          python - <<'PY'
           import json, pathlib, os, sys
-          p = pathlib.Path('reports/tests/coverage.json')
-          cov = 0.0
+          p=pathlib.Path('reports/tests/coverage.json')
+          cov=0.0
           if p.exists():
-              try: cov = float(json.load(open(p)).get('totals',{}).get('percent_covered',0.0))
+              try: cov=float(json.load(open(p)).get('totals',{}).get('percent_covered',0.0))
               except: pass
-          thr = float(os.environ.get('COVERAGE_THRESHOLD','70'))
-          tests_ok = ('${{ steps.run.outcome }}'=='success')
-          ok = (cov >= thr) and tests_ok
+          thr=float(os.environ.get('COVERAGE_THRESHOLD','70'))
+          tests_ok=('${{ steps.run.outcome }}'=='success')
+          ok=(cov>=thr) and tests_ok
           print(f"Coverage={cov:.2f}%, Thr={thr}, TestsOk={tests_ok}, Gate={'OK' if ok else 'FAIL'}")
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
               f.write(f"coverage={cov:.2f}\nready={'true' if ok else 'false'}\n")
           sys.exit(0 if ok else 1)
-          PYCODE  
+          PY
 
       - name: Upload reports
         if: always()

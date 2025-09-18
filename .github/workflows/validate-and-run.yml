@@ -46,7 +46,7 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     env:
       PASS_THRESHOLD: ${{ inputs.pass_threshold }}
       COVERAGE_THRESHOLD: ${{ inputs.coverage_threshold }}

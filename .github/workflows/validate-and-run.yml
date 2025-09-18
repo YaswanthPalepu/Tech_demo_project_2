@@ -1,103 +1,91 @@
-
-name: Validate Python Project
+name: Validate Generated Tests (CI Gate)
 
 on:
+  push:
+    branches: ["test2"]
   workflow_dispatch:
     inputs:
       repo_url:
-        description: "Git repo to validate (https://github.com/owner/repo)"
-        required: true
-        type: string
-      ref:
-        description: "Branch/tag/SHA"
+        description: "Repo to validate"
         required: false
-        type: string
-        default: "main"
-      subdir:
-        description: "Optional project subdir"
-        required: false
-        type: string
-        default: ""
-      python_version:
-        description: "Python version"
-        required: false
-        type: string
-        default: "3.10"
-      pass_threshold:
-        description: "Min pass % (0-100)"
-        required: false
-        type: string
-        default: "80"
-      coverage_threshold:
-        description: "Min coverage % (0-100). Set 0 to ignore coverage gate."
-        required: false
-        type: string
-        default: "0"
-  push:
-    branches:
-      - test2
-
-permissions:
-  contents: read
+        default: "https://github.com/DeviPrasad372002/django-test-app.git"
 
 concurrency:
-  group: validate-${{ github.ref }}-${{ github.workflow }}
+  group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
   cancel-in-progress: true
 
 jobs:
   validate:
     runs-on: self-hosted
+    permissions:
+      contents: read
+      actions: read
+      checks: write
+      statuses: write
+
     env:
-      PASS_THRESHOLD: ${{ inputs.pass_threshold }}
-      COVERAGE_THRESHOLD: ${{ inputs.coverage_threshold }}
+      PYTHONUTF8: "1"
+      COVERAGE_THRESHOLD: "70"
+      PASS_THRESHOLD: "80"
 
     steps:
-      - name: Prep
-        run: mkdir -p target_repo
+      - uses: actions/checkout@v4
 
-      - name: Clone target repo
-        env:
-          TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
+      - name: Resolve target repository URL
+        id: target
+        shell: bash
         run: |
-          set -e
-          REPO="${{ inputs.repo_url }}"
-          REF="${{ inputs.ref }}"
-          URL="$REPO"
-          if [ -n "$TOKEN" ]; then
-            URL="$(echo "$REPO" | sed -E 's#^https://#https://x-access-token:'"$TOKEN"'@#')"
-          fi
-          git clone --depth 1 --no-tags --branch "$REF" "$URL" target_repo
-
-      - name: Select project directory
-        id: proj
-        run: |
-          if [ -n "${{ inputs.subdir }}" ]; then DIR="target_repo/${{ inputs.subdir }}"; else DIR="target_repo"; fi
-          test -d "$DIR" || { echo "missing dir: $DIR"; exit 1; }
-          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+          REPO_URL="${{ github.event.inputs.repo_url }}"
+          [ -z "$REPO_URL" ] && REPO_URL="https://github.com/DeviPrasad372002/django-test-app.git"
+          echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
+          echo "Using repo: $REPO_URL"
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ inputs.python_version }}
+          python-version: "3.10"
+          cache: pip
 
-      - name: Minimal system libs (safe defaults)
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends build-essential python3-dev
-
-      - name: Install core test tooling
-        working-directory: ${{ steps.proj.outputs.dir }}
+      - name: Install core tooling
+        shell: bash
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
-          # Always have pytest + coverage available regardless of project
           pip install pytest pytest-cov pytest-timeout junitparser
 
-      - name: Install project dependencies (manager-agnostic)
-        working-directory: ${{ steps.proj.outputs.dir }}
+      - name: Clone target repo
+        env:
+          GH_PAT3: ${{ secrets.GH_PAT3 || secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          REPO_URL='${{ steps.target.outputs.repo_url }}'
+          URL="$REPO_URL"
+          [[ "$URL" == git@* ]] && URL="https://github.com/${URL#git@github.com:}"
+          [[ "$URL" != https://* ]] && URL="https://github.com/$URL"
+          [[ "$URL" != *.git ]] && URL="${URL}.git"
+          if [ -n "$GH_PAT3" ]; then
+            URL="${URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
+          fi
+          rm -rf target
+          git clone --depth=1 "$URL" target
+          echo "Cloned into ./target"
+
+      - name: Copy tests from this repo into target (if present)
+        shell: bash
+        run: |
+          if [ -d tests/generated ]; then
+            mkdir -p target/tests/generated
+            rsync -a tests/generated/ target/tests/generated/
+            echo "Copied $(find target/tests/generated -type f -name 'test*.py' | wc -l) tests"
+          else
+            echo "No tests/generated here; will use tests in target"
+          fi
+
+      - name: Install target dependencies (manager-agnostic)
+        working-directory: target
         shell: bash
         run: |
           set -e
-          # 1) requirements*.txt (dev first if present)
+          python -m pip install --upgrade "pip<25" wheel setuptools
           found=0
           for f in requirements-dev.txt requirements_test.txt requirements-tests.txt requirements.txt; do
             if [ -f "$f" ]; then
@@ -106,51 +94,43 @@ jobs:
               found=1
             fi
           done
-
-          # 2) extras if defined
           pip install ".[test]" ".[tests]" ".[dev]" 2>/dev/null || true
-
-          # 3) pyproject builds (PEP 517). Works for Poetry/PDM/Hatch projects without the managers.
           if [ -f pyproject.toml ]; then
-            echo "pip install .  (pyproject)"
+            echo "pip install . (pyproject)"
             pip install . || true
             found=1
           fi
-
-          # 4) legacy setup.*
           if [ -f setup.cfg ] || [ -f setup.py ]; then
-            echo "pip install -e .  (setuptools)"
+            echo "pip install -e . (setuptools)"
             pip install -e . || true
             found=1
           fi
-
-          # 5) fallback: try any extra requirement files in repo
-          if [ $found -eq 0 ]; then
-            mapfile -t RQS < <(ls -1 requirements*.txt 2>/dev/null || true)
-            for f in "${RQS[@]}"; do
-              echo "pip install -r $f"
-              pip install -r "$f" || true
-            done
+          if grep -qi 'django' requirements*.txt 2>/dev/null || grep -qi 'django' pyproject.toml 2>/dev/null; then
+            pip install pytest-django || true
           fi
-
-          # Optional: common db/image libs that often fail compilation
+          # Common native deps that often unblock builds
           pip install psycopg2-binary mysqlclient pillow lxml 2>/dev/null || true
 
-      - name: Write default pytest.ini (non-intrusive)
-        working-directory: ${{ steps.proj.outputs.dir }}
+      - name: Write pytest.ini (broad discovery + safe markers)
+        working-directory: target
+        shell: bash
         run: |
-          if [ ! -f pytest.ini ] && [ ! -f tox.ini ] && [ ! -f pyproject.toml ]; then
+          if [ ! -f pytest.ini ] && [ ! -f tox.ini ] && ! grep -q "\[tool.pytest.ini_options\]" pyproject.toml 2>/dev/null; then
             cat > pytest.ini <<'INI'
-            [pytest]
-            python_files = test_*.py *_test.py *test*.py
-            python_classes = Test* *Tests
-            python_functions = test_* *_test test*
-            addopts =
-            INI
+          [pytest]
+          python_files = test_*.py *_test.py *test*.py
+          python_classes = Test* *Tests
+          python_functions = test_* *_test test*
+          markers =
+              django_db: Django DB access
+          addopts =
+          INI
           fi
+          cat pytest.ini 2>/dev/null || true
 
-      - name: Write coverage config (omit venv/vendor)
-        working-directory: ${{ steps.proj.outputs.dir }}
+      - name: Write .coveragerc (omit venv/vendor)
+        working-directory: target
+        shell: bash
         run: |
           if [ ! -f .coveragerc ]; then
             cat > .coveragerc <<'EOF'
@@ -165,10 +145,49 @@ jobs:
                 */__pycache__/*
             EOF
           fi
+          cat .coveragerc
+
+      - name: Auto Django conftest (only if project uses Django)
+        working-directory: target
+        shell: bash
+        run: |
+          if find . -name "settings.py" -type f | grep -q .; then
+            cat > conftest.py <<'PY'
+            import os, sys, pathlib
+            ROOT = pathlib.Path(__file__).resolve().parent
+            if str(ROOT) not in sys.path:
+                sys.path.insert(0, str(ROOT))
+
+            def setup_django():
+                try:
+                    import django
+                    from django.conf import settings
+                    if not settings.configured:
+                        candidates = []
+                        for s in ROOT.rglob('settings.py'):
+                            if 'migration' in str(s):
+                                continue
+                            if any(p in s.parts for p in ('.venv','venv','env','site-packages','.tox')):
+                                continue
+                            candidates.append(s)
+                        candidates.sort(key=lambda p: len(p.parts))
+                        if candidates:
+                            rel = candidates[0].relative_to(ROOT).with_suffix('')
+                            os.environ['DJANGO_SETTINGS_MODULE'] = '.'.join(rel.parts)
+                        django.setup()
+                except Exception as e:
+                    print(f"Django setup warning: {e}")
+
+            setup_django()
+            PY
+            echo "Wrote Django conftest.py"
+          else
+            echo "No Django settings detected; skipping conftest."
+          fi
 
       - name: Discover test roots
         id: discover
-        working-directory: ${{ steps.proj.outputs.dir }}
+        working-directory: target
         shell: bash
         run: |
           set -e
@@ -192,9 +211,10 @@ jobs:
           printf '%s\n' "${ROOTS[@]}" > /tmp/test_dirs.txt
           echo "Test roots:"; sed 's/^/ - /' /tmp/test_dirs.txt
 
-      - name: Run tests with coverage (pytest)
+      - name: Run tests with coverage
         id: run
-        working-directory: ${{ steps.proj.outputs.dir }}
+        working-directory: target
+        shell: bash
         continue-on-error: true
         run: |
           set -e
@@ -216,12 +236,13 @@ jobs:
       - name: Compute pass% and coverage gates
         id: gate
         if: always()
-        working-directory: ${{ steps.proj.outputs.dir }}
+        working-directory: target
+        shell: bash
         run: |
           python - <<'PY'
           import os, json, xml.etree.ElementTree as ET, pathlib, sys
           thr_pass = float(os.environ.get("PASS_THRESHOLD","80"))
-          thr_cov  = float(os.environ.get("COVERAGE_THRESHOLD","0"))
+          thr_cov  = float(os.environ.get("COVERAGE_THRESHOLD","70"))
 
           xmlp = pathlib.Path("reports/tests/report.junit.xml")
           tot=sk=fl=er=0
@@ -247,7 +268,7 @@ jobs:
 
           cov_ok  = (cov >= thr_cov)
           pass_ok = (pct >= thr_pass) and (fl==0 and er==0)
-          ready = pass_ok and (thr_cov==0 or cov_ok)
+          ready = pass_ok and cov_ok
 
           print(f"Total={tot} Skipped={sk} Failures={fl} Errors={er}")
           print(f"Pass%={pct:.2f} (thr {thr_pass}%)  Coverage={cov:.2f}% (thr {thr_cov}%)")
@@ -265,11 +286,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports
+          name: test-reports-${{ github.run_number }}
           path: |
-            ${{ steps.proj.outputs.dir }}/reports/tests/coverage.xml
-            ${{ steps.proj.outputs.dir }}/reports/tests/coverage.json
-            ${{ steps.proj.outputs.dir }}/reports/tests/report.junit.xml
+            target/reports/tests/coverage.xml
+            target/reports/tests/coverage.json
+            target/reports/tests/report.junit.xml
           if-no-files-found: ignore
           retention-days: 14
 
@@ -277,8 +298,8 @@ jobs:
         if: always()
         run: |
           {
-            echo "## Validation"
+            echo "## CI Result"
             echo "**Status:** ${{ steps.gate.outputs.status }}"
-            echo "**Pass %:** ${{ steps.gate.outputs.pass_pct }}% (thr ${{ inputs.pass_threshold }}%)"
-            echo "**Coverage:** ${{ steps.gate.outputs.coverage }}% (thr ${{ inputs.coverage_threshold }}%)"
+            echo "**Coverage:** ${{ steps.gate.outputs.coverage }}% (thr ${COVERAGE_THRESHOLD}%)"
+            echo "**Pass %:** ${{ steps.gate.outputs.pass_pct }}% (thr ${PASS_THRESHOLD}%)"
           } >> "$GITHUB_STEP_SUMMARY"

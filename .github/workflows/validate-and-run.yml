@@ -82,18 +82,25 @@ jobs:
           git clone --depth=1 "$CLEAN_URL" target
           echo "✅ cloned into ./target"
 
-      - name: Copy tests from this repo into target (if present)
+      - name: Verify test files exist in target repo
         shell: bash
         run: |
-          mkdir -p target/tests/generated
-          if [ -d tests/generated ]; then
-            rsync -a tests/generated/ target/tests/generated/
-            echo "✅ Copied $(find target/tests/generated -type f -name 'test_*.py' | wc -l) tests into target/"
-          else
-            echo "ℹ️ No local tests/generated folder, checking target repo itself."
-            if [ -d target/tests/generated ]; then
-              echo "✅ Found tests/generated already in target repo."
+          echo "✅ Checking for tests in cloned target repo..."
+          if [ -d target/tests/generated ]; then
+            test_count=$(find target/tests/generated -name "test_*.py" | wc -l)
+            echo "✅ Found $test_count test files in target/tests/generated/"
+            if [ $test_count -gt 0 ]; then
+              echo "Sample test files:"
+              find target/tests/generated -name "test_*.py" | head -5
+            else
+              echo "❌ Directory exists but no test files found!"
+              ls -la target/tests/generated/
+              exit 1
             fi
+          else
+            echo "❌ No tests/generated directory in target repo"
+            ls -la target/tests/ || echo "No tests directory at all"
+            exit 1
           fi
 
       - name: Safe, repo-agnostic dependency install
@@ -173,7 +180,7 @@ jobs:
         run: |
           cat > pytest.ini << 'PYTEST_EOF'
           [pytest]
-          testpaths = tests tests/generated
+          testpaths = tests/generated
           addopts = -v --tb=short
           python_files = test_*.py *_test.py
           python_functions = test_*
@@ -203,7 +210,6 @@ jobs:
               */site-packages/*
           PYTEST_EOF
           echo "✅ Wrote comprehensive pytest.ini"
-          cat pytest.ini
 
       - name: Auto Django conftest (if Django project)
         working-directory: target
@@ -217,7 +223,6 @@ jobs:
           import pytest
           import django
           from django.conf import settings
-          from django.core.management import execute_from_command_line
 
           # Add project root to Python path
           ROOT = pathlib.Path(__file__).resolve().parent
@@ -228,20 +233,9 @@ jobs:
               """Setup Django for testing"""
               try:
                   if not settings.configured:
-                      # Look for settings.py in the project
-                      settings_module = None
-                      for settings_file in ROOT.rglob('settings.py'):
-                          if 'migration' not in str(settings_file):
-                              rel_path = settings_file.relative_to(ROOT).with_suffix('')
-                              settings_module = '.'.join(rel_path.parts)
-                              break
-                      
-                      if settings_module:
-                          os.environ.setdefault('DJANGO_SETTINGS_MODULE', settings_module)
-                          django.setup()
-                          print(f"✅ Django setup complete with {settings_module}")
-                      else:
-                          print("❌ No settings.py found")
+                      os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'conduit.settings')
+                      django.setup()
+                      print("✅ Django setup complete with conduit.settings")
               except Exception as e:
                   print(f'⚠️ Django setup warning: {e}')
 
@@ -260,7 +254,6 @@ jobs:
                   from django.test.utils import setup_test_environment, teardown_test_environment
                   
                   setup_test_environment()
-                  # Create test database
                   call_command('migrate', verbosity=0, interactive=False)
                   yield
                   teardown_test_environment()
@@ -307,21 +300,6 @@ jobs:
           COVERAGE_EOF
           echo "✅ Wrote comprehensive .coveragerc"
 
-      - name: Debug directory structure
-        working-directory: target
-        shell: bash
-        run: |
-          echo "=== Current directory: $(pwd) ==="
-          echo "=== Directory listing ==="
-          ls -la
-          echo "=== Tests directory ==="
-          ls -la tests/ 2>/dev/null || echo "No tests directory"
-          echo "=== Tests/generated directory ==="
-          ls -la tests/generated/ 2>/dev/null || echo "No tests/generated directory"
-          echo "=== Looking for any test files ==="
-          find . -name "test_*.py" -type f | head -20
-          echo "=== End debug ==="
-
       - name: Analyze test files for issues
         working-directory: target
         shell: bash
@@ -336,14 +314,12 @@ jobs:
             test_count=$((test_count + 1))
             echo "--- Analyzing $testfile ---"
             
-            # Check file size
             if [ ! -s "$testfile" ]; then
               echo "❌ Empty file"
               invalid_tests=$((invalid_tests + 1))
               continue
             fi
             
-            # Check for test functions
             test_func_count=$(grep -c "^def test_" "$testfile" || echo "0")
             if [ "$test_func_count" -eq 0 ]; then
               echo "❌ No test functions found (should start with 'def test_')"
@@ -353,7 +329,6 @@ jobs:
               continue
             fi
             
-            # Check Python syntax
             if python -m py_compile "$testfile" 2>/dev/null; then
               echo "✅ Valid Python syntax, $test_func_count test functions"
               valid_tests=$((valid_tests + 1))
@@ -385,22 +360,13 @@ jobs:
           set -e
           mkdir -p reports/tests
           
-          # Setup Django environment
           export DJANGO_SETTINGS_MODULE="conduit.settings"
           
-          PLUGINS="-p pytest_cov -p pytest_timeout"
-          if find . -name "settings.py" -type f | grep -q .; then
-            PLUGINS="$PLUGINS -p pytest_django"
-          fi
-
-          # Specific test targets that we know exist
+          PLUGINS="-p pytest_cov -p pytest_timeout -p pytest_django"
           TARGETS="tests/generated"
           
           echo "✅ Running pytest on: $TARGETS"
-          echo "Current working directory: $(pwd)"
-          echo "Python path: $PYTHONPATH"
           
-          # Run with specific targeting to avoid virtual env collection
           set +e
           pytest -v --tb=short --maxfail=10 \
             $PLUGINS \
@@ -420,12 +386,10 @@ jobs:
           
           echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"
           
-          # Show results summary
           if [ $code -eq 0 ]; then
             echo "✅ All tests passed!"
           elif [ $code -eq 5 ]; then
             echo "❌ No tests were collected (exit code 5)"
-            echo "Re-checking test collection..."
             pytest --collect-only -v $TARGETS || true
           else
             echo "❌ Tests failed with exit code $code"

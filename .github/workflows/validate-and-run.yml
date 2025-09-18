@@ -1,9 +1,9 @@
 name: Validate Generated Tests (CI Gate)
 
 on:
-  push:
-    branches: [test2]
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["AI Test Generation"]
+    types: [completed]
 
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
-          import os, pathlib, json
+          import os, pathlib
           EXC={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','__pycache__'}
           cands=[]
           for root,dirs,files in os.walk('.', topdown=True):
@@ -89,7 +89,8 @@ jobs:
           print("Detected DS:", ds or '(none)')
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
               f.write(f"is_django={'true' if ds else 'false'}\n")
-              f.write(f"ds_module={ds or 'conduit.settings'}\n")
+              if ds:
+                  f.write(f"ds_module={ds}\n")
           PY
 
       - name: Enable pytest-django and set DJANGO_SETTINGS_MODULE
@@ -105,14 +106,24 @@ jobs:
         working-directory: target
         shell: bash
         run: |
-          printf "[pytest]\naddopts = -v --tb=short\npython_files = test_*.py *_test.py *.test.py\npython_functions = test_*\npython_classes = Test*\nnorecursedirs = .git .tox .env .venv venv env __pycache__ .pytest_cache build dist node_modules */site-packages/*\n" > pytest.ini
+          cat > pytest.ini <<'EOF'
+          [pytest]
+          addopts = -v --tb=short
+          python_files = test_*.py *_test.py *.test.py
+          python_functions = test_*
+          python_classes = Test*
+          norecursedirs = .git .tox .env .venv venv env __pycache__ .pytest_cache build dist node_modules */site-packages/*
+          EOF
           echo "✅ Wrote pytest.ini"
 
       - name: Write .coveragerc (omit venv/vendor)
         working-directory: target
         shell: bash
         run: |
-          printf "[run]\nomit = */.venv/* */venv/* */env/* */site-packages/* */.tox/* */.pytest_cache/* */__pycache__/* */migrations/*\n" > .coveragerc
+          cat > .coveragerc <<'EOF'
+          [run]
+          omit = */.venv/* */venv/* */env/* */site-packages/* */.tox/* */.pytest_cache/* */__pycache__/* */migrations/*
+          EOF
           echo "✅ Wrote .coveragerc"
 
       - name: Run migrations if Django
@@ -123,7 +134,7 @@ jobs:
           set -e
           echo "Running Django migrations for ${DJANGO_SETTINGS_MODULE}"
           python - <<'PY'
-          import os, sys, django
+          import django
           from django.core.management import call_command
           django.setup()
           call_command('migrate', interactive=False, verbosity=0)
@@ -161,11 +172,10 @@ jobs:
         run: |
           mkdir -p reports/tests
           PLUGINS="-p pytest_cov -p pytest_timeout"
+          DS_OPT=""
           if [ -n "${DJANGO_SETTINGS_MODULE:-}" ]; then
             PLUGINS="$PLUGINS -p pytest_django"
             DS_OPT="--ds=${DJANGO_SETTINGS_MODULE}"
-          else
-            DS_OPT=""
           fi
           mapfile -t FILES < /tmp/test_files.txt
           set +e

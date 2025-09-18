@@ -2,6 +2,7 @@
 name: AI Test Generation
 
 on:
+  
   workflow_dispatch:
     inputs:
       repo_url:
@@ -20,8 +21,8 @@ on:
         required: false
         default: "0"
         description: "Minimum coverage threshold (%)"
-  # push:
-  #   branches: ["test2"]
+  push:
+    branches: ["test2"]
 
 concurrency:
   group: test-gen-${{ github.workflow }}

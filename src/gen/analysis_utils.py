@@ -92,6 +92,9 @@ def _file_has_marker(path: str, needles) -> bool:
         return False
 
 def prune_unavailable_targets(compact: Dict[str, Any]) -> Dict[str, Any]:
+    # allow opt-in GUI shims to keep targets
+    if os.getenv("TESTGEN_ENABLE_GUI_SHIMS","0").lower() in ("1","true","yes"):
+        return compact
     bad_files = set()
     for mod, needles in _HEAVY.items():
         if _missing(mod):

@@ -26,6 +26,52 @@ def ensure_pytest_import_top(code: str) -> str:
     import re as _re
     return ("import pytest\n" + code) if not _re.search(r'^\s*import\s+pytest\b', code, _re.MULTILINE) else code
 
+def _guard_local_imports(code: str) -> str:
+    """
+    Rewrite top-level local imports to try lowercase, then load by path from TARGET_ROOT.
+    """
+    def repl_import(m):
+        mod = m.group(1); alias = m.group(2) or ""
+        as_part = f" as {alias}" if alias else ""
+        return (
+            f"try:\n    import {mod}{as_part}\n"
+            f"except ModuleNotFoundError:\n"
+            f"    try:\n        import {mod.lower()}{as_part}\n"
+            f"    except ModuleNotFoundError:\n"
+            f"        import importlib.util, sys, os\n"
+            f"        _tr=os.environ.get('TARGET_ROOT') or 'target'\n"
+            f"        _p1=os.path.join(_tr, '{mod}.py'); _p2=os.path.join(_tr, '{mod.lower()}.py')\n"
+            f"        _pp=[_p for _p in (_p1,_p2) if os.path.isfile(_p)]\n"
+            f"        if _pp:\n"
+            f"            _spec=importlib.util.spec_from_file_location('{mod}', _pp[0])\n"
+            f"            _m=importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_m)\n"
+            f"            sys.modules.setdefault('{mod}', _m)\n"
+            f"        else:\n"
+            f"            raise\n"
+        )
+    def repl_from(m):
+        mod, rest = m.group(1), m.group(2)
+        return (
+            f"try:\n    from {mod} import {rest}\n"
+            f"except ModuleNotFoundError:\n"
+            f"    try:\n        from {mod.lower()} import {rest}\n"
+            f"    except ModuleNotFoundError:\n"
+            f"        import importlib.util, sys, os\n"
+            f"        _tr=os.environ.get('TARGET_ROOT') or 'target'\n"
+            f"        _p1=os.path.join(_tr, '{mod}.py'); _p2=os.path.join(_tr, '{mod.lower()}.py')\n"
+            f"        _pp=[_p for _p in (_p1,_p2) if os.path.isfile(_p)]\n"
+            f"        if _pp:\n"
+            f"            _spec=importlib.util.spec_from_file_location('{mod}', _pp[0])\n"
+            f"            _m=importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_m)\n"
+            f"            sys.modules.setdefault('{mod}', _m)\n"
+            f"            from {mod} import {rest}\n"
+            f"        else:\n"
+            f"            raise\n"
+        )
+    code = re.sub(r'^\s*import\s+([A-Za-z_]\w*)(?:\s+as\s+([A-Za-z_]\w*))?\s*$', repl_import, code, flags=re.MULTILINE)
+    code = re.sub(r'^\s*from\s+([A-Za-z_]\w*)\s+import\s+([^\n]+)$', repl_from, code, flags=re.MULTILINE)
+    return code
+
 def skip_brittle_functions(code: str) -> str:
     lines, out, cur = code.splitlines(), [], []
     def is_hdr(s): return TEST_FUNC_RE.match(s) is not None
@@ -63,7 +109,9 @@ def massage(code: str) -> str:
                   r'import \1 as \2', code, flags=re.MULTILINE)
     code = re.sub(r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s*',
                   r'import \1', code, flags=re.MULTILINE)
-    # comment tag for each test
+    # robust local imports
+    code = _guard_local_imports(code)
+    # annotate tests
     out=[]
     for line in code.splitlines():
         out.append(line)

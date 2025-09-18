@@ -100,12 +100,19 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
         pip_install(pkgs)
 
     compact_json = json.dumps(compact, separators=(",",":"))
-    kinds = ["unit","integ","e2e"]
     created: List[str] = []
 
     total_targets = sum(len(compact.get(k,[])) for k in ("functions","classes","routes"))
     if total_targets == 0:
         raise RuntimeError("No test targets found in analysis.")
+
+    # decide kinds and purge stale e2e when no routes
+    has_routes = bool(compact.get("routes"))
+    if not has_routes:
+        for p in out.glob("test_e2e_*.py"):
+            try: p.unlink()
+            except Exception: pass
+    kinds = ["unit","integ"] if not has_routes else ["unit","integ","e2e"]
 
     for kind in kinds:
         nfiles = files_per_kind(compact, kind)

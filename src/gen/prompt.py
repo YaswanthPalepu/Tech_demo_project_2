@@ -18,24 +18,20 @@ SYSTEM_MIN = (
     " - Don’t add comments like 'AI', 'LLM', or 'generated'.\n"
 )
 
-UNIT  = "Write 3–6 focused UNIT tests that target public functions/classes in the focus list."
-INTEG = "Write 2–5 INTEGRATION tests that cross modules; mock external boundaries."
+# remove numeric caps in guidance
+UNIT  = "Write UNIT tests for ALL public functions/classes in the focus list. Cover normal, edge, and error paths; prefer @pytest.mark.parametrize."
+INTEG = "Write INTEGRATION tests that cross modules and exercise realistic interactions; mock FS/network/time; prefer parametrization."
 E2E   = (
-    "Write 2–4 black-box E2E tests that hit real HTTP endpoints only.\n"
-    "If +Django/DRF detected: use rest_framework.test.APIClient; never import views or serializers directly.\n"
-    "If +FastAPI detected: use fastapi.testclient.TestClient against the app object.\n"
-    "Create only the minimal data via the ORM or public services; authenticate via login/token endpoints when needed.\n"
-    "Assert status codes, JSON schemas/keys, and critical business invariants; include at least one negative/permission case.\n"
-    "No network calls; keep deterministic (seed randomness, freeze time via monkeypatch)."
+    "Write black-box E2E tests ONLY when real HTTP routes exist.\n"
+    "If Django/DRF: use rest_framework.test.APIClient; If FastAPI: fastapi.testclient.TestClient; If Flask: app.test_client().\n"
+    "Assert status codes, JSON keys, and invariants; include at least one negative/permission case. No real network."
 )
 
 def targets_count(compact: Dict[str,Any], kind: str) -> int:
     if kind == "unit":
         return len(compact.get("functions",[])) + len(compact.get("classes",[]))
     if kind == "e2e":
-        # strict: only generate E2E when real routes exist
-        return len(compact.get("routes",[]) or [])
-    # integ uses broader surface
+        return len(compact.get("routes",[]) or [])  # strict: only if routes exist
     return max(
         len(compact.get("functions",[]) or []) + len(compact.get("classes",[]) or []),
         len(compact.get("routes",[]) or []),
@@ -90,16 +86,22 @@ def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, tot
     ]
 
 def runtime_guard(compact: Dict[str,Any]) -> str:
-    crit = {"fastapi","flask","django","sqlalchemy","starlette","pydantic"}
+    # narrower, only frameworks actually referenced
     mods = { (m.split(".")[0] or "").lower() for m in (compact.get("modules") or []) }
-    need = sorted(crit & mods)
+    need: List[str] = []
+    if "fastapi" in mods:
+        need += ["fastapi","starlette"]
+    if "flask" in mods:
+        need += ["flask"]
+    if "django" in mods:
+        need += ["django"]
     checks = ""
     if need:
         checks = "\n".join([
             f"import importlib.util, pytest\n"
             f"if importlib.util.find_spec('{m}') is None:\n"
             f"    pytest.skip('{m} not installed; skipping module', allow_module_level=True)"
-            for m in need
+            for m in sorted(set(need))
         ]) + "\n"
     return checks + "\n" + (
         "import os, sys, types as _types, pytest as _pytest, warnings\n"

@@ -307,6 +307,21 @@ jobs:
           COVERAGE_EOF
           echo "✅ Wrote comprehensive .coveragerc"
 
+      - name: Debug directory structure
+        working-directory: target
+        shell: bash
+        run: |
+          echo "=== Current directory: $(pwd) ==="
+          echo "=== Directory listing ==="
+          ls -la
+          echo "=== Tests directory ==="
+          ls -la tests/ 2>/dev/null || echo "No tests directory"
+          echo "=== Tests/generated directory ==="
+          ls -la tests/generated/ 2>/dev/null || echo "No tests/generated directory"
+          echo "=== Looking for any test files ==="
+          find . -name "test_*.py" -type f | head -20
+          echo "=== End debug ==="
+
       - name: Analyze test files for issues
         working-directory: target
         shell: bash

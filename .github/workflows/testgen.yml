@@ -85,7 +85,38 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Create repo-agnostic compatibility constraints
+      - name: Base tooling
+        run: |
+          python -m pip install --upgrade "pip<25" wheel setuptools
+          python -m pip install -U httpx requests
+
+      - name: Detect stack (Django or not)
+        id: detect
+        working-directory: target
+        run: |
+          python - <<'PY'
+          import os, json, pathlib, re
+          def has(patterns, text): return any(re.search(p, text, re.I) for p in patterns)
+          is_django = False
+          # Tell-tales: manage.py + settings.py, requirements/pyproject mentions
+          if (pathlib.Path('manage.py').exists() and list(pathlib.Path('.').rglob('settings.py'))):
+              is_django = True
+          else:
+              blobs = []
+              for p in ['requirements.txt','requirements-dev.txt','pyproject.toml','Pipfile','setup.cfg','setup.py']:
+                  if pathlib.Path(p).exists():
+                      try: blobs.append(pathlib.Path(p).read_text(encoding='utf-8', errors='ignore'))
+                      except: pass
+              joined = '\n'.join(blobs)
+              if has([r'\bdjango\b', r'\bdjangorestframework\b'], joined):
+                  is_django = True
+          print("is_django:", is_django)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write(f"is_django={'true' if is_django else 'false'}\n")
+          PY
+
+      - name: Set Django constraints (only if Django)
+        if: steps.detect.outputs.is_django == 'true'
         run: |
           cat > /tmp/compat-constraints.txt << 'EOF'
           Django>=3.2,<4.3
@@ -93,63 +124,44 @@ jobs:
           EOF
           echo "PIP_CONSTRAINT=/tmp/compat-constraints.txt" >> "$GITHUB_ENV"
 
-      - name: Bootstrap Python constraints (repo-agnostic)
+      - name: Install project dependencies (safe/agnostic)
+        working-directory: target
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
-          if [ -f ci/py_stack_guard.py ]; then
-            python ci/py_stack_guard.py | tee /tmp/stack_env || true
-            if grep -qE '^(PIP_CONSTRAINT|TESTGEN_PIP_CONSTRAINTS)=' /tmp/stack_env; then
-              grep -E '^(PIP_CONSTRAINT|TESTGEN_PIP_CONSTRAINTS)=' /tmp/stack_env >> "$GITHUB_ENV"
+          if compgen -G "requirements*.txt" >/dev/null; then
+            grep -hvE '(^-e|^git\+|^hg\+|^svn\+|^bzr\+|^file:)' requirements*.txt \
+              | sed -E 's/^psycopg2([^a-zA-Z0-9]|$)/psycopg2-binary\1/i' \
+              > /tmp/req.clean.txt
+            if [ -s /tmp/req.clean.txt ]; then
+              if [ -n "${PIP_CONSTRAINT:-}" ] && [ -f "${PIP_CONSTRAINT}" ]; then
+                pip install -c "${PIP_CONSTRAINT}" -r /tmp/req.clean.txt || true
+              else
+                pip install -r /tmp/req.clean.txt || true
+              fi
             fi
           fi
-
-      - name: Safe apt update/install (handles lock + retries)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! command -v apt-get >/dev/null 2>&1; then
-            echo "apt-get not available on this runner, skipping."
-            exit 0
+          if [ -f pyproject.toml ] && grep -q "\[tool.poetry\]" pyproject.toml; then
+            pip install poetry || true
+            poetry export -f requirements.txt --without-hashes -o /tmp/poetry.req || true
+            [ -s /tmp/poetry.req ] && pip install ${PIP_CONSTRAINT:+-c "$PIP_CONSTRAINT"} -r /tmp/poetry.req || true
           fi
-          sudo systemctl stop apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
-          sudo systemctl kill --kill-who=all apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
-          for i in {1..60}; do
-            if sudo fuser /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/cache/apt/archives/lock >/dev/null 2>&1; then
-              echo "APT lock held, waiting... ($i/60)"; sleep 5
-            else
-              break
-            fi
-          done
-          sudo rm -f /var/lib/dpkg/lock-frontend /var/cache/apt/archives/lock || true
-          sudo dpkg --configure -a || true
-          export DEBIAN_FRONTEND=noninteractive
-          sudo -E apt-get update -y
-          sudo -E apt-get install -y --no-install-recommends \
-            build-essential python3-dev libpq-dev default-libmysqlclient-dev \
-            libjpeg-dev zlib1g-dev libpng-dev libffi-dev libssl-dev \
-            libxml2-dev libxslt1-dev curl
-
-      - name: Install Python deps (tooling + target libs, constrained)
-        run: |
-          if [ -f ci/install_deps.sh ]; then
-            bash ci/install_deps.sh
-          else
-            python -m pip install -U -c "$PIP_CONSTRAINT" httpx requests
-            if [ -f target/requirements.txt ]; then
-              python -m pip install -U -c "$PIP_CONSTRAINT" -r target/requirements.txt || true
-            fi
+          if [ -f pyproject.toml ] && grep -q "\[tool.pdm\]" pyproject.toml; then
+            pip install pdm || true
+            pdm export -o /tmp/pdm.req --without-hashes --dev || true
+            [ -s /tmp/pdm.req ] && pip install ${PIP_CONSTRAINT:+-c "$PIP_CONSTRAINT"} -r /tmp/pdm.req || true
           fi
 
-      - name: Force compatible Django & DRF
+      - name: Force compatible Django & DRF (only if Django)
+        if: steps.detect.outputs.is_django == 'true'
         run: |
-          python -m pip install --upgrade -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15" || true
+          python -m pip install --upgrade -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
+          python -m pip install -U pytest-django
 
       - name: Print core versions (debug)
         run: |
           python - <<'PY'
           import importlib
-          for n in ("flask","werkzeug","flask_sqlalchemy","sqlalchemy","jinja2","itsdangerous","click","marshmallow","django","djangorestframework"):
+          for n in ("django","djangorestframework","flask","pytest","pytest_cov"):
               try:
                   m=importlib.import_module(n); print(f"{n}: {getattr(m,'__version__','?')}")
               except Exception as e:
@@ -169,7 +181,7 @@ jobs:
           TARGET_ROOT: target
           TESTGEN_FORCE: ${{ github.event.inputs.force_gen || 'false' }}
           TESTGEN_STRICT_FAIL: "1"
-          TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "0"
+          TESTGEN_ENABLE_DJANGO_BOOTSTRAP: ${{ steps.detect.outputs.is_django == 'true' && '1' || '0' }}
           TESTGEN_FIX_FLASK: "0"
           TESTGEN_AUTO_PIP: "0"
         run: |
@@ -177,12 +189,10 @@ jobs:
           import os, json, importlib
           outdir = os.environ.get('OUTDIR','tests/generated/out')
           os.makedirs(outdir, exist_ok=True)
-          analysis_path = '/tmp/analysis.json'
-          analysis = {}
           try:
-              analysis = json.load(open(analysis_path))
+              analysis = json.load(open('/tmp/analysis.json'))
           except Exception:
-              pass
+              analysis = {}
           try:
               gen = importlib.import_module('src.gen.generate')
               if os.environ.get('TESTGEN_FORCE','false').lower() == 'true':
@@ -242,7 +252,6 @@ jobs:
       - name: Sanity check generated tests (collect-only)
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
-          TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "1"
         run: |
           cd target || exit 0
           pytest -q --collect-only tests/generated || true

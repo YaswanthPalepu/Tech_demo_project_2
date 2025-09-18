@@ -25,8 +25,8 @@ jobs:
 
     env:
       PYTHONUTF8: "1"
-      COVERAGE_THRESHOLD: "70"        # % lines covered
-      PASS_THRESHOLD: "80"            # % tests passed (excl. skipped)
+      COVERAGE_THRESHOLD: "70"        # coverage % gate
+      PASS_THRESHOLD: "80"            # test pass % gate
       TESTGEN_ENABLE_DJANGO_BOOTSTRAP: "1"
       PIP_CONSTRAINT: /tmp/compat-constraints.txt
 
@@ -120,7 +120,7 @@ jobs:
               */.pytest_cache/*
               */__pycache__/*
           EOF
-          cat .coveragerc
+                    cat .coveragerc
 
       - name: Auto Django conftest (if Django project)
         working-directory: target
@@ -128,27 +128,29 @@ jobs:
         run: |
           if find . -name "settings.py" -type f | grep -q .; then
             cat > conftest.py <<'PY'
-            import os, sys, pathlib
-            ROOT = pathlib.Path(__file__).resolve().parent
-            if str(ROOT) not in sys.path:
-                sys.path.insert(0, str(ROOT))
-            def setup_django():
-                try:
-                    import django
-                    from django.conf import settings
-                    if not settings.configured:
-                        for s in ROOT.rglob('settings.py'):
-                            if 'migration' not in str(s):
-                                rel = s.relative_to(ROOT).with_suffix('')
-                                os.environ['DJANGO_SETTINGS_MODULE'] = '.'.join(rel.parts)
-                                break
-                        django.setup()
-                except Exception as e:
-                    print(f"Django setup warning: {e}")
-            setup_django()
-            PY
-            echo "Wrote Django conftest.py"
-          fi
+          import os, sys, pathlib
+          ROOT = pathlib.Path(__file__).resolve().parent
+          if str(ROOT) not in sys.path:
+              sys.path.insert(0, str(ROOT))
+
+          def setup_django():
+              try:
+                  import django
+                  from django.conf import settings
+                  if not settings.configured:
+                      for s in ROOT.rglob('settings.py'):
+                          if 'migration' not in str(s):
+                              rel = s.relative_to(ROOT).with_suffix('')
+                              os.environ['DJANGO_SETTINGS_MODULE'] = '.'.join(rel.parts)
+                              break
+                      django.setup()
+              except Exception as e:
+                  print(f"Django setup warning: {e}")
+
+          setup_django()
+          PY
+                      echo "Wrote Django conftest.py"
+                    fi
 
       - name: Discover test roots
         id: discover
@@ -221,7 +223,6 @@ jobs:
               except Exception:
                   cov = 0.0
           thr_cov = float(os.environ.get("COVERAGE_THRESHOLD","70"))
-          # JUnit pass%
           xmlp = pathlib.Path("reports/tests/report.junit.xml")
           tot=sk=fl=er=0
           if xmlp.exists():

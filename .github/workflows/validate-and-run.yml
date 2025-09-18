@@ -157,17 +157,47 @@ jobs:
             pip install -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
           fi
 
-      - name: Ensure pytest.ini (pin testpaths)
+      - name: Ensure __init__.py files in test directories
         working-directory: target
         shell: bash
         run: |
+          for dir in tests tests/generated test; do
+            if [ -d "$dir" ] && [ ! -f "$dir/__init__.py" ]; then
+              touch "$dir/__init__.py"
+              echo "✅ Created $dir/__init__.py"
+            fi
+          done
+
+      - name: Ensure pytest.ini (discover and pin testpaths)
+        working-directory: target
+        shell: bash
+        run: |
+          TEST_DIRS=""
+          [ -d tests/generated ] && TEST_DIRS="$TEST_DIRS tests/generated"
+          [ -d tests ] && TEST_DIRS="$TEST_DIRS tests"
+          [ -d test ] && TEST_DIRS="$TEST_DIRS test"
+          
+          # Look for test files in common source directories
+          for dir in . src app; do
+            if [ -d "$dir" ] && find "$dir" -maxdepth 2 -name "test_*.py" 2>/dev/null | grep -q .; then
+              TEST_DIRS="$TEST_DIRS $dir"
+            fi
+          done
+          
           if [ ! -f pytest.ini ]; then
             {
               echo "[pytest]"
-              echo "testpaths = tests tests/generated"
-              echo "addopts = -q"
+              if [ -n "$TEST_DIRS" ]; then
+                echo "testpaths =$TEST_DIRS"
+              else
+                echo "testpaths = ."
+              fi
+              echo "addopts = -q -v"
+              echo "python_files = test_*.py *_test.py"
+              echo "python_functions = test_*"
+              echo "python_classes = Test*"
             } > pytest.ini
-            echo "✅ Wrote pytest.ini with testpaths=tests tests/generated"
+            echo "✅ Wrote pytest.ini with testpaths:$TEST_DIRS"
           else
             echo "ℹ️ Existing pytest.ini:"
             cat pytest.ini || true
@@ -216,7 +246,47 @@ jobs:
           printf "%s\n" "    */.pytest_cache/*"     >> .coveragerc
           printf "%s\n" "    */__pycache__/*"       >> .coveragerc
           echo "✅ Wrote .coveragerc"
-          cat .coveragerc
+
+      - name: Debug test collection
+        working-directory: target
+        shell: bash
+        run: |
+          echo "=== Test file discovery ==="
+          find . -name "test_*.py" -o -name "*_test.py" | head -10
+          
+          echo "=== Directory structure ==="
+          ls -la tests/ 2>/dev/null || echo "❌ No tests/ directory"
+          ls -la tests/generated/ 2>/dev/null || echo "❌ No tests/generated/ directory"
+          ls -la test/ 2>/dev/null || echo "❌ No test/ directory"
+          
+          echo "=== Test function validation ==="
+          test_files_found=false
+          for testfile in $(find . -name "test_*.py" -o -name "*_test.py" | head -5); do
+            test_files_found=true
+            echo "--- $testfile ---"
+            if grep -n "^def test_\|^class Test" "$testfile"; then
+              echo "✅ Valid test functions found"
+            else
+              echo "❌ No valid test functions found"
+              echo "File contents preview:"
+              head -20 "$testfile"
+            fi
+            echo ""
+          done
+          
+          if [ "$test_files_found" = false ]; then
+            echo "❌ No test files found at all!"
+            echo "Current directory structure:"
+            find . -type f -name "*.py" | head -20
+          fi
+          
+          echo "=== Pytest collection preview ==="
+          PLUGINS="-p pytest_cov -p pytest_timeout"
+          if find . -name "settings.py" -type f | grep -q .; then
+            PLUGINS="$PLUGINS -p pytest_django"
+          fi
+          
+          pytest --collect-only -q $PLUGINS . 2>&1 || echo "Collection failed - check test file syntax"
 
       - name: Run tests with coverage (CI gate)
         id: run
@@ -232,13 +302,24 @@ jobs:
             PLUGINS="$PLUGINS -p pytest_django"
           fi
 
+          # Determine test targets based on what actually exists
           TARGETS=""
           [ -d tests/generated ] && TARGETS="$TARGETS tests/generated"
           [ -d tests ] && TARGETS="$TARGETS tests"
+          [ -d test ] && TARGETS="$TARGETS test"
+          
+          # If no standard test directories, look for test files in current directory
+          if [ -z "$TARGETS" ]; then
+            if find . -maxdepth 1 -name "test_*.py" | grep -q .; then
+              TARGETS="."
+            fi
+          fi
 
           if [ -z "$TARGETS" ]; then
-            echo "❌ Neither 'tests/generated' nor 'tests' exists. Listing tree to help debug:"
+            echo "❌ No test directories or files found. Available structure:"
             find . -maxdepth 3 -type d -print | sed 's/^/ - /'
+            echo "Python files found:"
+            find . -name "*.py" | head -10 | sed 's/^/ - /'
             exit 1
           fi
 
@@ -256,6 +337,18 @@ jobs:
           code=$?
           set -e
           echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"
+          
+          # If pytest failed, show more detailed error info
+          if [ $code -ne 0 ]; then
+            echo "❌ Pytest failed with exit code $code"
+            echo "Detailed error analysis:"
+            for target in $TARGETS; do
+              echo "=== Checking $target ==="
+              find "$target" -name "test_*.py" -exec echo "Found: {}" \;
+              find "$target" -name "test_*.py" -exec python -m py_compile {} \; || echo "Compilation failed for some files"
+            done
+          fi
+          
           exit $code
 
       - name: Parse coverage & set gate
@@ -300,3 +393,4 @@ jobs:
             echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold. **Ready to deploy.**" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "❌ Tests failed or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**). **Do NOT deploy.**" >> "$GITHUB_STEP_SUMMARY"
+          fi

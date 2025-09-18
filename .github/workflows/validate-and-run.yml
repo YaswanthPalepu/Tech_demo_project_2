@@ -82,6 +82,18 @@ jobs:
           git clone --depth=1 "$CLEAN_URL" target
           echo "✅ cloned into ./target"
 
+      - name: Debug what's actually in the cloned repo
+        shell: bash
+        run: |
+          echo "=== Contents of cloned target repo ==="
+            ls -la target/
+            echo "=== Looking for any directories that might contain tests ==="
+            find target/ -type d -name "*test*" -o -name "*spec*" 2>/dev/null || echo "No test-related directories found"
+            echo "=== Looking for any Python test files anywhere ==="
+            find target/ -name "test_*.py" -o -name "*_test.py" 2>/dev/null | head -10 || echo "No test files found anywhere"
+            echo "=== Git status of target repo ==="
+            cd target && git status --porcelain || true
+
       - name: Verify test files exist in target repo
         shell: bash
         run: |

@@ -4,11 +4,6 @@ on:
   push:
     branches: [test2]
   workflow_dispatch:
-    inputs:
-      repo_url:
-        description: "Repo to validate (fallback: current repo)"
-        required: false
-        default: ""
 
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
@@ -30,18 +25,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Resolve target repository URL
-        id: target
-        shell: bash
-        run: |
-          set -e
-          REPO_URL="${{ github.event.inputs.repo_url }}"
-          if [ -z "$REPO_URL" ]; then
-            REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
-          fi
-          echo "repo_url=$REPO_URL" >> "$GITHUB_OUTPUT"
-          echo "Resolved repo_url: $REPO_URL"
 
       - name: Set compatibility constraints
         shell: bash
@@ -66,11 +49,10 @@ jobs:
         shell: bash
         run: |
           set -e
-          CLEAN_URL='${{ steps.target.outputs.repo_url }}'
-          [[ "$CLEAN_URL" == git@* ]] && CLEAN_URL="https://github.com/${CLEAN_URL#git@github.com:}"
-          [[ "$CLEAN_URL" != https://* ]] && CLEAN_URL="https://github.com/$CLEAN_URL"
-          [[ "$CLEAN_URL" != *.git ]] && CLEAN_URL="${CLEAN_URL}.git"
-          if [ -n "$GH_PAT3" ]; then CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"; fi
+          CLEAN_URL="https://github.com/DeviPrasad372002/django-test-app.git"
+          if [ -n "$GH_PAT3" ]; then
+            CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
+          fi
           git clone --depth=1 "$CLEAN_URL" target
           echo "✅ cloned into ./target"
 
@@ -86,36 +68,6 @@ jobs:
               > /tmp/req.clean.txt
             [ -s /tmp/req.clean.txt ] && pip install -r /tmp/req.clean.txt || true
           fi
-
-      - name: Detect framework (Django?) and settings module
-        id: detect
-        working-directory: target
-        shell: bash
-        run: |
-          python - <<PYCODE
-          import os, pathlib
-          exclude={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','site-packages','__pycache__'}
-          cands=[]
-          for root, dirs, files in os.walk('.', topdown=True):
-              dirs[:]=[d for d in dirs if d not in exclude and 'site-packages' not in d]
-              if 'settings.py' in files and 'migrations' not in root:
-                  p=pathlib.Path(root,'settings.py').resolve()
-                  rel=pathlib.Path(os.path.relpath(p,'.')).with_suffix('')
-                  cands.append((len(rel.parts),'.'.join(rel.parts)))
-          is_django=bool(cands)
-          ds_module=sorted(cands,key=lambda x:x[0])[0][1] if cands else ""
-          print(f"is_django={is_django}, ds={ds_module or '-'}")
-          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
-              f.write(f"is_django={'true' if is_django else 'false'}\n")
-              f.write(f"ds_module={ds_module}\n")
-          PYCODE
-
-      - name: Add pytest-django only if Django project
-        if: steps.detect.outputs.is_django == 'true'
-        working-directory: target
-        shell: bash
-        run: |
-          pip install -c "$PIP_CONSTRAINT" pytest-django
 
       - name: Write pytest.ini (repo-agnostic)
         working-directory: target
@@ -136,7 +88,7 @@ jobs:
         working-directory: target
         shell: bash
         run: |
-          python - <<PYCODE
+          python - <<'PYCODE'
           import os, sys
           exclude={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','site-packages','__pycache__'}
           tests=[]
@@ -147,8 +99,9 @@ jobs:
                       tests.append(os.path.join(root,f))
           if not tests:
               print("❌ No test files found"); sys.exit(1)
-          with open('/tmp/test_files.txt','w') as fh: fh.write('\n'.join(tests))
+          tests = sorted(set(tests))
           print(f"✅ Found {len(tests)} test files")
+          open('/tmp/test_files.txt','w').write('\n'.join(tests))
           PYCODE
           echo "test_files=/tmp/test_files.txt" >> "$GITHUB_OUTPUT"
 
@@ -161,19 +114,21 @@ jobs:
         run: |
           mkdir -p reports/tests
           PLUGINS="-p pytest_cov -p pytest_timeout"
-          DS_OPT=""
-          if [ "${{ steps.detect.outputs.is_django }}" = "true" ]; then
-            PLUGINS="$PLUGINS -p pytest_django"
-            [ -n "${{ steps.detect.outputs.ds_module }}" ] && DS_OPT="--ds=${{ steps.detect.outputs.ds_module }}"
-          fi
-          mapfile -t FILES < "${{ steps.discover.outputs.test_files }}"
-          pytest -v --tb=short $PLUGINS $DS_OPT \
-            --cov=. --cov-config=.coveragerc \
+          mapfile -t FILES < /tmp/test_files.txt
+          echo "✅ Running pytest on ${#FILES[@]} files"
+          set +e
+          pytest -v --tb=short $PLUGINS \
+            --cov=. \
+            --cov-config=.coveragerc \
             --cov-report=xml:reports/tests/coverage.xml \
             --cov-report=json:reports/tests/coverage.json \
             --cov-report=term-missing \
             --timeout=300 \
             "${FILES[@]}"
+          code=$?
+          set -e
+          echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit $code
 
       - name: Parse coverage & gate
         id: gate
@@ -181,18 +136,36 @@ jobs:
         working-directory: target
         shell: bash
         run: |
-          python - <<PYCODE
+          python - <<'PYCODE'
           import json, pathlib, os, sys
-          cov=0.0
-          p=pathlib.Path('reports/tests/coverage.json')
+          p = pathlib.Path('reports/tests/coverage.json')
+          cov = 0.0
           if p.exists():
-              try: cov=float(json.load(open(p)).get('totals',{}).get('percent_covered',0.0))
+              try: cov = float(json.load(open(p)).get('totals',{}).get('percent_covered',0.0))
               except: pass
-          thr=float(os.environ.get('COVERAGE_THRESHOLD','70'))
-          tests_ok=('${{ steps.run.outcome }}'=='success')
-          ok=(cov>=thr) and tests_ok
+          thr = float(os.environ.get('COVERAGE_THRESHOLD','70'))
+          tests_ok = ('${{ steps.run.outcome }}'=='success')
+          ok = (cov >= thr) and tests_ok
           print(f"Coverage={cov:.2f}%, Thr={thr}, TestsOk={tests_ok}, Gate={'OK' if ok else 'FAIL'}")
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
               f.write(f"coverage={cov:.2f}\nready={'true' if ok else 'false'}\n")
           sys.exit(0 if ok else 1)
-          PYCODE
+          PYCODE  
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ github.run_number }}
+          path: target/reports/tests/
+          retention-days: 14
+
+      - name: Mark readiness (job summary)
+        if: always()
+        shell: bash
+        run: |
+          echo "## CI Result" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${{ steps.gate.outputs.ready }}" == "true" ]]; then
+            echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "❌ Tests failed or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**)." >> "$GITHUB_STEP_SUMMARY"

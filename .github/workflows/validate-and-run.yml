@@ -85,13 +85,17 @@ jobs:
       - name: Copy tests from this repo into target (if present)
         shell: bash
         run: |
+          mkdir -p target/tests/generated
           if [ -d tests/generated ]; then
-            mkdir -p target/tests/generated
             rsync -a tests/generated/ target/tests/generated/
-            echo "✅ Copied $(find target/tests/generated -type f \( -name 'test_*.py' -o -name '*_test.py' -o -name '*.test.py' \) | wc -l) tests into target/"
+            echo "✅ Copied $(find target/tests/generated -type f -name 'test_*.py' | wc -l) tests into target/"
           else
-            echo "ℹ️ No tests/generated in this repo; relying on tests inside target repo."
+            echo "ℹ️ No local tests/generated folder, checking target repo itself."
+            if [ -d target/tests/generated ]; then
+              echo "✅ Found tests/generated already in target repo."
+            fi
           fi
+          ls -R target/tests || true
 
       - name: Safe, repo-agnostic dependency install
         working-directory: target

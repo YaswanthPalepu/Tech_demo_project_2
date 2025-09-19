@@ -4,9 +4,9 @@ on:
   # workflow_run:
   #   workflows: ["AI Test Generation"]
   #   types: [completed]
-  push:
-    branches:
-      - test2
+    push:
+      branches: ["test2"]
+
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
   cancel-in-progress: true
@@ -51,14 +51,14 @@ jobs:
         shell: bash
         run: |
           set -e
-          CLEAN_URL="https://github.com/DeviPrasad372002/flask-test-repo.git"
+          CLEAN_URL="https://github.com/DeviPrasad372002/test-calculator.git"
           if [ -n "$GH_PAT3" ]; then
             CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
           fi
           git clone --depth=1 "$CLEAN_URL" target
           echo "✅ cloned into ./target"
 
-      # Pull generated tests from the upstream workflow (optional; won't fail if missing)
+      # Optional: bring in generated tests from the upstream workflow, if any
       - name: Download generated tests artifact from upstream run
         uses: actions/download-artifact@v4
         continue-on-error: true
@@ -193,14 +193,12 @@ jobs:
         run: |
           mkdir -p reports/tests
           PLUGINS="-p pytest_cov -p pytest_timeout"
-          DS_OPT=""
           if [ -n "${DJANGO_SETTINGS_MODULE:-}" ]; then
-            PLUGINS="$PLUGINS -p pytest_django"
-            DS_OPT="--ds=${DJANGO_SETTINGS_MODULE}"
+            PLUGINS="$PLUGINS -p django"
           fi
           if [ -f /tmp/test_files.txt ] && [ -s /tmp/test_files.txt ]; then
             mapfile -t FILES < /tmp/test_files.txt
-            pytest -v --tb=short $PLUGINS $DS_OPT \
+            pytest -v --tb=short $PLUGINS \
               --cov=. --cov-config=.coveragerc \
               --cov-report=xml:reports/tests/coverage.xml \
               --cov-report=json:reports/tests/coverage.json \
@@ -208,7 +206,7 @@ jobs:
               --timeout=300 \
               "${FILES[@]}"
           else
-            pytest -v --tb=short $PLUGINS $DS_OPT \
+            pytest -v --tb=short $PLUGINS \
               --cov=. --cov-config=.coveragerc \
               --cov-report=xml:reports/tests/coverage.xml \
               --cov-report=json:reports/tests/coverage.json \

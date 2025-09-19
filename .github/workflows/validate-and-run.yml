@@ -1,4 +1,3 @@
-# .github/workflows/validate-and-run.yml
 name: Validate Generated Tests (CI Gate)
 
 on:

@@ -68,7 +68,7 @@ jobs:
             [ -s /tmp/req.clean.txt ] && pip install -r /tmp/req.clean.txt || true
           fi
 
-      - name: Detect framework(s)
+      - name: Detect frameworks (Flask/FastAPI) and Django settings (only if init works)
         id: detect
         working-directory: target
         shell: bash
@@ -90,7 +90,7 @@ jobs:
           needs_fastapi = bool(re.search(r'(^|\n)\s*(from|import)\s+fastapi\b', text) or re.search(r'(^|\n)\s*(from|import)\s+starlette\b', text))
 
           ds = ''
-          ok = False
+          django_ok = False
           try:
               import django
               cands=[]
@@ -106,19 +106,19 @@ jobs:
                           os.environ['DJANGO_SETTINGS_MODULE']=mod
                           django.setup()
                           ds = mod
-                          ok = True
+                          django_ok = True
                           break
                       except Exception:
                           continue
           except Exception:
-              ok = False
+              django_ok = False
 
-          print("Detect -> flask:", needs_flask, "fastapi:", needs_fastapi, "django:", ok, (ds or '(none)'))
+          print("Detect -> flask:", needs_flask, "fastapi:", needs_fastapi, "django:", django_ok, (ds or '(none)'))
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
               f.write(f"needs_flask={'true' if needs_flask else 'false'}\n")
               f.write(f"needs_fastapi={'true' if needs_fastapi else 'false'}\n")
-              f.write(f"is_django={'true' if ok else 'false'}\n")
-              if ok: f.write(f"ds_module={ds}\n")
+              f.write(f"is_django={'true' if django_ok else 'false'}\n")
+              if django_ok: f.write(f"ds_module={ds}\n")
           PY
 
       - name: Install framework shims (only if detected)
@@ -126,7 +126,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ steps.detect.outputs.needs_flask }}" = "true" ]; then
-            pip install flask
+            pip install flask flask_sqlalchemy flask_migrate flask_cors flask_caching flask_jwt_extended flask_bcrypt flask_apispec marshmallow
           fi
           if [ "${{ steps.detect.outputs.needs_fastapi }}" = "true" ]; then
             pip install fastapi starlette pydantic
@@ -141,27 +141,25 @@ jobs:
           echo "DJANGO_SETTINGS_MODULE=${{ steps.detect.outputs.ds_module }}" >> $GITHUB_ENV
           echo "✅ Using Django settings: ${{ steps.detect.outputs.ds_module }}"
 
-      - name: Prepare pytest.ini
+      - name: Prepare pytest.ini (print skip reasons)
         working-directory: target
         shell: bash
         run: |
           cat > pytest.ini <<'EOF'
           [pytest]
-          addopts = -v --tb=short
+          addopts = -v -ra --tb=short
           python_files = test_*.py *_test.py *.test.py
           python_functions = test_*
           python_classes = Test*
           norecursedirs = .git .tox .env .venv venv env __pycache__ .pytest_cache build dist node_modules */site-packages/*
           EOF
 
-      - name: Coverage config
+      - name: Coverage config (prefer repo coverage.ini; fallback .coveragerc)
         shell: bash
         run: |
-          # Prefer root coverage.ini if present. Copy into target so pytest-cov can read it.
           if [ -f coverage.ini ]; then
             cp coverage.ini target/coverage.ini
           fi
-          # Always provide a fallback .coveragerc inside target.
           cat > target/.coveragerc <<'EOF'
           [run]
           omit = */.venv/* */venv/* */env/* */site-packages/* */.tox/* */.pytest_cache/* */__pycache__/* */migrations/*
@@ -194,37 +192,36 @@ jobs:
               print("⏭️  Skipping migrations probe failed:", e)
           PY
 
-      - name: Discover test files (non-fatal)
+      - name: Discover committed generated tests
         id: discover
         working-directory: target
         shell: bash
         run: |
           python - <<'PY'
-          import os, pathlib
-          EXC={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','site-packages','__pycache__'}
+          import pathlib, sys
           root=pathlib.Path('.')
-          tests=[]
-          for p in root.rglob('*.py'):
-            if any(part in EXC for part in p.parts):
-              continue
-            n=p.name
-            if n.startswith('test_') or n.endswith('_test.py') or n.endswith('.test.py'):
-              tests.append(str(p))
-          if tests:
-            out='/tmp/test_files.txt'
-            open(out,'w').write('\n'.join(sorted(tests)))
-            print(f"✅ Will run pytest on {len(tests)} files")
+          files=[str(p) for p in (root/'tests'/'generated').rglob('test_*.py')]
+          if files:
+              out='/tmp/test_files.txt'
+              open(out,'w').write('\n'.join(sorted(files)))
+              print(f"✅ Found {len(files)} generated tests under tests/generated")
           else:
-            print("ℹ️ No explicit list. Pytest will auto-discover (e.g., tests/generated/*.py).")
+              print("❌ No generated tests found under tests/generated"); sys.exit(1)
           PY
+          echo "test_files=/tmp/test_files.txt" >> "$GITHUB_OUTPUT"
 
-      - name: Run tests with coverage
+      - name: Run tests with coverage (make Flask importable; avoid all-skips)
         id: run
         working-directory: target
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
           PYTHONPATH: ${{ github.workspace }}/target
           TARGET_ROOT: ${{ github.workspace }}/target
+          # Safe defaults for common Flask apps so imports/clients work:
+          FLASK_ENV: testing
+          SECRET_KEY: test-secret
+          DATABASE_URL: "sqlite:///:memory:"
+          SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
         shell: bash
         run: |
           mkdir -p reports/tests
@@ -233,32 +230,21 @@ jobs:
             PLUGINS="$PLUGINS -p pytest_django"
             export DJANGO_SETTINGS_MODULE="${{ steps.detect.outputs.ds_module }}"
           fi
-          # Choose coverage config: prefer coverage.ini (copied), else .coveragerc
           COVCFG_OPT=""
           if [ -f coverage.ini ]; then
             COVCFG_OPT="--cov-config=coverage.ini"
           elif [ -f .coveragerc ]; then
             COVCFG_OPT="--cov-config=.coveragerc"
           fi
-          if [ -s /tmp/test_files.txt ]; then
-            mapfile -t FILES < /tmp/test_files.txt
-            pytest -v --tb=short $PLUGINS $COVCFG_OPT \
-              --cov=. \
-              --cov-report=xml:reports/tests/coverage.xml \
-              --cov-report=json:reports/tests/coverage.json \
-              --cov-report=term-missing \
-              --junitxml=reports/tests/junit.xml \
-              --timeout=300 \
-              "${FILES[@]}"
-          else
-            pytest -v --tb=short $PLUGINS $COVCFG_OPT \
-              --cov=. \
-              --cov-report=xml:reports/tests/coverage.xml \
-              --cov-report=json:reports/tests/coverage.json \
-              --cov-report=term-missing \
-              --junitxml=reports/tests/junit.xml \
-              --timeout=300
-          fi
+          mapfile -t FILES < /tmp/test_files.txt
+          pytest -v -ra --tb=short $PLUGINS $COVCFG_OPT \
+            --cov=. \
+            --cov-report=xml:reports/tests/coverage.xml \
+            --cov-report=json:reports/tests/coverage.json \
+            --cov-report=term-missing \
+            --junitxml=reports/tests/junit.xml \
+            --timeout=300 \
+            "${FILES[@]}"
 
       - name: Parse metrics & gate
         id: gate

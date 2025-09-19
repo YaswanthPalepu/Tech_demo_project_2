@@ -32,9 +32,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set compatibility constraints
-        shell: bash
-        run: |
-          printf "Django>=3.2,<4.3\ndjangorestframework>=3.12,<3.15\n" > /tmp/compat-constraints.txt
+        run: printf "Django>=3.2,<4.3\ndjangorestframework>=3.12,<3.15\n" > /tmp/compat-constraints.txt
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -43,7 +41,6 @@ jobs:
           cache: pip
 
       - name: Install runner tooling
-        shell: bash
         run: |
           python -m pip install --upgrade "pip<25" wheel setuptools
           pip install -c "$PIP_CONSTRAINT" pytest pytest-cov pytest-timeout pytest-xdist coverage
@@ -51,7 +48,6 @@ jobs:
       - name: Clone target repo
         env:
           GH_PAT3: ${{ secrets.GH_PAT3 || secrets.GITHUB_TOKEN }}
-        shell: bash
         run: |
           set -e
           CLEAN_URL="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
@@ -63,59 +59,50 @@ jobs:
 
       - name: Install project dependencies (requirements*.txt)
         working-directory: target
-        shell: bash
         run: |
           set -e
           python -m pip install --upgrade "pip<25" wheel setuptools
           if compgen -G "requirements*.txt" >/dev/null; then
             grep -vE '(^-e|^git\+|^hg\+|^svn\+|^bzr\+|^file:)' requirements*.txt \
-              | sed -E 's/^psycopg2([^a-zA-Z0-9]|$)/psycopg2-binary\1/i' \
-              > /tmp/req.clean.txt
+              | sed -E 's/^psycopg2([^a-zA-Z0-9]|$)/psycopg2-binary\1/i' > /tmp/req.clean.txt
             [ -s /tmp/req.clean.txt ] && pip install -r /tmp/req.clean.txt || true
           fi
 
       - name: Detect frameworks and Django settings
         id: detect
         working-directory: target
-        shell: bash
         run: |
-          python - <<'PY'
-          import os, re, pathlib
-          root = pathlib.Path('.').resolve()
-          text = ''
-          for p in root.rglob('*.py'):
-              try: text += '\n' + p.read_text(encoding='utf-8', errors='ignore')
+          python -c 'import os,re,pathlib,sys
+            root=pathlib.Path(".").resolve()
+            txt=""; 
+            for p in root.rglob("*.py"):
+              try: txt+="\n"+p.read_text(encoding="utf-8",errors="ignore")
               except: pass
-          needs_flask   = bool(re.search(r'(^|\n)\s*(from|import)\s+flask\b', text))
-          needs_fastapi = bool(re.search(r'(^|\n)\s*(from|import)\s+fastapi\b', text) or re.search(r'(^|\n)\s*(from|import)\s+starlette\b', text))
-
-          ds = ''
-          mpy = root / 'manage.py'
-          if mpy.exists():
-              s = mpy.read_text(encoding='utf-8', errors='ignore')
-              m = re.search(r"DJANGO_SETTINGS_MODULE=['\"]([^'\"]+)['\"]", s) or re.search(r"setdefault\(\s*['\"]DJANGO_SETTINGS_MODULE['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)", s)
-              if m: ds = m.group(1)
-          if not ds:
-              cands = []
-              for p in root.rglob('settings.py'):
-                  if 'migrations' in str(p): continue
-                  rel = p.relative_to(root)
-                  mod = '.'.join(rel.with_suffix('').parts)
-                  cands.append((len(rel.parts), mod))
-              if cands:
-                  ds = sorted(cands)[0][1]
-
-          print("Detect -> flask:", needs_flask, "fastapi:", needs_fastapi, "django:", bool(ds), (ds or '(none)'))
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"needs_flask={'true' if needs_flask else 'false'}\n")
-              f.write(f"needs_fastapi={'true' if needs_fastapi else 'false'}\n")
-              f.write(f"is_django={'true' if ds else 'false'}\n")
-              if ds: f.write(f"ds_module={ds}\n")
-          PY
+            needs_flask=bool(re.search(r"(^|\n)\s*(from|import)\s+flask\b",txt))
+            needs_fastapi=bool(re.search(r"(^|\n)\s*(from|import)\s+fastapi\b",txt) or re.search(r"(^|\n)\s*(from|import)\s+starlette\b",txt))
+            ds=""
+            mpy=root/"manage.py"
+            if mpy.exists():
+              s=mpy.read_text(encoding="utf-8",errors="ignore")
+              m=re.search(r"DJANGO_SETTINGS_MODULE=[\"\']([^\"\']+)[\"\']",s) or re.search(r"setdefault\(\s*[\"\']DJANGO_SETTINGS_MODULE[\"\']\s*,\s*[\"\']([^\"\']+)[\"\']\s*\)",s)
+              if m: ds=m.group(1)
+            if not ds:
+              c=[]
+              for p in root.rglob("settings.py"):
+                if "migrations" in str(p): continue
+                try:
+                  rel=p.relative_to(root); c.append((len(rel.parts),".".join(rel.with_suffix("").parts)))
+                except: pass
+              if c: ds=sorted(c)[0][1]
+            print("Detect -> flask:",needs_flask,"fastapi:",needs_fastapi,"django:",bool(ds),ds or "(none)")
+            with open(os.environ["GITHUB_OUTPUT"],"a") as f:
+              f.write(f"needs_flask={"true" if needs_flask else "false"}\n")
+              f.write(f"needs_fastapi={"true" if needs_fastapi else "false"}\n")
+              f.write(f"is_django={"true" if ds else "false"}\n")
+              if ds: f.write(f"ds_module={ds}\n")'
 
       - name: Install framework shims (only if detected)
         working-directory: target
-        shell: bash
         run: |
           if [ "${{ steps.detect.outputs.needs_flask }}" = "true" ]; then
             pip install flask flask_sqlalchemy flask_migrate flask_cors flask_caching flask_jwt_extended flask_bcrypt flask_apispec marshmallow
@@ -127,71 +114,47 @@ jobs:
       - name: Force compatible Django & DRF (only if Django)
         if: steps.detect.outputs.is_django == 'true'
         working-directory: target
-        shell: bash
-        run: |
-          pip install -c "$PIP_CONSTRAINT" -U "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15" pytest-django
+        run: pip install -c "$PIP_CONSTRAINT" -U "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15" pytest-django
 
-      # Fetch generated tests artifact (works for both workflow_run and manual dispatch)
       - name: Fetch generated tests artifact
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
         run: |
           set -e
           mkdir -p _dl tests
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
             RUN_ID="${{ github.event.workflow_run.id }}"
           else
-            RUN_ID=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+            WF_ID=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
               "${{ github.api_url }}/repos/${{ github.repository }}/actions/workflows" \
-              | python - <<'PY'
-              import json,sys,os
-              j=json.load(sys.stdin)
-              wid = ""
-              for w in j.get("workflows",[]):
-                  if w.get("name")=="AI Test Generation":
-                      wid = str(w.get("id","")); break
-              print(wid)
-              PY
-              )
-            if [ -n "$RUN_ID" ]; then
+              | python -c 'import sys,json; j=json.load(sys.stdin); print(next((str(w["id"]) for w in j.get("workflows",[]) if w.get("name")=="AI Test Generation"),""))')
+            RUN_ID=""
+            if [ -n "$WF_ID" ]; then
               RUN_ID=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
-                "${{ github.api_url }}/repos/${{ github.repository }}/actions/workflows/${RUN_ID}/runs?status=success&per_page=1" \
-                | python - <<'PY'
-            import json,sys
-            j=json.load(sys.stdin)
-            print(j.get("workflow_runs",[{}])[0].get("id",""))
-            PY
-            )
+                "${{ github.api_url }}/repos/${{ github.repository }}/actions/workflows/${WF_ID}/runs?status=success&per_page=1" \
+                | python -c 'import sys,json; j=json.load(sys.stdin); print(j.get("workflow_runs",[{}])[0].get("id",""))')
             fi
           fi
           if [ -n "$RUN_ID" ]; then
             curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
-              "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
-              > _dl/list.json
-            ART_URL=$(python - <<'PY'
-            import json
-            j=json.load(open('_dl/list.json'))
-            for a in j.get('artifacts',[]):
-                n=a.get('name','').lower()
-                if n in ('generated-tests','generated_tests') or any(k in n for k in ('generated','testgen')):
-                    print(a['archive_download_url']); break
-            PY
-            )
-            if [ -n "$ART_URL" ]; then
-              curl -sS -L -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
-                "$ART_URL" -o _dl/a.zip
-              unzip -q _dl/a.zip -d tests || true
-              echo "✅ Downloaded generated tests artifact into ./tests"
-            else
-              echo "ℹ️ No matching artifact found on selected run."
-            fi
-          else
-            echo "ℹ️ Could not locate a recent 'AI Test Generation' run."
-          fi
+              "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" > _dl/list.json
+            ART_URL=$(python -c 'import json; j=json.load(open("_dl/list.json"))
+          for a in j.get("artifacts",[]):
+            n=a.get("name","").lower()
+            if n in ("generated-tests","generated_tests") or any(k in n for k in ("generated","testgen")):
+              print(a["archive_download_url"]); break')
+                      if [ -n "$ART_URL" ]; then
+                        curl -sS -L -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "$ART_URL" -o _dl/a.zip
+                        unzip -q _dl/a.zip -d tests || true
+                        echo "✅ Downloaded generated tests artifact into ./tests"
+                      else
+                        echo "❌ No matching artifact found"; exit 1
+                      fi
+                    else
+                      echo "❌ Could not locate a recent 'AI Test Generation' run."; exit 1
+                    fi
 
       - name: Copy generated tests into target (if any)
-        shell: bash
         run: |
           set -e
           COUNT=$(find tests -type f -name 'test_*.py' 2>/dev/null | wc -l | xargs || true)
@@ -205,133 +168,124 @@ jobs:
 
       - name: Write runtime conftest (repo-agnostic) into target/tests/generated
         working-directory: target
-        shell: bash
         run: |
-          mkdir -p tests/generated
-          cat > tests/generated/conftest.py <<'PY'
-          import os, sys, types, warnings, builtins, importlib, importlib.util, random, re, pathlib
-          import pytest
-
-          warnings.filterwarnings("ignore", category=DeprecationWarning)
-          warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
-
-          @pytest.fixture(autouse=True)
-          def _deterministic_seed():
-              random.seed(1337)
-              try:
-                  import numpy as _np; _np.random.seed(1337)
-              except Exception: pass
-              try:
-                  import torch as _torch; _torch.manual_seed(1337)
-              except Exception: pass
-
-          def _find_root():
-              here = pathlib.Path(__file__).resolve()
-              markers = {"manage.py","pyproject.toml","setup.cfg","setup.py","requirements.txt",".git"}
-              for p in [*here.parents]:
-                  if any((p/m).exists() for m in markers): return p
-              return here.parents[2] if len(here.parents)>=2 else here.parent
-
-          ROOT = _find_root()
-          if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
-          if "target" not in sys.modules:
-              _pkg = types.ModuleType("target"); _pkg.__path__ = [str(ROOT)]
-              sys.modules["target"] = _pkg
-
-          os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
-
-          # SQLAlchemy Binary shim
-          try:
-              import sqlalchemy as _sa
-              if not hasattr(_sa,"Binary") and hasattr(_sa,"LargeBinary"):
-                  _sa.Binary = _sa.LargeBinary  # type: ignore
-          except Exception: pass
-
-          # flask_jwt_extended jwt_optional shim
-          try:
-              import flask_jwt_extended as _fje
-              if not hasattr(_fje,"jwt_optional") and hasattr(_fje,"jwt_required"):
-                  from flask_jwt_extended import jwt_required
-                  def jwt_optional(fn=None, **kwargs):
-                      dec = jwt_required(optional=True)
-                      return dec(fn) if callable(fn) else dec
-                  _fje.jwt_optional = jwt_optional  # type: ignore
-          except Exception: pass
-
-          # Auto-setup Django (settings + setup())
-          def _detect_django_settings():
-              if os.environ.get("DJANGO_SETTINGS_MODULE"):
-                  return os.environ["DJANGO_SETTINGS_MODULE"]
-              mpy = ROOT / "manage.py"
-              if mpy.exists():
-                  try:
-                      s = mpy.read_text(encoding="utf-8", errors="ignore")
-                      m = (re.search(r"DJANGO_SETTINGS_MODULE\s*=\s*['\"]([^'\"]+)['\"]", s)
-                          or re.search(r"setdefault\(\s*['\"]DJANGO_SETTINGS_MODULE['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)", s))
-                      if m: return m.group(1)
-                  except Exception: pass
-              exc={"migrations","site-packages",".venv","venv","env",".tox","__pycache__"}
-              c=[]
-              for p in ROOT.rglob("settings.py"):
-                  if any(part in exc for part in p.parts): continue
-                  try:
-                      rel=p.relative_to(ROOT)
-                      c.append((len(rel.parts),".".join(rel.with_suffix("").parts)))
-                  except Exception: pass
-              return c[0][1] if c else ""
-
-          def _auto_setup_django():
-              ds=_detect_django_settings()
-              if not ds: return
-              os.environ.setdefault("DJANGO_SETTINGS_MODULE", ds)
-              os.environ.setdefault("SECRET_KEY","test-secret")
-              os.environ.setdefault("DATABASE_URL","sqlite:///:memory:")
-              try:
-                  import django; django.setup()
-              except Exception as e:
-                  warnings.warn(f"Django auto-setup failed: {e!r}")
-
-          try: _auto_setup_django()
-          except Exception: pass
-
-          _real_import = builtins.__import__
-          def _smart_import(name,*a,**k):
-              try:
-                  return _real_import(name,*a,**k)
-              except ModuleNotFoundError:
-                  low=name.lower()
-                  if low!=name:
-                      try: return _real_import(low,*a,**k)
-                      except ModuleNotFoundError: pass
-                  for cand in (ROOT/f"{name}.py", ROOT/f"{low}.py"):
-                      if cand.is_file():
-                          spec = importlib.util.spec_from_file_location(name, cand)
-                          if spec and spec.loader:
-                              mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)  # type: ignore
-                              sys.modules[name]=mod; return mod
-                  raise
-          builtins.__import__ = _smart_import
-          PY
-                    python - <<'PY'
-                    from pathlib import Path
-                    print("✅ Wrote conftest:", Path("tests/generated/conftest.py").resolve())
-                    PY
+          python -c 'from pathlib import Path
+          p=Path("tests/generated/conftest.py"); p.parent.mkdir(parents=True,exist_ok=True)
+          lines=[
+          "import os, sys, types, warnings, builtins, importlib, importlib.util, random, re, pathlib",
+          "import pytest",
+          "",
+          "warnings.filterwarnings(\"ignore\", category=DeprecationWarning)",
+          "warnings.filterwarnings(\"ignore\", category=PendingDeprecationWarning)",
+          "",
+          "@pytest.fixture(autouse=True)",
+          "def _deterministic_seed():",
+          "    random.seed(1337)",
+          "    try:",
+          "        import numpy as _np; _np.random.seed(1337)",
+          "    except Exception: pass",
+          "    try:",
+          "        import torch as _torch; _torch.manual_seed(1337)",
+          "    except Exception: pass",
+          "",
+          "def _find_root():",
+          "    here = pathlib.Path(__file__).resolve()",
+          "    markers = {\"manage.py\",\"pyproject.toml\",\"setup.cfg\",\"setup.py\",\"requirements.txt\",\".git\"}",
+          "    for q in [*here.parents]:",
+          "        if any((q/m).exists() for m in markers): return q",
+          "    return here.parents[2] if len(here.parents)>=2 else here.parent",
+          "",
+          "ROOT = _find_root()",
+          "if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))",
+          "if \"target\" not in sys.modules:",
+          "    _pkg = types.ModuleType(\"target\"); _pkg.__path__ = [str(ROOT)]",
+          "    sys.modules[\"target\"] = _pkg",
+          "",
+          "os.environ.setdefault(\"QT_QPA_PLATFORM\",\"offscreen\")",
+          "",
+          "# SQLAlchemy Binary shim",
+          "try:",
+          "    import sqlalchemy as _sa",
+          "    if not hasattr(_sa,\"Binary\") and hasattr(_sa,\"LargeBinary\"):",
+          "        _sa.Binary = _sa.LargeBinary  # type: ignore",
+          "except Exception: pass",
+          "",
+          "# flask_jwt_extended jwt_optional shim",
+          "try:",
+          "    import flask_jwt_extended as _fje",
+          "    if not hasattr(_fje,\"jwt_optional\") and hasattr(_fje,\"jwt_required\"):",
+          "        from flask_jwt_extended import jwt_required",
+          "        def jwt_optional(fn=None, **kwargs):",
+          "            dec = jwt_required(optional=True)",
+          "            return dec(fn) if callable(fn) else dec",
+          "        _fje.jwt_optional = jwt_optional  # type: ignore",
+          "except Exception: pass",
+          "",
+          "def _detect_django_settings():",
+          "    if os.environ.get(\"DJANGO_SETTINGS_MODULE\"):",
+          "        return os.environ[\"DJANGO_SETTINGS_MODULE\"]",
+          "    mpy = ROOT / \"manage.py\"",
+          "    if mpy.exists():",
+          "        try:",
+          "            s = mpy.read_text(encoding=\"utf-8\", errors=\"ignore\")",
+          "            m = (re.search(r\"DJANGO_SETTINGS_MODULE\\s*=\\s*[\\\"\\']([^\\\"\\']+)[\\\"\\']\", s)",
+          "                 or re.search(r\"setdefault\\(\\s*[\\\"\\']DJANGO_SETTINGS_MODULE[\\\"\\']\\s*,\\s*[\\\"\\']([^\\\"\\']+)[\\\"\\']\\s*\\)\", s))",
+          "            if m: return m.group(1)",
+          "        except Exception: pass",
+          "    exc={\"migrations\",\"site-packages\",\".venv\",\"venv\",\"env\",\".tox\",\"__pycache__\"}",
+          "    c=[]",
+          "    for pp in ROOT.rglob(\"settings.py\"):",
+          "        if any(part in exc for part in pp.parts): continue",
+          "        try:",
+          "            rel=pp.relative_to(ROOT); c.append((len(rel.parts),\".\".join(rel.with_suffix(\"\").parts)))",
+          "        except Exception: pass",
+          "    return c[0][1] if c else \"\"",
+          "",
+          "def _auto_setup_django():",
+          "    ds=_detect_django_settings()",
+          "    if not ds: return",
+          "    os.environ.setdefault(\"DJANGO_SETTINGS_MODULE\", ds)",
+          "    os.environ.setdefault(\"SECRET_KEY\",\"test-secret\")",
+          "    os.environ.setdefault(\"DATABASE_URL\",\"sqlite:///:memory:\")",
+          "    try:",
+          "        import django; django.setup()",
+          "    except Exception as e:",
+          "        warnings.warn(f\"Django auto-setup failed: {e!r}\")",
+          "",
+          "try: _auto_setup_django()",
+          "except Exception: pass",
+          "",
+          "_real_import = builtins.__import__",
+          "def _smart_import(name,*a,**k):",
+          "    try:",
+          "        return _real_import(name,*a,**k)",
+          "    except ModuleNotFoundError:",
+          "        low=name.lower()",
+          "        if low!=name:",
+          "            try: return _real_import(low,*a,**k)",
+          "            except ModuleNotFoundError: pass",
+          "        for cand in (ROOT/f\"{name}.py\", ROOT/f\"{low}.py\"):",
+          "            if cand.is_file():",
+          "                spec = importlib.util.spec_from_file_location(name, cand)",
+          "                if spec and spec.loader:",
+          "                    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)  # type: ignore",
+          "                    sys.modules[name]=mod; return mod",
+          "        raise",
+          "builtins.__import__ = _smart_import",
+          ]
+          p.write_text(\"\\n\".join(lines)+\"\\n\", encoding=\"utf-8\")
+          print(\"✅ Wrote\", p.resolve())'
 
       - name: Discover generated tests (in target)
         id: discover
         working-directory: target
-        shell: bash
         run: |
-          python - <<'PY'
-          import pathlib, sys
-          files=[str(p) for p in (pathlib.Path('tests')/'generated').rglob('test_*.py')]
-          if not files:
-              print("❌ No generated tests found under target/tests/generated"); sys.exit(1)
-          out='/tmp/test_files.txt'
-          open(out,'w').write('\n'.join(sorted(files)))
-          print(f"✅ Found {len(files)} tests")
-          PY
-          echo "test_files=/tmp/test_files.txt" >> "$GITHUB_OUTPUT"
+          python -c 'import pathlib,sys
+          files=[str(p) for p in (pathlib.Path("tests")/"generated").rglob("test_*.py")]
+          assert files, "no generated tests"
+          open("/tmp/test_files.txt","w").write("\n".join(sorted(files)))
+          print(f"✅ Found {len(files)} tests")'
+                    echo "test_files=/tmp/test_files.txt" >> "$GITHUB_OUTPUT"
 
       - name: Run migrations if Django (safe)
         if: steps.detect.outputs.is_django == 'true'
@@ -341,24 +295,21 @@ jobs:
           DJANGO_SETTINGS_MODULE: ${{ steps.detect.outputs.ds_module }}
           SECRET_KEY: testing
           DATABASE_URL: "sqlite:///:memory:"
-        shell: bash
         run: |
-          python - <<'PY'
-          import os, django
-          os.environ.setdefault('DJANGO_SETTINGS_MODULE', os.environ['DJANGO_SETTINGS_MODULE'])
+          python -c 'import os,sys
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", os.environ["DJANGO_SETTINGS_MODULE"])
           try:
-              django.setup()
+              import django; django.setup()
               from django.conf import settings
-              eng = (getattr(settings,'DATABASES',{}).get('default',{}).get('ENGINE','') or '')
-              if not eng or eng == 'django.db.backends.dummy':
+              eng=(getattr(settings,"DATABASES",{}).get("default",{}).get("ENGINE","") or "")
+              if not eng or eng=="django.db.backends.dummy":
                   print("⏭️  Skipping migrations: no real DB engine configured.")
               else:
                   from django.core.management import call_command
-                  call_command('migrate', interactive=False, verbosity=0)
+                  call_command("migrate", interactive=False, verbosity=0)
                   print("✅ migrate done")
           except Exception as e:
-              print("⏭️  Skipping migrations probe failed:", e)
-          PY
+              print("⏭️  Skipping migrations probe failed:", e)'
 
       - name: Run tests with coverage
         id: run
@@ -371,7 +322,6 @@ jobs:
           SECRET_KEY: testing
           DATABASE_URL: "sqlite:///:memory:"
           SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
-        shell: bash
         run: |
           mkdir -p reports/tests
           PLUGINS="-p pytest_cov -p pytest_timeout"
@@ -380,11 +330,8 @@ jobs:
             export DJANGO_SETTINGS_MODULE="${{ steps.detect.outputs.ds_module }}"
           fi
           COVCFG_OPT=""
-          if [ -f coverage.ini ]; then
-            COVCFG_OPT="--cov-config=coverage.ini"
-          elif [ -f .coveragerc ]; then
-            COVCFG_OPT="--cov-config=.coveragerc"
-          fi
+          [ -f coverage.ini ] && COVCFG_OPT="--cov-config=coverage.ini"
+          [ -z "$COVCFG_OPT" ] && [ -f .coveragerc ] && COVCFG_OPT="--cov-config=.coveragerc"
           mapfile -t FILES < /tmp/test_files.txt
           pytest -v -ra --tb=short $PLUGINS $COVCFG_OPT \
             --cov=. \
@@ -399,46 +346,34 @@ jobs:
         id: gate
         if: always()
         working-directory: target
-        shell: bash
         run: |
-          python - <<'PY'
-          import json, pathlib, os, sys
-          from xml.etree import ElementTree as ET
-          cov = 0.0
-          p = pathlib.Path('reports/tests/coverage.json')
+          python -c 'import json,pathlib,os,sys,xml.etree.ElementTree as ET
+          cov=0.0
+          p=pathlib.Path("reports/tests/coverage.json")
           if p.exists():
-              try: cov=float(json.load(open(p)).get('totals',{}).get('percent_covered',0.0))
+              try: cov=float(json.load(open(p)).get("totals",{}).get("percent_covered",0.0))
               except: pass
           pass_pct=fail_pct=0.0
-          j = pathlib.Path('reports/tests/junit.xml')
+          j=pathlib.Path("reports/tests/junit.xml")
           if j.exists():
-              root = ET.parse(j).getroot()
-              tests    = int(root.attrib.get('tests', 0))
-              failures = int(root.attrib.get('failures', 0))
-              errors   = int(root.attrib.get('errors', 0))
-              skipped  = int(root.attrib.get('skipped', root.attrib.get('disabled', 0)))
-              if tests == 0:
-                  for tc in root.iter('testcase'):
-                      tests += 1
-                      if tc.find('skipped') is not None: skipped += 1
-                      elif tc.find('failure') is not None: failures += 1
-                      elif tc.find('error') is not None: errors += 1
-              run_total = max(0, tests - skipped)
-              passed = max(0, run_total - failures - errors)
-              pass_pct = (100.0*passed/run_total) if run_total>0 else 0.0
-              fail_pct = (100.0*(failures+errors)/run_total) if run_total>0 else 0.0
-          print(f"Pass% (excl skipped): {pass_pct:.2f}%")
-          print(f"Fail% (excl skipped): {fail_pct:.2f}%")
-          print(f"Coverage%: {cov:.2f}%")
-          thr = float(os.environ.get('COVERAGE_THRESHOLD','70'))
-          ready = (pass_pct == 100.0) and (cov >= thr) and (pass_pct > 0.0)
-          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
-              f.write(f"coverage={cov:.2f}\n")
-              f.write(f"pass_pct={pass_pct:.2f}\n")
-              f.write(f"fail_pct={fail_pct:.2f}\n")
-              f.write(f"ready={'true' if ready else 'false'}\n")
-          sys.exit(0 if ready else 1)
-          PY
+              root=ET.parse(j).getroot()
+              tests=int(root.attrib.get("tests",0)); failures=int(root.attrib.get("failures",0)); errors=int(root.attrib.get("errors",0))
+              skipped=int(root.attrib.get("skipped",root.attrib.get("disabled",0)))
+              if tests==0:
+                  for tc in root.iter("testcase"):
+                      tests+=1
+                      if tc.find("skipped") is not None: skipped+=1
+                      elif tc.find("failure") is not None: failures+=1
+                      elif tc.find("error") is not None: errors+=1
+              run_total=max(0,tests-skipped); passed=max(0,run_total-failures-errors)
+              pass_pct=(100.0*passed/run_total) if run_total>0 else 0.0
+              fail_pct=(100.0*(failures+errors)/run_total) if run_total>0 else 0.0
+          print(f"Pass% (excl skipped): {pass_pct:.2f}%"); print(f"Fail% (excl skipped): {fail_pct:.2f}%"); print(f"Coverage%: {cov:.2f}%")
+          thr=float(os.environ.get("COVERAGE_THRESHOLD","70"))
+          ready=(pass_pct==100.0) and (cov>=thr) and (pass_pct>0.0)
+          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
+              f.write(f"coverage={cov:.2f}\n"); f.write(f"pass_pct={pass_pct:.2f}\n"); f.write(f"fail_pct={fail_pct:.2f}\n"); f.write(f"ready={"true" if ready else "false"}\n")
+          sys.exit(0 if ready else 1)'
 
       - name: Upload reports
         if: always()
@@ -450,7 +385,6 @@ jobs:
 
       - name: Mark readiness (job summary)
         if: always()
-        shell: bash
         run: |
           echo "## CI Result" >> "$GITHUB_STEP_SUMMARY"
           if [[ "${{ steps.gate.outputs.ready }}" == "true" ]]; then

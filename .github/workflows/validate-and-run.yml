@@ -1,3 +1,4 @@
+# .github/workflows/validate-and-run.yml
 name: Validate Generated Tests (CI Gate)
 
 on:
@@ -87,7 +88,7 @@ jobs:
           mpy = root / 'manage.py'
           if mpy.exists():
               s = mpy.read_text(encoding='utf-8', errors='ignore')
-              m = re.search(r"DJANGO_SETTINGS_MODULE=['\"]([^'\"]+)['\"]", s)
+              m = re.search(r"DJANGO_SETTINGS_MODULE=['\"]([^'\"]+)['\"]", s) or re.search(r"setdefault\(\s*['\"]DJANGO_SETTINGS_MODULE['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)", s)
               if m: ds = m.group(1)
           if not ds:
               cands = []
@@ -157,15 +158,6 @@ jobs:
               print("No missing imports to install")
           PY
 
-      - name: Enable pytest-django and export DJANGO_SETTINGS_MODULE
-        if: steps.detect.outputs.is_django == 'true'
-        working-directory: target
-        shell: bash
-        run: |
-          pip install -c "$PIP_CONSTRAINT" pytest-django
-          echo "DJANGO_SETTINGS_MODULE=${{ steps.detect.outputs.ds_module }}" >> $GITHUB_ENV
-          echo "✅ Using Django settings: ${{ steps.detect.outputs.ds_module }}"
-
       - name: Prepare pytest.ini
         working-directory: target
         shell: bash
@@ -188,77 +180,143 @@ jobs:
           omit = */.venv/* */venv/* */env/* */site-packages/* */.tox/* */.pytest_cache/* */__pycache__/* */migrations/*
           EOF
 
-      - name: Patch generated tests (safe; add shims)
+      - name: Copy generated tests from this repo into target
+        shell: bash
+        run: |
+          if [ ! -d tests/generated ]; then
+            echo "❌ No tests/generated in this (workflow) repo"; exit 1
+          fi
+          mkdir -p target/tests/generated
+          rsync -a tests/generated/ target/tests/generated/
+          echo "✅ Copied $(find target/tests/generated -type f -name 'test_*.py' | wc -l) tests"
+
+      - name: Write runtime conftest (repo-agnostic) into target/tests/generated
         working-directory: target
         shell: bash
         run: |
+          mkdir -p tests/generated
+          cat > tests/generated/conftest.py <<'PY'
+          import os, sys, types, warnings, builtins, importlib, importlib.util, random, re, pathlib
+          import pytest
+
+          warnings.filterwarnings("ignore", category=DeprecationWarning)
+          warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
+
+          @pytest.fixture(autouse=True)
+          def _deterministic_seed():
+              random.seed(1337)
+              try:
+                  import numpy as _np; _np.random.seed(1337)
+              except Exception: pass
+              try:
+                  import torch as _torch; _torch.manual_seed(1337)
+              except Exception: pass
+
+          def _find_root():
+              here = pathlib.Path(__file__).resolve()
+              markers = {"manage.py","pyproject.toml","setup.cfg","setup.py","requirements.txt",".git"}
+              for p in [*here.parents]:
+                  if any((p/m).exists() for m in markers): return p
+              return here.parents[2] if len(here.parents)>=2 else here.parent
+
+          ROOT = _find_root()
+          if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
+          if "target" not in sys.modules:
+              _pkg = types.ModuleType("target"); _pkg.__path__ = [str(ROOT)]
+              sys.modules["target"] = _pkg
+
+          os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
+
+          # SQLAlchemy Binary shim
+          try:
+              import sqlalchemy as _sa
+              if not hasattr(_sa,"Binary") and hasattr(_sa,"LargeBinary"):
+                  _sa.Binary = _sa.LargeBinary  # type: ignore
+          except Exception: pass
+
+          # flask_jwt_extended jwt_optional shim
+          try:
+              import flask_jwt_extended as _fje
+              if not hasattr(_fje,"jwt_optional") and hasattr(_fje,"jwt_required"):
+                  from flask_jwt_extended import jwt_required
+                  def jwt_optional(fn=None, **kwargs):
+                      dec = jwt_required(optional=True)
+                      return dec(fn) if callable(fn) else dec
+                  _fje.jwt_optional = jwt_optional  # type: ignore
+          except Exception: pass
+
+          # Auto-setup Django
+          def _detect_django_settings():
+              if os.environ.get("DJANGO_SETTINGS_MODULE"):
+                  return os.environ["DJANGO_SETTINGS_MODULE"]
+              mpy = ROOT / "manage.py"
+              if mpy.exists():
+                  try:
+                      s = mpy.read_text(encoding="utf-8", errors="ignore")
+                      m = (re.search(r"DJANGO_SETTINGS_MODULE\s*=\s*['\"]([^'\"]+)['\"]", s)
+                           or re.search(r"setdefault\(\s*['\"]DJANGO_SETTINGS_MODULE['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)", s))
+                      if m: return m.group(1)
+                  except Exception: pass
+              exc={"migrations","site-packages",".venv","venv","env",".tox","__pycache__"}
+              c=[]
+              for p in ROOT.rglob("settings.py"):
+                  if any(part in exc for part in p.parts): continue
+                  try:
+                      rel=p.relative_to(ROOT)
+                      c.append((len(rel.parts),".".join(rel.with_suffix("").parts)))
+                  except Exception: pass
+              return c[0][1] if c else ""
+
+          def _auto_setup_django():
+              ds=_detect_django_settings()
+              if not ds: return
+              os.environ.setdefault("DJANGO_SETTINGS_MODULE", ds)
+              os.environ.setdefault("SECRET_KEY","test-secret")
+              os.environ.setdefault("DATABASE_URL","sqlite:///:memory:")
+              try:
+                  import django; django.setup()
+              except Exception as e:
+                  warnings.warn(f"Django auto-setup failed: {e!r}")
+
+          try: _auto_setup_django()
+          except Exception: pass
+
+          _real_import = builtins.__import__
+          def _smart_import(name,*a,**k):
+              try:
+                  return _real_import(name,*a,**k)
+              except ModuleNotFoundError:
+                  low=name.lower()
+                  if low!=name:
+                      try: return _real_import(low,*a,**k)
+                      except ModuleNotFoundError: pass
+                  for cand in (ROOT/f"{name}.py", ROOT/f"{low}.py"):
+                      if cand.is_file():
+                          spec = importlib.util.spec_from_file_location(name, cand)
+                          if spec and spec.loader:
+                              mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)  # type: ignore
+                              sys.modules[name]=mod; return mod
+                  raise
+          builtins.__import__ = _smart_import
+          PY
           python - <<'PY'
-          import pathlib, re
-
-          root = pathlib.Path('.')
-          gen = root / 'tests' / 'generated'
-          if not gen.exists():
-              print("ℹ️ tests/generated directory not found (skipping patch step).")
-          else:
-              # Remove "banned private imports" hard-skip lines if they exist
-              for p in gen.rglob('test_*.py'):
-                  s = p.read_text(encoding='utf-8', errors='ignore')
-                  s2 = re.sub(r".*banned private imports.*\n?", "", s)
-                  if s2 != s:
-                      p.write_text(s2, encoding='utf-8')
-
-              # Ensure conftest shims exist / are idempotent
-              cf = gen / 'conftest.py'
-              block = r"""
-                  try:
-                      import flask_jwt_extended as _fje
-                      if not hasattr(_fje, "jwt_optional") and hasattr(_fje, "jwt_required"):
-                          from flask_jwt_extended import jwt_required
-                          def jwt_optional(fn=None, **kwargs):
-                              dec = jwt_required(optional=True)
-                              return dec(fn) if callable(fn) else dec
-                          _fje.jwt_optional = jwt_optional
-                  except Exception:
-                      pass
-
-                  try:
-                      import sqlalchemy as _sa
-                      if not hasattr(_sa, "Binary") and hasattr(_sa, "LargeBinary"):
-                          _sa.Binary = _sa.LargeBinary
-                      try:
-                          from flask_sqlalchemy import SQLAlchemy as _FSQ
-                          if not hasattr(_FSQ, "Binary") and hasattr(_sa, "LargeBinary"):
-                              setattr(_FSQ, "Binary", _sa.LargeBinary)
-                      except Exception:
-                          pass
-                  except Exception:
-                      pass
-                  """
-              if cf.exists():
-                  t = cf.read_text(encoding='utf-8', errors='ignore')
-                  if "def jwt_optional" not in t or "Binary" not in t:
-                      cf.write_text(t + "\n" + block, encoding='utf-8')
-              else:
-                  cf.write_text(block, encoding='utf-8')
+          from pathlib import Path
+          print("✅ Wrote conftest:", Path("tests/generated/conftest.py").resolve())
           PY
 
-      - name: Discover tests (prefer tests/generated, else any tests)
+      - name: Discover generated tests (in target)
         id: discover
         working-directory: target
         shell: bash
         run: |
           python - <<'PY'
           import pathlib, sys
-          root = pathlib.Path('.')
-          files = [str(p) for p in (root/'tests'/'generated').rglob('test_*.py')]
+          files=[str(p) for p in (pathlib.Path('tests')/'generated').rglob('test_*.py')]
           if not files:
-              files = [str(p) for p in root.rglob('test_*.py') if '/site-packages/' not in str(p)]
-          if files:
-              out='/tmp/test_files.txt'
-              open(out,'w').write('\n'.join(sorted(files)))
-              print(f"✅ Found {len(files)} tests")
-          else:
-              print("❌ No tests found"); sys.exit(1)
+              print("❌ No generated tests found under target/tests/generated"); sys.exit(1)
+          out='/tmp/test_files.txt'
+          open(out,'w').write('\n'.join(sorted(files)))
+          print(f"✅ Found {len(files)} tests")
           PY
           echo "test_files=/tmp/test_files.txt" >> "$GITHUB_OUTPUT"
 
@@ -304,11 +362,9 @@ jobs:
         run: |
           mkdir -p reports/tests
           PLUGINS="-p pytest_cov -p pytest_timeout"
-          DS_OPT=""
           if [ "${{ steps.detect.outputs.is_django }}" = "true" ]; then
             PLUGINS="$PLUGINS -p pytest_django"
             export DJANGO_SETTINGS_MODULE="${{ steps.detect.outputs.ds_module }}"
-            DS_OPT="--ds=${{ steps.detect.outputs.ds_module }}"
           fi
           COVCFG_OPT=""
           if [ -f coverage.ini ]; then
@@ -317,7 +373,7 @@ jobs:
             COVCFG_OPT="--cov-config=.coveragerc"
           fi
           mapfile -t FILES < /tmp/test_files.txt
-          pytest -v -ra --tb=short $PLUGINS $DS_OPT $COVCFG_OPT \
+          pytest -v -ra --tb=short $PLUGINS $COVCFG_OPT \
             --cov=. \
             --cov-report=xml:reports/tests/coverage.xml \
             --cov-report=json:reports/tests/coverage.json \

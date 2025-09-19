@@ -2,8 +2,16 @@
 name: Validate Generated Tests (CI Gate)
 
 on:
-  push:
-    branches: ["test2"]
+  workflow_dispatch:
+    inputs:
+      repo_url:
+        description: "Repo to validate against"
+        required: true
+        default: "https://github.com/DeviPrasad372002/django-test-app.git"
+  workflow_run:
+    workflows: ["AI Test Generation"]
+    types:
+      - completed
 
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}

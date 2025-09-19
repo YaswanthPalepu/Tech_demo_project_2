@@ -19,8 +19,8 @@ on:
         required: false
         default: "0"
         description: "Minimum coverage threshold (%)"
-  # push:
-  #   branches: ["test2"]
+  push:
+    branches: ["test2"]
 
 jobs:
   generate:

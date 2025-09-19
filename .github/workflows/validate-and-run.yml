@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          CLEAN_URL="https://github.com/DeviPrasad372002/flask-test-repo.git"
+          CLEAN_URL="https://github.com/DeviPrasad372002/django-test-app.git"
           if [ -n "$GH_PAT3" ]; then
             CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
           fi

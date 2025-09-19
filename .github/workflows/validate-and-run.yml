@@ -51,40 +51,12 @@ jobs:
         shell: bash
         run: |
           set -e
-          CLEAN_URL="https://github.com/DeviPrasad372002/test-calculator.git"
+          CLEAN_URL="https://github.com/DeviPrasad372002/flask-test-repo.git"
           if [ -n "$GH_PAT3" ]; then
             CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
           fi
           git clone --depth=1 "$CLEAN_URL" target
           echo "✅ cloned into ./target"
-
-      - name: Copy generated tests from this repo into ./target (if present)
-        shell: bash
-        run: |
-          set -e
-          mkdir -p target/tests/generated
-          COPIED=0
-          # Top-level tests/generated
-          if [ -d tests/generated ]; then
-            rsync -a --include='*.py' --include='*/' --exclude='*' tests/generated/ target/tests/generated/
-            COPIED=$(find target/tests/generated -type f -name '*.py' | wc -l || true)
-          fi
-          # Any nested */tests/generated/*
-          while IFS= read -r -d '' f; do
-            rel="${f#./}"
-            # take the path part after the first "tests/generated/"
-            sub="${rel#*tests/generated/}"
-            dst="target/tests/generated/${sub}"
-            mkdir -p "$(dirname "$dst")"
-            cp "$f" "$dst"
-            COPIED=$((COPIED+1))
-          done < <(find . -type f -path "*/tests/generated/*.py" -not -path "./target/*" -print0)
-          if [ "$COPIED" -gt 0 ]; then
-            echo "✅ Copied $COPIED generated test(s) into target/tests/generated"
-          else
-            echo "ℹ️ No generated tests found in this repo; proceeding without copying."
-          fi
-          ls -R target/tests/generated || true
 
       - name: Install project dependencies (safe/agnostic)
         working-directory: target
@@ -178,28 +150,29 @@ jobs:
               print("✅ migrate done")
           PY
 
-      - name: Discover test files inside target
+      - name: Discover test files (non-fatal)
         id: discover
         working-directory: target
         shell: bash
         run: |
           python - <<'PY'
-          import os, sys
+          import os, pathlib
           EXC={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','site-packages','__pycache__'}
+          root=pathlib.Path('.')
           tests=[]
-          for root,dirs,files in os.walk('.', topdown=True):
-              dirs[:]=[d for d in dirs if d not in EXC and 'site-packages' not in d]
-              for f in files:
-                  if f.endswith('.py') and (f.startswith('test_') or f.endswith('_test.py') or f.endswith('.test.py')):
-                      tests.append(os.path.join(root,f))
-          tests=sorted(set(tests))
+          for p in root.rglob('*.py'):
+              if any(part in EXC for part in p.parts):
+                  continue
+              n=p.name
+              if n.startswith('test_') or n.endswith('_test.py') or n.endswith('.test.py'):
+                  tests.append(str(p))
           if tests:
-              open('/tmp/test_files.txt','w').write('\n'.join(tests))
+              out='/tmp/test_files.txt'
+              open(out,'w').write('\n'.join(sorted(tests)))
               print(f"✅ Will run pytest on {len(tests)} files")
           else:
-              print("❌ No test files found"); sys.exit(1)
+              print("ℹ️ No explicit list. Pytest will auto-discover (e.g., tests/generated/*.py).")
           PY
-          echo "test_files=/tmp/test_files.txt" >> "$GITHUB_OUTPUT"
 
       - name: Run tests with coverage
         id: run
@@ -214,14 +187,23 @@ jobs:
           if [ -n "${DJANGO_SETTINGS_MODULE:-}" ]; then
             PLUGINS="$PLUGINS -p django"
           fi
-          mapfile -t FILES < /tmp/test_files.txt
-          pytest -v --tb=short $PLUGINS \
-            --cov=. --cov-config=.coveragerc \
-            --cov-report=xml:reports/tests/coverage.xml \
-            --cov-report=json:reports/tests/coverage.json \
-            --cov-report=term-missing \
-            --timeout=300 \
-            "${FILES[@]}"
+          if [ -s /tmp/test_files.txt ]; then
+            mapfile -t FILES < /tmp/test_files.txt
+            pytest -v --tb=short $PLUGINS \
+              --cov=. --cov-config=.coveragerc \
+              --cov-report=xml:reports/tests/coverage.xml \
+              --cov-report=json:reports/tests/coverage.json \
+              --cov-report=term-missing \
+              --timeout=300 \
+              "${FILES[@]}"
+          else
+            pytest -v --tb=short $PLUGINS \
+              --cov=. --cov-config=.coveragerc \
+              --cov-report=xml:reports/tests/coverage.xml \
+              --cov-report=json:reports/tests/coverage.json \
+              --cov-report=term-missing \
+              --timeout=300
+          fi
 
       - name: Parse coverage & gate
         id: gate

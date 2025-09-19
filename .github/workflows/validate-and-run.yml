@@ -1,11 +1,9 @@
 name: Validate Generated Tests (CI Gate)
 
 on:
-  # workflow_run:
-  #   workflows: ["AI Test Generation"]
-  #   types: [completed]
-    push:
-      branches: ["test2"]
+  workflow_run:
+    workflows: ["AI Test Generation"]
+    types: [completed]
 
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
@@ -71,29 +69,71 @@ jobs:
             [ -s /tmp/req.clean.txt ] && pip install -r /tmp/req.clean.txt || true
           fi
 
-      - name: Detect Django settings module (if any)
+      - name: Detect framework(s)
         id: detect
         working-directory: target
         shell: bash
         run: |
           python - <<'PY'
-          import os, pathlib
-          EXC={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','__pycache__'}
-          cands=[]
-          for root,dirs,files in os.walk('.', topdown=True):
-              dirs[:]=[d for d in dirs if d not in EXC and 'site-packages' not in d]
-              if 'settings.py' in files and 'migrations' not in root:
-                  p=pathlib.Path(root,'settings.py').resolve()
-                  rel=p.relative_to(pathlib.Path('.').resolve())
-                  mod='.'.join(rel.with_suffix('').parts)
-                  cands.append((len(rel.parts),mod))
-          ds = sorted(cands)[0][1] if cands else ''
-          print("Detected DS:", ds or '(none)')
+          import os, sys, re, pathlib
+          EXC={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','site-packages','__pycache__'}
+          root=pathlib.Path('.').resolve()
+          def files():
+              for p in root.rglob('*.py'):
+                  if any(part in EXC for part in p.parts): continue
+                  yield p
+          text=''
+          for p in files():
+              try: text += '\n' + p.read_text(encoding='utf-8', errors='ignore')
+              except: pass
+
+          needs_flask   = bool(re.search(r'(^|\n)\s*(from|import)\s+flask\b', text))
+          needs_fastapi = bool(re.search(r'(^|\n)\s*(from|import)\s+fastapi\b', text) or re.search(r'(^|\n)\s*(from|import)\s+starlette\b', text))
+
+          # Robust Django settings probe (only mark true if setup succeeds)
+          ds = ''
+          ok = False
+          try:
+              import django
+              # find candidate settings.py
+              cands=[]
+              for p in files():
+                  if p.name=='settings.py' and 'migrations' not in str(p.parent):
+                      rel=p.relative_to(root)
+                      mod='.'.join(rel.with_suffix('').parts)
+                      cands.append((len(rel.parts), mod))
+              if cands:
+                  sys.path.insert(0, str(root))
+                  for _,mod in sorted(cands):
+                      try:
+                          os.environ['DJANGO_SETTINGS_MODULE']=mod
+                          django.setup()
+                          ds = mod
+                          ok = True
+                          break
+                      except Exception:
+                          continue
+          except Exception:
+              ok = False
+
+          print("Detect -> flask:", needs_flask, "fastapi:", needs_fastapi, "django:", ok, (ds or '(none)'))
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
-              f.write(f"is_django={'true' if ds else 'false'}\n")
-              if ds:
-                  f.write(f"ds_module={ds}\n")
+              f.write(f"needs_flask={'true' if needs_flask else 'false'}\n")
+              f.write(f"needs_fastapi={'true' if needs_fastapi else 'false'}\n")
+              f.write(f"is_django={'true' if ok else 'false'}\n")
+              if ok: f.write(f"ds_module={ds}\n")
           PY
+
+      - name: Install framework shims (only if detected)
+        working-directory: target
+        shell: bash
+        run: |
+          if [ "${{ steps.detect.outputs.needs_flask }}" = "true" ]; then
+            pip install flask
+          fi
+          if [ "${{ steps.detect.outputs.needs_fastapi }}" = "true" ]; then
+            pip install fastapi starlette pydantic
+          fi
 
       - name: Enable pytest-django and set DJANGO_SETTINGS_MODULE
         if: steps.detect.outputs.is_django == 'true'
@@ -104,7 +144,7 @@ jobs:
           echo "DJANGO_SETTINGS_MODULE=${{ steps.detect.outputs.ds_module }}" >> $GITHUB_ENV
           echo "✅ Using Django settings: ${{ steps.detect.outputs.ds_module }}"
 
-      - name: Prepare pytest.ini (agnostic)
+      - name: Prepare pytest.ini
         working-directory: target
         shell: bash
         run: |
@@ -116,9 +156,8 @@ jobs:
           python_classes = Test*
           norecursedirs = .git .tox .env .venv venv env __pycache__ .pytest_cache build dist node_modules */site-packages/*
           EOF
-          echo "✅ Wrote pytest.ini"
 
-      - name: Write .coveragerc (omit venv/vendor)
+      - name: Write .coveragerc
         working-directory: target
         shell: bash
         run: |
@@ -126,28 +165,32 @@ jobs:
           [run]
           omit = */.venv/* */venv/* */env/* */site-packages/* */.tox/* */.pytest_cache/* */__pycache__/* */migrations/*
           EOF
-          echo "✅ Wrote .coveragerc"
 
       - name: Run migrations if Django (safe)
         if: steps.detect.outputs.is_django == 'true'
         working-directory: target
+        env:
+          PYTHONPATH: ${{ github.workspace }}/target
+          DJANGO_SETTINGS_MODULE: ${{ steps.detect.outputs.ds_module }}
         shell: bash
         run: |
           set -e
           echo "Running Django migrations for ${DJANGO_SETTINGS_MODULE}"
           python - <<'PY'
-          import os
+          import os, django
           os.environ.setdefault('DJANGO_SETTINGS_MODULE', os.environ['DJANGO_SETTINGS_MODULE'])
-          import django
-          django.setup()
-          from django.conf import settings
-          engine = (getattr(settings,'DATABASES',{}).get('default',{}).get('ENGINE','') or '')
-          if not engine or engine == 'django.db.backends.dummy':
-              print("⏭️  Skipping migrations: no real DB engine configured.")
-          else:
-              from django.core.management import call_command
-              call_command('migrate', interactive=False, verbosity=0)
-              print("✅ migrate done")
+          try:
+              django.setup()
+              from django.conf import settings
+              engine = (getattr(settings,'DATABASES',{}).get('default',{}).get('ENGINE','') or '')
+              if not engine or engine == 'django.db.backends.dummy':
+                  print("⏭️  Skipping migrations: no real DB engine configured.")
+              else:
+                  from django.core.management import call_command
+                  call_command('migrate', interactive=False, verbosity=0)
+                  print("✅ migrate done")
+          except Exception as e:
+              print("⏭️  Skipping migrations probe failed:", e)
           PY
 
       - name: Discover test files (non-fatal)
@@ -161,17 +204,17 @@ jobs:
           root=pathlib.Path('.')
           tests=[]
           for p in root.rglob('*.py'):
-              if any(part in EXC for part in p.parts):
-                  continue
-              n=p.name
-              if n.startswith('test_') or n.endswith('_test.py') or n.endswith('.test.py'):
-                  tests.append(str(p))
+            if any(part in EXC for part in p.parts):
+              continue
+            n=p.name
+            if n.startswith('test_') or n.endswith('_test.py') or n.endswith('.test.py'):
+              tests.append(str(p))
           if tests:
-              out='/tmp/test_files.txt'
-              open(out,'w').write('\n'.join(sorted(tests)))
-              print(f"✅ Will run pytest on {len(tests)} files")
+            out='/tmp/test_files.txt'
+            open(out,'w').write('\n'.join(sorted(tests)))
+            print(f"✅ Will run pytest on {len(tests)} files")
           else:
-              print("ℹ️ No explicit list. Pytest will auto-discover (e.g., tests/generated/*.py).")
+            print("ℹ️ No explicit list. Pytest will auto-discover (e.g., tests/generated/*.py).")
           PY
 
       - name: Run tests with coverage
@@ -179,13 +222,15 @@ jobs:
         working-directory: target
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          PYTHONPATH: ${{ github.workspace }}/target
           TARGET_ROOT: ${{ github.workspace }}/target
         shell: bash
         run: |
           mkdir -p reports/tests
           PLUGINS="-p pytest_cov -p pytest_timeout"
-          if [ -n "${DJANGO_SETTINGS_MODULE:-}" ]; then
-            PLUGINS="$PLUGINS -p django"
+          if [ "${{ steps.detect.outputs.is_django }}" = "true" ]; then
+            PLUGINS="$PLUGINS -p pytest_django"
+            export DJANGO_SETTINGS_MODULE="${{ steps.detect.outputs.ds_module }}"
           fi
           if [ -s /tmp/test_files.txt ]; then
             mapfile -t FILES < /tmp/test_files.txt

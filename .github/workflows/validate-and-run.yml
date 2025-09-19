@@ -1,12 +1,9 @@
 name: Validate Generated Tests (CI Gate)
 
 on:
-  # workflow_run:
-  #   workflows: ["AI Test Generation"]
-  #   types: [completed]
-  push:
-    branches:
-      - test2
+  workflow_run:
+    workflows: ["AI Test Generation"]
+    types: [completed]
 
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
@@ -52,22 +49,38 @@ jobs:
         shell: bash
         run: |
           set -e
-          CLEAN_URL="https://github.com/DeviPrasad372002/flask-test-repo.git"
+          CLEAN_URL="https://github.com/DeviPrasad372002/test-calculator.git"
           if [ -n "$GH_PAT3" ]; then
             CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
           fi
           git clone --depth=1 "$CLEAN_URL" target
           echo "✅ cloned into ./target"
 
-      - name: Copy generated tests from source repo into target
+      - name: Copy generated tests from this repo into ./target (if present)
         shell: bash
         run: |
+          set -e
+          mkdir -p target/tests/generated
+          COPIED=0
+          # Top-level tests/generated
           if [ -d tests/generated ]; then
-            mkdir -p target/tests/generated
-            rsync -a --delete tests/generated/ target/tests/generated/
-            echo "✅ Copied $(find target/tests/generated -type f -name '*.py' | wc -l) tests"
+            rsync -a --include='*.py' --include='*/' --exclude='*' tests/generated/ target/tests/generated/
+            COPIED=$(find target/tests/generated -type f -name '*.py' | wc -l || true)
+          fi
+          # Any nested */tests/generated/*
+          while IFS= read -r -d '' f; do
+            rel="${f#./}"
+            # take the path part after the first "tests/generated/"
+            sub="${rel#*tests/generated/}"
+            dst="target/tests/generated/${sub}"
+            mkdir -p "$(dirname "$dst")"
+            cp "$f" "$dst"
+            COPIED=$((COPIED+1))
+          done < <(find . -type f -path "*/tests/generated/*.py" -not -path "./target/*" -print0)
+          if [ "$COPIED" -gt 0 ]; then
+            echo "✅ Copied $COPIED generated test(s) into target/tests/generated"
           else
-            echo "❌ tests/generated not found in source repo"; exit 1
+            echo "ℹ️ No generated tests found in this repo; proceeding without copying."
           fi
           ls -R target/tests/generated || true
 

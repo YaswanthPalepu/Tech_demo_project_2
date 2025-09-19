@@ -1,9 +1,11 @@
 name: Validate Generated Tests (CI Gate)
 
 on:
-  workflow_run:
-    workflows: ["AI Test Generation"]
-    types: [completed]
+  # workflow_run:
+  #   workflows: ["AI Test Generation"]
+  #   types: [completed]
+    push:
+      branches: ["test2"]
 
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}

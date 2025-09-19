@@ -4,8 +4,9 @@ on:
   # workflow_run:
   #   workflows: ["AI Test Generation"]
   #   types: [completed]
-    push:
-      branches: ["test2"]
+  push:
+    branches:
+      - test2
 
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
@@ -58,15 +59,17 @@ jobs:
           git clone --depth=1 "$CLEAN_URL" target
           echo "✅ cloned into ./target"
 
-      # Optional: bring in generated tests from the upstream workflow, if any
-      - name: Download generated tests artifact from upstream run
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          run-id: ${{ github.event.workflow_run.id }}
-          name: generated-tests
-          path: target/tests/generated
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Copy generated tests from source repo into target
+        shell: bash
+        run: |
+          if [ -d tests/generated ]; then
+            mkdir -p target/tests/generated
+            rsync -a --delete tests/generated/ target/tests/generated/
+            echo "✅ Copied $(find target/tests/generated -type f -name '*.py' | wc -l) tests"
+          else
+            echo "❌ tests/generated not found in source repo"; exit 1
+          fi
+          ls -R target/tests/generated || true
 
       - name: Install project dependencies (safe/agnostic)
         working-directory: target
@@ -160,13 +163,13 @@ jobs:
               print("✅ migrate done")
           PY
 
-      - name: Discover test files (non-fatal if none)
+      - name: Discover test files inside target
         id: discover
         working-directory: target
         shell: bash
         run: |
           python - <<'PY'
-          import os
+          import os, sys
           EXC={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','site-packages','__pycache__'}
           tests=[]
           for root,dirs,files in os.walk('.', topdown=True):
@@ -177,9 +180,9 @@ jobs:
           tests=sorted(set(tests))
           if tests:
               open('/tmp/test_files.txt','w').write('\n'.join(tests))
-              print(f"✅ Will run pytest on {len(tests)} discovered files")
+              print(f"✅ Will run pytest on {len(tests)} files")
           else:
-              print("ℹ️ No explicit list. Pytest will auto-discover.")
+              print("❌ No test files found"); sys.exit(1)
           PY
           echo "test_files=/tmp/test_files.txt" >> "$GITHUB_OUTPUT"
 
@@ -196,23 +199,14 @@ jobs:
           if [ -n "${DJANGO_SETTINGS_MODULE:-}" ]; then
             PLUGINS="$PLUGINS -p django"
           fi
-          if [ -f /tmp/test_files.txt ] && [ -s /tmp/test_files.txt ]; then
-            mapfile -t FILES < /tmp/test_files.txt
-            pytest -v --tb=short $PLUGINS \
-              --cov=. --cov-config=.coveragerc \
-              --cov-report=xml:reports/tests/coverage.xml \
-              --cov-report=json:reports/tests/coverage.json \
-              --cov-report=term-missing \
-              --timeout=300 \
-              "${FILES[@]}"
-          else
-            pytest -v --tb=short $PLUGINS \
-              --cov=. --cov-config=.coveragerc \
-              --cov-report=xml:reports/tests/coverage.xml \
-              --cov-report=json:reports/tests/coverage.json \
-              --cov-report=term-missing \
-              --timeout=300
-          fi
+          mapfile -t FILES < /tmp/test_files.txt
+          pytest -v --tb=short $PLUGINS \
+            --cov=. --cov-config=.coveragerc \
+            --cov-report=xml:reports/tests/coverage.xml \
+            --cov-report=json:reports/tests/coverage.json \
+            --cov-report=term-missing \
+            --timeout=300 \
+            "${FILES[@]}"
 
       - name: Parse coverage & gate
         id: gate

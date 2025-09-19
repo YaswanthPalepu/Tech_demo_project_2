@@ -6,7 +6,7 @@ on:
       repo_url:
         description: "Repo to analyze"
         required: true
-        default: "https://github.com/DeviPrasad372002/flask-test-repo.git"
+        default: "https://github.com/DeviPrasad372002/django-test-app.git"
       force_gen:
         required: false
         default: "false"
@@ -19,8 +19,8 @@ on:
         required: false
         default: "0"
         description: "Minimum coverage threshold (%)"
-  # push:
-  #   branches: ["test2"]
+  push:
+    branches: ["test2"]
 
 jobs:
   generate:
@@ -55,7 +55,7 @@ jobs:
 
       - name: Clone target repository
         run: |
-          REPO_URL="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/flask-test-repo.git' }}"
+          REPO_URL="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
           echo "REPO_URL=$REPO_URL" >> $GITHUB_ENV
           git clone --depth 1 "$REPO_URL" target
 

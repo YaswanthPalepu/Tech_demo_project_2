@@ -16,6 +16,7 @@ jobs:
       actions: read
       checks: write
       statuses: write
+
     env:
       PYTHONUTF8: "1"
       COVERAGE_THRESHOLD: "70"
@@ -136,7 +137,7 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
-          import os, sys, re, pathlib, subprocess, importlib.util, json
+          import os, sys, re, pathlib, subprocess, importlib.util
           root=pathlib.Path('.').resolve()
           EXC={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','site-packages','__pycache__'}
 
@@ -152,8 +153,7 @@ jobs:
           }
           std = set(getattr(sys, "stdlib_module_names", set()))
           def is_local(top:str)->bool:
-              if (root/(top+".py")).exists() or (root/top).is_dir(): return True
-              return False
+              return (root/(top+".py")).exists() or (root/top).is_dir()
           mods=set()
           def scan(paths):
               for p in paths:
@@ -208,16 +208,46 @@ jobs:
           omit = */.venv/* */venv/* */env/* */site-packages/* */.tox/* */.pytest_cache/* */__pycache__/* */migrations/*
           EOF
 
-      - name: Patch generated tests to avoid legacy skips & add jwt_optional shim
+      - name: Run migrations if Django (safe)
+        if: steps.detect.outputs.is_django == 'true'
+        working-directory: target
+        env:
+          PYTHONPATH: ${{ github.workspace }}/target
+          DJANGO_SETTINGS_MODULE: ${{ steps.detect.outputs.ds_module }}
+        shell: bash
+        run: |
+          set -e
+          echo "Running Django migrations for ${DJANGO_SETTINGS_MODULE}"
+          python - <<'PY'
+          import os, django
+          os.environ.setdefault('DJANGO_SETTINGS_MODULE', os.environ['DJANGO_SETTINGS_MODULE'])
+          try:
+              django.setup()
+              from django.conf import settings
+              engine = (getattr(settings,'DATABASES',{}).get('default',{}).get('ENGINE','') or '')
+              if not engine or engine == 'django.db.backends.dummy':
+                  print("⏭️  Skipping migrations: no real DB engine configured.")
+              else:
+                  from django.core.management import call_command
+                  call_command('migrate', interactive=False, verbosity=0)
+                  print("✅ migrate done")
+          except Exception as e:
+              print("⏭️  Skipping migrations probe failed:", e)
+          PY
+
+      - name: Patch generated tests (drop legacy skips, add jwt_optional shim)
         working-directory: target
         shell: bash
         run: |
           if [ -d tests/generated ]; then
-            # sanitize hard skips and private imports
-            grep -Rl "_pytest.skip('generator: banned private imports" tests/generated | xargs -r sed -i '1,3d'
-            grep -Rl "\b_pytest\b" tests/generated | xargs -r sed -i 's/\b_pytest\b/pytest/g'
-            grep -Rl "pytest._code" tests/generated | xargs -r sed -i 's/pytest\._code/pytest/g'
-            # ensure conftest with jwt_optional shim
+            # drop top-level auto-skip guards inserted by generator
+            for f in $(grep -Rl "generator: banned private imports detected" tests/generated || true); do
+              sed -i "/generator: banned private imports detected/d" "$f"
+            done
+            # replace private _pytest imports
+            grep -Rl "\b_pytest\b" tests/generated | xargs -r sed -i 's/\b_pytest\b/pytest/g' || true
+            grep -Rl "pytest\._code" tests/generated | xargs -r sed -i 's/pytest\._code/pytest/g' || true
+            # conftest shim: flask_jwt_extended.jwt_optional (for older repos)
             mkdir -p tests/generated
             cat >> tests/generated/conftest.py <<'PY'
           try:
@@ -328,7 +358,6 @@ jobs:
           print(f"Coverage%: {cov:.2f}%")
 
           thr = float(os.environ.get('COVERAGE_THRESHOLD','70'))
-          # Gate: fail if all tests skipped, or any failures/errors, or coverage below threshold
           ready = (pass_pct == 100.0) and (cov >= thr) and (pass_pct > 0.0)
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
               f.write(f"coverage={cov:.2f}\n")

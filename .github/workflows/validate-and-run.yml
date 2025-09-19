@@ -16,7 +16,6 @@ jobs:
       actions: read
       checks: write
       statuses: write
-
     env:
       PYTHONUTF8: "1"
       COVERAGE_THRESHOLD: "70"
@@ -55,7 +54,7 @@ jobs:
           git clone --depth=1 "$CLEAN_URL" target
           echo "✅ cloned into ./target"
 
-      - name: Install project dependencies (safe/agnostic)
+      - name: Install project dependencies (requirements*.txt)
         working-directory: target
         shell: bash
         run: |
@@ -132,6 +131,52 @@ jobs:
             pip install fastapi starlette pydantic
           fi
 
+      - name: Infer & install missing imports from repo and tests
+        working-directory: target
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, sys, re, pathlib, subprocess, importlib.util, json
+          root=pathlib.Path('.').resolve()
+          EXC={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','site-packages','__pycache__'}
+
+          aliases={
+            "bs4":"beautifulsoup4","yaml":"PyYAML","cv2":"opencv-python","sklearn":"scikit-learn",
+            "PIL":"Pillow","Crypto":"pycryptodome","MySQLdb":"mysqlclient","mysql":"mysqlclient",
+            "psycopg2":"psycopg2-binary","httpx":"httpx","requests":"requests","uvicorn":"uvicorn",
+            "fastapi":"fastapi","starlette":"starlette","pydantic":"pydantic","typing_extensions":"typing-extensions",
+            "annotated_types":"annotated-types","sqlalchemy":"SQLAlchemy","flask":"flask","django":"Django",
+            "click":"click","typer":"typer","jinja2":"Jinja2","ujson":"ujson","orjson":"orjson",
+            "pymongo":"pymongo","redis":"redis","pytest":"pytest","jwt":"PyJWT","markupsafe":"MarkupSafe",
+            "rest_framework":"djangorestframework","slugify":"python-slugify"
+          }
+          std = set(getattr(sys, "stdlib_module_names", set()))
+          def is_local(top:str)->bool:
+              if (root/(top+".py")).exists() or (root/top).is_dir(): return True
+              return False
+          mods=set()
+          def scan(paths):
+              for p in paths:
+                  try: s=p.read_text(encoding='utf-8',errors='ignore')
+                  except: continue
+                  for m in re.findall(r'^\s*import\s+([A-Za-z_][\w\.]*)', s, flags=re.MULTILINE):
+                      mods.add(m.split('.')[0])
+                  for m in re.findall(r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\b', s, flags=re.MULTILINE):
+                      mods.add(m.split('.')[0])
+          files=[p for p in root.rglob('*.py') if not any(part in EXC for part in p.parts)]
+          scan(files)
+          need=[]
+          for top in sorted(mods):
+              if not top or top in std or is_local(top) or top.startswith('_'): continue
+              if importlib.util.find_spec(top) is not None: continue
+              need.append(aliases.get(top, top))
+          if need:
+              print("Installing:", ", ".join(need))
+              subprocess.check_call([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-input", *need])
+          else:
+              print("No missing imports to install")
+          PY
+
       - name: Enable pytest-django and set DJANGO_SETTINGS_MODULE
         if: steps.detect.outputs.is_django == 'true'
         working-directory: target
@@ -141,7 +186,7 @@ jobs:
           echo "DJANGO_SETTINGS_MODULE=${{ steps.detect.outputs.ds_module }}" >> $GITHUB_ENV
           echo "✅ Using Django settings: ${{ steps.detect.outputs.ds_module }}"
 
-      - name: Prepare pytest.ini (print skip reasons)
+      - name: Prepare pytest.ini (print -ra)
         working-directory: target
         shell: bash
         run: |
@@ -157,40 +202,36 @@ jobs:
       - name: Coverage config (prefer repo coverage.ini; fallback .coveragerc)
         shell: bash
         run: |
-          if [ -f coverage.ini ]; then
-            cp coverage.ini target/coverage.ini
-          fi
+          if [ -f coverage.ini ]; then cp coverage.ini target/coverage.ini; fi
           cat > target/.coveragerc <<'EOF'
           [run]
           omit = */.venv/* */venv/* */env/* */site-packages/* */.tox/* */.pytest_cache/* */__pycache__/* */migrations/*
           EOF
 
-      - name: Run migrations if Django (safe)
-        if: steps.detect.outputs.is_django == 'true'
+      - name: Patch generated tests to avoid legacy skips & add jwt_optional shim
         working-directory: target
-        env:
-          PYTHONPATH: ${{ github.workspace }}/target
-          DJANGO_SETTINGS_MODULE: ${{ steps.detect.outputs.ds_module }}
         shell: bash
         run: |
-          set -e
-          echo "Running Django migrations for ${DJANGO_SETTINGS_MODULE}"
-          python - <<'PY'
-          import os, django
-          os.environ.setdefault('DJANGO_SETTINGS_MODULE', os.environ['DJANGO_SETTINGS_MODULE'])
+          if [ -d tests/generated ]; then
+            # sanitize hard skips and private imports
+            grep -Rl "_pytest.skip('generator: banned private imports" tests/generated | xargs -r sed -i '1,3d'
+            grep -Rl "\b_pytest\b" tests/generated | xargs -r sed -i 's/\b_pytest\b/pytest/g'
+            grep -Rl "pytest._code" tests/generated | xargs -r sed -i 's/pytest\._code/pytest/g'
+            # ensure conftest with jwt_optional shim
+            mkdir -p tests/generated
+            cat >> tests/generated/conftest.py <<'PY'
           try:
-              django.setup()
-              from django.conf import settings
-              engine = (getattr(settings,'DATABASES',{}).get('default',{}).get('ENGINE','') or '')
-              if not engine or engine == 'django.db.backends.dummy':
-                  print("⏭️  Skipping migrations: no real DB engine configured.")
-              else:
-                  from django.core.management import call_command
-                  call_command('migrate', interactive=False, verbosity=0)
-                  print("✅ migrate done")
-          except Exception as e:
-              print("⏭️  Skipping migrations probe failed:", e)
+              import flask_jwt_extended as _fje
+              if not hasattr(_fje, "jwt_optional") and hasattr(_fje, "jwt_required"):
+                  from flask_jwt_extended import jwt_required
+                  def jwt_optional(fn=None, **kwargs):
+                      dec = jwt_required(optional=True)
+                      return dec(fn) if callable(fn) else dec
+                  _fje.jwt_optional = jwt_optional
+          except Exception:
+              pass
           PY
+          fi
 
       - name: Discover committed generated tests
         id: discover
@@ -210,14 +251,13 @@ jobs:
           PY
           echo "test_files=/tmp/test_files.txt" >> "$GITHUB_OUTPUT"
 
-      - name: Run tests with coverage (make Flask importable; avoid all-skips)
+      - name: Run tests with coverage
         id: run
         working-directory: target
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
           PYTHONPATH: ${{ github.workspace }}/target
           TARGET_ROOT: ${{ github.workspace }}/target
-          # Safe defaults for common Flask apps so imports/clients work:
           FLASK_ENV: testing
           SECRET_KEY: test-secret
           DATABASE_URL: "sqlite:///:memory:"
@@ -265,7 +305,6 @@ jobs:
                   pass
 
           junit = pathlib.Path('reports/tests/junit.xml')
-          passed=failed=errors=skipped=0
           pass_pct=fail_pct=0.0
           if junit.exists():
               root = ET.parse(junit).getroot()
@@ -279,8 +318,8 @@ jobs:
                       if tc.find('skipped') is not None: skipped += 1
                       elif tc.find('failure') is not None: failures += 1
                       elif tc.find('error') is not None: errors += 1
-              passed = max(0, tests - failures - errors - skipped)
-              run_total = passed + failures + errors
+              run_total = max(0, tests - skipped)
+              passed = max(0, run_total - failures - errors)
               pass_pct = (100.0 * passed / run_total) if run_total > 0 else 0.0
               fail_pct = (100.0 * (failures + errors) / run_total) if run_total > 0 else 0.0
 
@@ -289,13 +328,14 @@ jobs:
           print(f"Coverage%: {cov:.2f}%")
 
           thr = float(os.environ.get('COVERAGE_THRESHOLD','70'))
-          ok = cov >= thr and pass_pct == 100.0
+          # Gate: fail if all tests skipped, or any failures/errors, or coverage below threshold
+          ready = (pass_pct == 100.0) and (cov >= thr) and (pass_pct > 0.0)
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
               f.write(f"coverage={cov:.2f}\n")
               f.write(f"pass_pct={pass_pct:.2f}\n")
               f.write(f"fail_pct={fail_pct:.2f}\n")
-              f.write(f"ready={'true' if ok else 'false'}\n")
-          sys.exit(0 if ok else 1)
+              f.write(f"ready={'true' if ready else 'false'}\n")
+          sys.exit(0 if ready else 1)
           PY
 
       - name: Upload reports
@@ -314,5 +354,5 @@ jobs:
           if [[ "${{ steps.gate.outputs.ready }}" == "true" ]]; then
             echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "❌ Tests failed or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**)." >> "$GITHUB_STEP_SUMMARY"
+            echo "❌ Tests failed, all skipped, or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**)." >> "$GITHUB_STEP_SUMMARY"
           fi

@@ -1,122 +1,142 @@
+import os, re, math, pathlib, random, json, subprocess, sys, importlib.util
+from typing import Dict, Any, List, Tuple, Optional, Set
+from .env import norm_rel
 
-import re, ast
-from typing import Tuple, List
+COMMON_PKG_ALIASES = {
+    "bs4":"beautifulsoup4","yaml":"PyYAML","cv2":"opencv-python","sklearn":"scikit-learn",
+    "PIL":"Pillow","Crypto":"pycryptodome","MySQLdb":"mysqlclient","mysql":"mysqlclient",
+    "psycopg2":"psycopg2-binary","boto3":"boto3","httpx":"httpx","requests":"requests",
+    "uvicorn":"uvicorn","fastapi":"fastapi","starlette":"starlette","pydantic":"pydantic",
+    "typing_extensions":"typing-extensions","annotated_types":"annotated-types","sqlalchemy":"SQLAlchemy",
+    "flask":"flask","django":"Django","click":"click","typer":"typer","jinja2":"Jinja2",
+    "ujson":"ujson","orjson":"orjson","pymongo":"pymongo","redis":"redis","pytest":"pytest",
+    "jwt":"PyJWT","markupsafe":"MarkupSafe","rest_framework":"djangorestframework",
+}
+DENY_GENERIC = {"models","views","urls","settings","config","tests","schemas","forms","admin","migrations","apps","serializers","permissions","filters","routers","services","repository","helpers","utils"}
+DENY_TOPS = set(DENY_GENERIC) | {"__future__","__main__","builtins","typing","types","dataclasses","importlib","asyncio","json","re","os","sys","pathlib","logging","argparse","functools","itertools","collections","subprocess","datetime","time","math","decimal","fractions","statistics","sqlite3","http","urllib","hmac","hashlib","base64","csv","glob","shutil","tempfile","inspect","traceback","enum","textwrap","pprint","string"}
 
-TEST_FUNC_RE = re.compile(r"^\s*def\s+test_[A-Za-z0-9_]*\s*\(", re.MULTILINE)
-BANNED_IMPORT_SUBSTRS = ["_pytest", "pytest._code"]
-BRITTLE_SNIPPETS = [r"assert\s+repr\(", r"\.fullsource\b", r"\.source\b", r"0x[0-9a-fA-F]+"]
+def _is_stdlib(top: str) -> bool:
+    std = getattr(sys, "stdlib_module_names", None)
+    if std: return top in std
+    return top in {"os","sys","re","json","pathlib","math","itertools","functools","typing","subprocess","datetime","time","collections","dataclasses","ast","logging","unittest","argparse","asyncio","threading","sqlite3","email","http","urllib","hashlib","hmac","base64","statistics","random","fractions","decimal","csv","shutil","tempfile","glob","inspect","traceback","textwrap","string","pprint","enum","types"}
 
-def extract_python_only(text: str) -> str:
-    if "```" in text:
-        import re as _re
-        blocks = _re.findall(r"```(?:python)?\s*(.*?)```", text, flags=_re.IGNORECASE|_re.DOTALL)
-        text = "\n\n".join(blocks) if blocks else text.replace("```","")
-    lines = text.splitlines()
-    if lines and lines[0].strip().lower() in {"python","py"}: lines = lines[1:]
-    s = "\n".join(lines).strip()
-    return s + ("\n" if not s.endswith("\n") else "")
+def _is_local(top: str) -> bool:
+    roots = [pathlib.Path(p) for p in (os.environ.get("TARGET_ROOT") or "", ".", "src", "backend", "app", "target") if p]
+    if pathlib.Path(top).exists() or pathlib.Path(top.replace(".","/")).exists(): return True
+    for base in roots:
+        if (base / f"{top}.py").exists() or (base / top).is_dir():
+            return True
+    return False
 
-def validate_code(code: str) -> Tuple[bool,str]:
-    if not code.strip(): return False, "empty output"
-    if not TEST_FUNC_RE.search(code): return False, "no test_ functions found"
-    try: ast.parse(code, filename="<generated>", mode="exec")
-    except SyntaxError as e: return False, f"syntax error: {e}"
-    return True, ""
+def dedupe_keep(items: List[Dict[str, str]], key: str, limit: int) -> List[Dict[str,str]]:
+    seen, out = set(), []
+    for it in items or []:
+        k = it.get(key)
+        if not k or k in seen: continue
+        seen.add(k)
+        out.append({kk: it.get(kk) for kk in ("name","file","handler","method") if kk in it})
+        if len(out) >= limit: break
+    return out
 
-def ensure_pytest_import_top(code: str) -> str:
-    import re as _re
-    return ("import pytest\n" + code) if not _re.search(r'^\s*import\s+pytest\b', code, _re.MULTILINE) else code
+def compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
+    total_funcs = len(analysis.get("functions", []))
+    cap = 120 if total_funcs > 400 else 80 if total_funcs > 200 else 50
+    funcs  = sorted(analysis.get("functions", []), key=lambda x: x.get("file",""))
+    clss   = sorted(analysis.get("classes", []),  key=lambda x: x.get("file",""))
+    routes = sorted(analysis.get("routes", []),   key=lambda x: x.get("file",""))
+    return {
+        "functions": dedupe_keep(funcs,  "name", cap),
+        "classes":   dedupe_keep(clss,  "name", max(30, cap//2)),
+        "routes":    dedupe_keep(routes, "handler", max(30, cap//2)),
+        "modules": sorted(set(analysis.get("modules", []))),
+    }
 
-def _guard_local_imports(code: str) -> str:
-    """
-    Rewrite top-level local imports to try lowercase, then load by path from TARGET_ROOT.
-    """
-    def repl_import(m):
-        mod = m.group(1); alias = m.group(2) or ""
-        as_part = f" as {alias}" if alias else ""
-        return (
-            f"try:\n    import {mod}{as_part}\n"
-            f"except ModuleNotFoundError:\n"
-            f"    try:\n        import {mod.lower()}{as_part}\n"
-            f"    except ModuleNotFoundError:\n"
-            f"        import importlib.util, sys, os\n"
-            f"        _tr=os.environ.get('TARGET_ROOT') or 'target'\n"
-            f"        _p1=os.path.join(_tr, '{mod}.py'); _p2=os.path.join(_tr, '{mod.lower()}.py')\n"
-            f"        _pp=[_p for _p in (_p1,_p2) if os.path.isfile(_p)]\n"
-            f"        if _pp:\n"
-            f"            _spec=importlib.util.spec_from_file_location('{mod}', _pp[0])\n"
-            f"            _m=importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_m)\n"
-            f"            sys.modules.setdefault('{mod}', _m)\n"
-            f"        else:\n"
-            f"            raise\n"
-        )
-    def repl_from(m):
-        mod, rest = m.group(1), m.group(2)
-        return (
-            f"try:\n    from {mod} import {rest}\n"
-            f"except ModuleNotFoundError:\n"
-            f"    try:\n        from {mod.lower()} import {rest}\n"
-            f"    except ModuleNotFoundError:\n"
-            f"        import importlib.util, sys, os\n"
-            f"        _tr=os.environ.get('TARGET_ROOT') or 'target'\n"
-            f"        _p1=os.path.join(_tr, '{mod}.py'); _p2=os.path.join(_tr, '{mod.lower()}.py')\n"
-            f"        _pp=[_p for _p in (_p1,_p2) if os.path.isfile(_p)]\n"
-            f"        if _pp:\n"
-            f"            _spec=importlib.util.spec_from_file_location('{mod}', _pp[0])\n"
-            f"            _m=importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_m)\n"
-            f"            sys.modules.setdefault('{mod}', _m)\n"
-            f"            from {mod} import {rest}\n"
-            f"        else:\n"
-            f"            raise\n"
-        )
-    code = re.sub(r'^\s*import\s+([A-Za-z_]\w*)(?:\s+as\s+([A-Za-z_]\w*))?\s*$', repl_import, code, flags=re.MULTILINE)
-    code = re.sub(r'^\s*from\s+([A-Za-z_]\w*)\s+import\s+([^\n]+)$', repl_from, code, flags=re.MULTILINE)
-    return code
+def filter_by_files(analysis: Dict[str, Any], focus_files: Optional[Set[str]]):
+    if not focus_files: return analysis, False
+    focus_norm = {norm_rel(f) for f in focus_files}
+    focus_basenames = {pathlib.Path(f).name for f in focus_norm}
+    def keep(e): 
+        fn = norm_rel(e.get("file") or "")
+        return (fn in focus_norm) or (pathlib.Path(fn).name in focus_basenames)
+    f = {
+        "functions":[d for d in (analysis.get("functions") or []) if keep(d)],
+        "classes":[d for d in (analysis.get("classes") or []) if keep(d)],
+        "routes":[d for d in (analysis.get("routes") or []) if keep(d)],
+        "modules": analysis.get("modules", [])
+    }
+    if not (f["functions"] or f["classes"] or f["routes"]):
+        return analysis, True
+    return f, False
 
-def skip_brittle_functions(code: str) -> str:
-    lines, out, cur = code.splitlines(), [], []
-    def is_hdr(s): return TEST_FUNC_RE.match(s) is not None
-    def needs_skip(block):
-        txt = "\n".join(block)
-        import re as _re
-        return any(_re.search(p, txt) for p in BRITTLE_SNIPPETS) or any(sub in txt for sub in BANNED_IMPORT_SUBSTRS)
-    i=0
-    while i < len(lines):
-        if is_hdr(lines[i]):
-            if cur: out.extend(cur); cur=[]
-            func=[lines[i]]; i+=1
-            while i < len(lines) and not is_hdr(lines[i]): func.append(lines[i]); i+=1
-            if needs_skip(func): out.append("@pytest.mark.skip(reason='auto-skip brittle assertion/import from generator')")
-            out.extend(func)
-        else:
-            cur.append(lines[i]); i+=1
-    if cur: out.extend(cur)
-    s = "\n".join(out)
-    if not s.endswith("\n"): s+="\n"
-    return ensure_pytest_import_top(s)
+# --- Skip GUI/heavy deps when not installed ---
+_HEAVY = {
+    "PyQt5": ("import PyQt5", "from PyQt5"),
+    "PySide6": ("import PySide6", "from PySide6"),
+    "PySide2": ("import PySide2", "from PySide2"),
+    "tkinter": ("import tkinter", "from tkinter"),
+    "wx": ("import wx", "from wx"),
+    "cv2": ("import cv2", "from cv2"),
+}
 
-def header_guard_banned(code: str) -> str:
-    if any(sub in code for sub in BANNED_IMPORT_SUBSTRS):
-        return "import pytest as _pytest\n_pytest.skip('generator: banned private imports detected; skipping module', allow_module_level=True)\n\n" + code
-    return code
+def _missing(mod: str) -> bool:
+    try:
+        return importlib.util.find_spec(mod) is None
+    except Exception:
+        return True
 
-def massage(code: str) -> str:
-    code = re.sub(
-        r"except\s+Exception\s+as\s+e:\s*\n\s*pytest\.skip\((.*?)\)",
-        r"except ImportError as e:\n        pytest.skip(\1)\n    except Exception:\n        raise",
-        code, flags=re.DOTALL
-    )
-    code = re.sub(r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s+as\s+([A-Za-z_]\w*)\s*',
-                  r'import \1 as \2', code, flags=re.MULTILINE)
-    code = re.sub(r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\s+__init__\s*',
-                  r'import \1', code, flags=re.MULTILINE)
-    # robust local imports
-    code = _guard_local_imports(code)
-    # annotate tests
-    out=[]
-    for line in code.splitlines():
-        out.append(line)
-        if line.lstrip().startswith("def test_"): out.append("    # Arrange-Act-Assert: generated by ai-testgen")
-    code = "\n".join(out)
-    code = ensure_pytest_import_top(code)
-    return code if code.endswith("\n") else code + "\n"
+def _file_has_marker(path: str, needles) -> bool:
+    try:
+        txt = pathlib.Path(path).read_text(encoding="utf-8", errors="ignore")
+        return any(n in txt for n in needles)
+    except Exception:
+        return False
+
+def prune_unavailable_targets(compact: Dict[str, Any]) -> Dict[str, Any]:
+    # allow opt-in GUI shims to keep targets
+    if os.getenv("TESTGEN_ENABLE_GUI_SHIMS","0").lower() in ("1","true","yes"):
+        return compact
+    bad_files = set()
+    for mod, needles in _HEAVY.items():
+        if _missing(mod):
+            for coll in ("functions","classes","routes"):
+                for d in compact.get(coll, []) or []:
+                    f = d.get("file")
+                    if f and _file_has_marker(f, needles):
+                        bad_files.add(f)
+    if not bad_files:
+        return compact
+    def keep(d): return d.get("file") not in bad_files
+    return {
+        "functions":[d for d in (compact.get("functions") or []) if keep(d)],
+        "classes":[d for d in (compact.get("classes") or []) if keep(d)],
+        "routes":[d for d in (compact.get("routes") or []) if keep(d)],
+        "modules": compact.get("modules", []),
+    }
+
+def infer_required_packages(compact: Dict[str, Any]) -> List[str]:
+    mods = compact.get("modules") or []
+    needed = set()
+    for m in mods:
+        top = (m.split(".")[0] or "").strip()
+        if not top or top in DENY_TOPS or top.startswith("_") or any(c.isupper() for c in top): continue
+        if _is_stdlib(top) or _is_local(top): continue
+        needed.add(COMMON_PKG_ALIASES.get(top, top))
+    out = sorted(needed, key=str.lower)
+    if "fastapi" in {x.lower() for x in out}:
+        for extra in ("starlette","pydantic"):
+            if extra not in out: out.append(extra)
+    return out
+
+def pip_install(packages: List[str]) -> None:
+    pkgs = [p for p in (packages or []) if p and p.strip()]
+    if not pkgs:
+        print("📦 No third-party packages inferred.")
+        return
+    constraints = os.getenv("TESTGEN_PIP_CONSTRAINTS") or os.getenv("PIP_CONSTRAINT")
+    print("📦 Installing (only-if-needed):", ", ".join(pkgs))
+    for pkg in pkgs:
+        cmd = [sys.executable,"-m","pip","install","--disable-pip-version-check","--no-input","--upgrade-strategy","only-if-needed"]
+        if constraints: cmd += ["-c", constraints]
+        cmd.append(pkg)
+        try: subprocess.check_call(cmd); print(f"  ✅ {pkg}")
+        except Exception as e: print(f"  ⚠️ {pkg}: {e}")

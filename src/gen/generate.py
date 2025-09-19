@@ -30,17 +30,26 @@ def _gen_validated(messages, attempts=3, backoff=(3,7,15)):
                 cleaned = extract_python_only(raw)
                 ok, reason = validate_code(cleaned)
                 if ok:
-                    code = skip_brittle_functions(cleaned)
-                    code = header_guard_banned(code)
-                    code = massage(code)
-                    ok2, r2 = validate_code(code)
-                    if ok2: return code
-                    reason = f"post-process validation failed: {r2}"
-                messages.append({"role":"user","content":f"Invalid: {reason}. Regenerate strict pytest code only. Guard imports; prefer parametrize; no custom fixtures."})
+                    base = skip_brittle_functions(cleaned)
+                    base = header_guard_banned(base)
+                    post = massage(base)
+                    ok2, r2 = validate_code(post)
+                    if ok2:
+                        return post
+                    print(f"↩️ postprocess broke syntax, using base: {r2}")
+                    ok3, r3 = validate_code(base)
+                    if ok3:
+                        return base
+                    reason = f"post-process and base validation failed: {r2} / {r3}"
+                messages.append({"role":"user","content":
+                                 f"Invalid: {reason}. Regenerate strict pytest code only. "
+                                 f"Guard imports; prefer parametrize; no custom fixtures."})
                 break
             except RateLimitError:
-                if sleep_s < backoff[-1]: continue
-                else: break
+                if sleep_s < backoff[-1]:
+                    continue
+                else:
+                    break
             except Exception as e:
                 print(f"⚠️ gen attempt {attempt} error: {e}")
                 break

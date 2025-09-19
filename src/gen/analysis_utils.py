@@ -12,8 +12,17 @@ COMMON_PKG_ALIASES = {
     "ujson":"ujson","orjson":"orjson","pymongo":"pymongo","redis":"redis","pytest":"pytest",
     "jwt":"PyJWT","markupsafe":"MarkupSafe","rest_framework":"djangorestframework",
 }
-DENY_GENERIC = {"models","views","urls","settings","config","tests","schemas","forms","admin","migrations","apps","serializers","permissions","filters","routers","services","repository","helpers","utils"}
-DENY_TOPS = set(DENY_GENERIC) | {"__future__","__main__","builtins","typing","types","dataclasses","importlib","asyncio","json","re","os","sys","pathlib","logging","argparse","functools","itertools","collections","subprocess","datetime","time","math","decimal","fractions","statistics","sqlite3","http","urllib","hmac","hashlib","base64","csv","glob","shutil","tempfile","inspect","traceback","enum","textwrap","pprint","string"}
+DENY_GENERIC = {
+    "models","views","urls","settings","config","tests","schemas","forms","admin","migrations",
+    "apps","serializers","permissions","filters","routers","services","repository","helpers","utils",
+    "compat","extensions","renderers","relations"  # common local names; avoid pip guesses
+}
+DENY_TOPS = set(DENY_GENERIC) | {
+    "__future__","__main__","builtins","typing","types","dataclasses","importlib","asyncio","json","re","os","sys",
+    "pathlib","logging","argparse","functools","itertools","collections","subprocess","datetime","time","math",
+    "decimal","fractions","statistics","sqlite3","http","urllib","hmac","hashlib","base64","csv","glob","shutil",
+    "tempfile","inspect","traceback","enum","textwrap","pprint","string"
+}
 
 def _is_stdlib(top: str) -> bool:
     std = getattr(sys, "stdlib_module_names", None)
@@ -55,7 +64,7 @@ def filter_by_files(analysis: Dict[str, Any], focus_files: Optional[Set[str]]):
     if not focus_files: return analysis, False
     focus_norm = {norm_rel(f) for f in focus_files}
     focus_basenames = {pathlib.Path(f).name for f in focus_norm}
-    def keep(e): 
+    def keep(e):
         fn = norm_rel(e.get("file") or "")
         return (fn in focus_norm) or (pathlib.Path(fn).name in focus_basenames)
     f = {

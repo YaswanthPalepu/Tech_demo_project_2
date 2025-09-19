@@ -7,10 +7,11 @@ on:
         description: "Repo to validate against"
         required: true
         default: "https://github.com/DeviPrasad372002/django-test-app.git"
-  workflow_run:
-    workflows: ["AI Test Generation"]
-    types:
-      - completed
+  # workflow_run:
+  #   workflows: ["AI Test Generation"]
+  #   types: [completed]
+  push:
+    branches: ["test2"]
 
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
@@ -55,7 +56,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          CLEAN_URL="https://github.com/DeviPrasad372002/django-test-app.git"
+          CLEAN_URL="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
           if [ -n "$GH_PAT3" ]; then
             CLEAN_URL="${CLEAN_URL/https:\/\//https://x-access-token:${GH_PAT3}@}"
           fi
@@ -83,7 +84,6 @@ jobs:
           python - <<'PY'
           import os, re, pathlib
           root = pathlib.Path('.').resolve()
-
           text = ''
           for p in root.rglob('*.py'):
               try: text += '\n' + p.read_text(encoding='utf-8', errors='ignore')
@@ -165,37 +165,49 @@ jobs:
               print("No missing imports to install")
           PY
 
-      - name: Prepare pytest.ini
-        working-directory: target
+      # NEW: pull generated tests from the triggering workflow run (if any)
+      - name: Download generated tests artifact (workflow_run only)
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          cat > pytest.ini <<'EOF'
-          [pytest]
-          addopts = -v -ra --tb=short
-          python_files = test_*.py *_test.py *.test.py
-          python_functions = test_*
-          python_classes = Test*
-          norecursedirs = .git .tox .env .venv venv env __pycache__ .pytest_cache build dist node_modules */site-packages/*
-          EOF
-
-      - name: Coverage config (repo coverage.ini preferred)
-        shell: bash
-        run: |
-          if [ -f coverage.ini ]; then cp coverage.ini target/coverage.ini; fi
-          cat > target/.coveragerc <<'EOF'
-          [run]
-          omit = */.venv/* */venv/* */env/* */site-packages/* */.tox/* */.pytest_cache/* */__pycache__/* */migrations/*
-          EOF
-
-      - name: Copy generated tests from this repo into target
-        shell: bash
-        run: |
-          if [ ! -d tests/generated ]; then
-            echo "❌ No tests/generated in this (workflow) repo"; exit 1
+          set -e
+          mkdir -p _dl
+          curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/artifacts" \
+            > _dl/list.json
+          ART_URL=$(python - <<'PY'
+          import json
+          j=json.load(open('_dl/list.json'))
+          for a in j.get('artifacts',[]):
+              n=a.get('name','').lower()
+              if any(k in n for k in ('generated','tests','ai-test','ai_tests','testgen')):
+                  print(a['archive_download_url']); break
+          PY
+          )
+          if [ -n "$ART_URL" ]; then
+            curl -sS -L -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "$ART_URL" -o _dl/a.zip
+            unzip -q _dl/a.zip -d tests || true
+            echo "✅ Downloaded generated tests artifact into ./tests"
+          else
+            echo "ℹ️ No matching artifact found on triggering run."
           fi
-          mkdir -p target/tests/generated
-          rsync -a tests/generated/ target/tests/generated/
-          echo "✅ Copied $(find target/tests/generated -type f -name 'test_*.py' | wc -l) tests"
+
+      # copy tests into target if we have any (from this repo or downloaded)
+      - name: Copy generated tests into target (if any)
+        shell: bash
+        run: |
+          set -e
+          COUNT=$(find tests -type f -name 'test_*.py' 2>/dev/null | wc -l | xargs || true)
+          if [ "${COUNT}" != "0" ]; then
+            mkdir -p target/tests/generated
+            rsync -a tests/ target/tests/generated/
+            echo "✅ Copied ${COUNT} generated test files into target/tests/generated"
+          else
+            echo "ℹ️ No generated tests found in this repo or downloaded artifacts."
+          fi
 
       - name: Write runtime conftest (repo-agnostic) into target/tests/generated
         working-directory: target
@@ -252,7 +264,7 @@ jobs:
                   _fje.jwt_optional = jwt_optional  # type: ignore
           except Exception: pass
 
-          # Auto-setup Django
+          # Auto-setup Django (settings + setup())
           def _detect_django_settings():
               if os.environ.get("DJANGO_SETTINGS_MODULE"):
                   return os.environ["DJANGO_SETTINGS_MODULE"]
@@ -261,7 +273,7 @@ jobs:
                   try:
                       s = mpy.read_text(encoding="utf-8", errors="ignore")
                       m = (re.search(r"DJANGO_SETTINGS_MODULE\s*=\s*['\"]([^'\"]+)['\"]", s)
-                           or re.search(r"setdefault\(\s*['\"]DJANGO_SETTINGS_MODULE['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)", s))
+                          or re.search(r"setdefault\(\s*['\"]DJANGO_SETTINGS_MODULE['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)", s))
                       if m: return m.group(1)
                   except Exception: pass
               exc={"migrations","site-packages",".venv","venv","env",".tox","__pycache__"}

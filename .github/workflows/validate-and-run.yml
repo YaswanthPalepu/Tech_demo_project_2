@@ -76,7 +76,6 @@ jobs:
           import os, re, pathlib
           root = pathlib.Path('.').resolve()
 
-          # Flask / FastAPI presence (simple import scan)
           text = ''
           for p in root.rglob('*.py'):
               try: text += '\n' + p.read_text(encoding='utf-8', errors='ignore')
@@ -84,7 +83,6 @@ jobs:
           needs_flask   = bool(re.search(r'(^|\n)\s*(from|import)\s+flask\b', text))
           needs_fastapi = bool(re.search(r'(^|\n)\s*(from|import)\s+fastapi\b', text) or re.search(r'(^|\n)\s*(from|import)\s+starlette\b', text))
 
-          # Robust Django settings detection (no django.setup here)
           ds = ''
           mpy = root / 'manage.py'
           if mpy.exists():
@@ -190,15 +188,25 @@ jobs:
           omit = */.venv/* */venv/* */env/* */site-packages/* */.tox/* */.pytest_cache/* */__pycache__/* */migrations/*
           EOF
 
-      - name: Patch generated tests (jwt_optional shim; remove hard skips)
+      - name: Patch generated tests (safe; add shims)
         working-directory: target
         shell: bash
         run: |
-          if [ -d tests/generated ]; then
-            grep -Rl "_pytest.skip('generator: banned private imports" tests/generated | xargs -r sed -i '1,3d'
-            grep -Rl "\b_pytest\b" tests/generated | xargs -r sed -i 's/\b_pytest\b/pytest/g'
-            grep -Rl "pytest._code" tests/generated | xargs -r sed -i 's/pytest\._code/pytest/g'
-            mkdir -p tests/generated
+          if [ ! -d tests/generated ]; then
+            echo "❌ tests/generated directory does not exist"; exit 1
+          fi
+
+          # Remove module-level hard-skip lines if present (safe when no matches)
+          set +e
+          files=$(grep -Rl "banned private imports" tests/generated 2>/dev/null); rc=$?
+          set -e
+          if [ $rc -eq 0 ] && [ -n "$files" ]; then
+            sed -i '/banned private imports/d' $files
+          fi
+
+          # Ensure conftest has shims for jwt_optional and SQLAlchemy Binary
+          mkdir -p tests/generated
+          if ! grep -q 'def jwt_optional' tests/generated/conftest.py 2>/dev/null; then
             cat >> tests/generated/conftest.py <<'PY'
           try:
               import flask_jwt_extended as _fje
@@ -210,8 +218,16 @@ jobs:
                   _fje.jwt_optional = jwt_optional
           except Exception:
               pass
+
+          # Alias SQLAlchemy Binary -> LargeBinary so db.Binary works in older code
+          try:
+              import sqlalchemy as _sa
+              if not hasattr(_sa, "Binary") and hasattr(_sa, "LargeBinary"):
+                  _sa.Binary = _sa.LargeBinary
+          except Exception:
+              pass
           PY
-              fi
+                    fi
 
       - name: Discover committed generated tests
         id: discover

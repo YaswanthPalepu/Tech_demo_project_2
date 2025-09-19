@@ -11,7 +11,10 @@ COMMON_PKG_ALIASES = {
     "flask":"flask","django":"Django","click":"click","typer":"typer","jinja2":"Jinja2",
     "ujson":"ujson","orjson":"orjson","pymongo":"pymongo","redis":"redis","pytest":"pytest",
     "jwt":"PyJWT","markupsafe":"MarkupSafe","rest_framework":"djangorestframework",
+    "django_filters":"django-filter","rest_framework_simplejwt":"djangorestframework-simplejwt",
+    "drf_yasg":"drf-yasg","channels":"channels","environs":"environs","dotenv":"python-dotenv",
 }
+
 DENY_GENERIC = {
     "models","views","urls","settings","config","tests","schemas","forms","admin","migrations",
     "apps","serializers","permissions","filters","routers","services","repository","helpers","utils",

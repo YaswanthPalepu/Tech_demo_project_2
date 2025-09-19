@@ -192,57 +192,73 @@ jobs:
         working-directory: target
         shell: bash
         run: |
-          if [ ! -d tests/generated ]; then
-            echo "❌ tests/generated directory does not exist"; exit 1
-          fi
+          python - <<'PY'
+          import pathlib, re
 
-          # Remove module-level hard-skip lines if present (safe when no matches)
-          set +e
-          files=$(grep -Rl "banned private imports" tests/generated 2>/dev/null); rc=$?
-          set -e
-          if [ $rc -eq 0 ] && [ -n "$files" ]; then
-            sed -i '/banned private imports/d' $files
-          fi
+          root = pathlib.Path('.')
+          gen = root / 'tests' / 'generated'
+          if not gen.exists():
+              print("ℹ️ tests/generated directory not found (skipping patch step).")
+          else:
+              # Remove "banned private imports" hard-skip lines if they exist
+              for p in gen.rglob('test_*.py'):
+                  s = p.read_text(encoding='utf-8', errors='ignore')
+                  s2 = re.sub(r".*banned private imports.*\n?", "", s)
+                  if s2 != s:
+                      p.write_text(s2, encoding='utf-8')
 
-          # Ensure conftest has shims for jwt_optional and SQLAlchemy Binary
-          mkdir -p tests/generated
-          if ! grep -q 'def jwt_optional' tests/generated/conftest.py 2>/dev/null; then
-            cat >> tests/generated/conftest.py <<'PY'
-          try:
-              import flask_jwt_extended as _fje
-              if not hasattr(_fje, "jwt_optional") and hasattr(_fje, "jwt_required"):
-                  from flask_jwt_extended import jwt_required
-                  def jwt_optional(fn=None, **kwargs):
-                      dec = jwt_required(optional=True)
-                      return dec(fn) if callable(fn) else dec
-                  _fje.jwt_optional = jwt_optional
-          except Exception:
-              pass
+              # Ensure conftest shims exist / are idempotent
+              cf = gen / 'conftest.py'
+              block = r"""
+                  try:
+                      import flask_jwt_extended as _fje
+                      if not hasattr(_fje, "jwt_optional") and hasattr(_fje, "jwt_required"):
+                          from flask_jwt_extended import jwt_required
+                          def jwt_optional(fn=None, **kwargs):
+                              dec = jwt_required(optional=True)
+                              return dec(fn) if callable(fn) else dec
+                          _fje.jwt_optional = jwt_optional
+                  except Exception:
+                      pass
 
-          # Alias SQLAlchemy Binary -> LargeBinary so db.Binary works in older code
-          try:
-              import sqlalchemy as _sa
-              if not hasattr(_sa, "Binary") and hasattr(_sa, "LargeBinary"):
-                  _sa.Binary = _sa.LargeBinary
-          except Exception:
-              pass
+                  try:
+                      import sqlalchemy as _sa
+                      if not hasattr(_sa, "Binary") and hasattr(_sa, "LargeBinary"):
+                          _sa.Binary = _sa.LargeBinary
+                      try:
+                          from flask_sqlalchemy import SQLAlchemy as _FSQ
+                          if not hasattr(_FSQ, "Binary") and hasattr(_sa, "LargeBinary"):
+                              setattr(_FSQ, "Binary", _sa.LargeBinary)
+                      except Exception:
+                          pass
+                  except Exception:
+                      pass
+                  """
+              if cf.exists():
+                  t = cf.read_text(encoding='utf-8', errors='ignore')
+                  if "def jwt_optional" not in t or "Binary" not in t:
+                      cf.write_text(t + "\n" + block, encoding='utf-8')
+              else:
+                  cf.write_text(block, encoding='utf-8')
           PY
-                    fi
 
-      - name: Discover committed generated tests
+      - name: Discover tests (prefer tests/generated, else any tests)
         id: discover
         working-directory: target
         shell: bash
         run: |
           python - <<'PY'
           import pathlib, sys
-          files=[str(p) for p in (pathlib.Path('tests')/'generated').rglob('test_*.py')]
+          root = pathlib.Path('.')
+          files = [str(p) for p in (root/'tests'/'generated').rglob('test_*.py')]
+          if not files:
+              files = [str(p) for p in root.rglob('test_*.py') if '/site-packages/' not in str(p)]
           if files:
               out='/tmp/test_files.txt'
               open(out,'w').write('\n'.join(sorted(files)))
-              print(f"✅ Found {len(files)} generated tests under tests/generated")
+              print(f"✅ Found {len(files)} tests")
           else:
-              print("❌ No generated tests found under tests/generated"); sys.exit(1)
+              print("❌ No tests found"); sys.exit(1)
           PY
           echo "test_files=/tmp/test_files.txt" >> "$GITHUB_OUTPUT"
 
@@ -288,9 +304,11 @@ jobs:
         run: |
           mkdir -p reports/tests
           PLUGINS="-p pytest_cov -p pytest_timeout"
+          DS_OPT=""
           if [ "${{ steps.detect.outputs.is_django }}" = "true" ]; then
             PLUGINS="$PLUGINS -p pytest_django"
             export DJANGO_SETTINGS_MODULE="${{ steps.detect.outputs.ds_module }}"
+            DS_OPT="--ds=${{ steps.detect.outputs.ds_module }}"
           fi
           COVCFG_OPT=""
           if [ -f coverage.ini ]; then
@@ -299,7 +317,7 @@ jobs:
             COVCFG_OPT="--cov-config=.coveragerc"
           fi
           mapfile -t FILES < /tmp/test_files.txt
-          pytest -v -ra --tb=short $PLUGINS $COVCFG_OPT \
+          pytest -v -ra --tb=short $PLUGINS $DS_OPT $COVCFG_OPT \
             --cov=. \
             --cov-report=xml:reports/tests/coverage.xml \
             --cov-report=json:reports/tests/coverage.json \

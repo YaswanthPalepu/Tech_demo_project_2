@@ -211,7 +211,7 @@ jobs:
           except Exception:
               pass
           PY
-          fi
+              fi
 
       - name: Discover committed generated tests
         id: discover

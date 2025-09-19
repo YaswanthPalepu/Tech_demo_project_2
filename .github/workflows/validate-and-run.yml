@@ -1,11 +1,8 @@
 name: Validate Generated Tests (CI Gate)
 
 on:
-  # workflow_run:
-  #   workflows: ["AI Test Generation"]
-  #   types: [completed]
-    push:
-      branches: ["test2"]
+  push:
+    branches: ["test2"]
 
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
@@ -92,12 +89,10 @@ jobs:
           needs_flask   = bool(re.search(r'(^|\n)\s*(from|import)\s+flask\b', text))
           needs_fastapi = bool(re.search(r'(^|\n)\s*(from|import)\s+fastapi\b', text) or re.search(r'(^|\n)\s*(from|import)\s+starlette\b', text))
 
-          # Robust Django settings probe (only mark true if setup succeeds)
           ds = ''
           ok = False
           try:
               import django
-              # find candidate settings.py
               cands=[]
               for p in files():
                   if p.name=='settings.py' and 'migrations' not in str(p.parent):
@@ -159,11 +154,15 @@ jobs:
           norecursedirs = .git .tox .env .venv venv env __pycache__ .pytest_cache build dist node_modules */site-packages/*
           EOF
 
-      - name: Write .coveragerc
-        working-directory: target
+      - name: Coverage config
         shell: bash
         run: |
-          cat > .coveragerc <<'EOF'
+          # Prefer root coverage.ini if present. Copy into target so pytest-cov can read it.
+          if [ -f coverage.ini ]; then
+            cp coverage.ini target/coverage.ini
+          fi
+          # Always provide a fallback .coveragerc inside target.
+          cat > target/.coveragerc <<'EOF'
           [run]
           omit = */.venv/* */venv/* */env/* */site-packages/* */.tox/* */.pytest_cache/* */__pycache__/* */migrations/*
           EOF
@@ -234,10 +233,17 @@ jobs:
             PLUGINS="$PLUGINS -p pytest_django"
             export DJANGO_SETTINGS_MODULE="${{ steps.detect.outputs.ds_module }}"
           fi
+          # Choose coverage config: prefer coverage.ini (copied), else .coveragerc
+          COVCFG_OPT=""
+          if [ -f coverage.ini ]; then
+            COVCFG_OPT="--cov-config=coverage.ini"
+          elif [ -f .coveragerc ]; then
+            COVCFG_OPT="--cov-config=.coveragerc"
+          fi
           if [ -s /tmp/test_files.txt ]; then
             mapfile -t FILES < /tmp/test_files.txt
-            pytest -v --tb=short $PLUGINS \
-              --cov=. --cov-config=coverage.ini \
+            pytest -v --tb=short $PLUGINS $COVCFG_OPT \
+              --cov=. \
               --cov-report=xml:reports/tests/coverage.xml \
               --cov-report=json:reports/tests/coverage.json \
               --cov-report=term-missing \
@@ -245,8 +251,8 @@ jobs:
               --timeout=300 \
               "${FILES[@]}"
           else
-            pytest -v --tb=short $PLUGINS \
-              --cov=. --cov-config=.coveragerc \
+            pytest -v --tb=short $PLUGINS $COVCFG_OPT \
+              --cov=. \
               --cov-report=xml:reports/tests/coverage.xml \
               --cov-report=json:reports/tests/coverage.json \
               --cov-report=term-missing \
@@ -261,10 +267,9 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
-          import json, pathlib, sys
+          import json, pathlib, os, sys
           from xml.etree import ElementTree as ET
 
-          # Coverage %
           cov_json = pathlib.Path('reports/tests/coverage.json')
           cov = 0.0
           if cov_json.exists():
@@ -273,39 +278,31 @@ jobs:
               except Exception:
                   pass
 
-          # Pass/Fail % from JUnit
           junit = pathlib.Path('reports/tests/junit.xml')
           passed=failed=errors=skipped=0
+          pass_pct=fail_pct=0.0
           if junit.exists():
               root = ET.parse(junit).getroot()
-              # aggregate top-level attributes if present
               tests = int(root.attrib.get('tests', 0))
               failures = int(root.attrib.get('failures', 0))
               errors = int(root.attrib.get('errors', 0))
               skipped = int(root.attrib.get('skipped', root.attrib.get('disabled', 0)))
-              # fallback: sum testcase children
               if tests == 0:
-                  tests = 0
                   for tc in root.iter('testcase'):
                       tests += 1
                       if tc.find('skipped') is not None: skipped += 1
                       elif tc.find('failure') is not None: failures += 1
                       elif tc.find('error') is not None: errors += 1
               passed = max(0, tests - failures - errors - skipped)
-
               run_total = passed + failures + errors
               pass_pct = (100.0 * passed / run_total) if run_total > 0 else 0.0
               fail_pct = (100.0 * (failures + errors) / run_total) if run_total > 0 else 0.0
-          else:
-              pass_pct = fail_pct = 0.0
 
           print(f"Pass% (excl skipped): {pass_pct:.2f}%")
           print(f"Fail% (excl skipped): {fail_pct:.2f}%")
           print(f"Coverage%: {cov:.2f}%")
 
-          thr = float(${{
-            env.COVERAGE_THRESHOLD
-          }})
+          thr = float(os.environ.get('COVERAGE_THRESHOLD','70'))
           ok = cov >= thr and pass_pct == 100.0
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
               f.write(f"coverage={cov:.2f}\n")
@@ -314,7 +311,6 @@ jobs:
               f.write(f"ready={'true' if ok else 'false'}\n")
           sys.exit(0 if ok else 1)
           PY
-
 
       - name: Upload reports
         if: always()

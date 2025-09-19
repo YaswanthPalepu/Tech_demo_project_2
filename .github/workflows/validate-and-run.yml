@@ -237,10 +237,11 @@ jobs:
           if [ -s /tmp/test_files.txt ]; then
             mapfile -t FILES < /tmp/test_files.txt
             pytest -v --tb=short $PLUGINS \
-              --cov=. --cov-config=.coveragerc \
+              --cov=. --cov-config=coverage.ini \
               --cov-report=xml:reports/tests/coverage.xml \
               --cov-report=json:reports/tests/coverage.json \
               --cov-report=term-missing \
+              --junitxml=reports/tests/junit.xml \
               --timeout=300 \
               "${FILES[@]}"
           else
@@ -249,30 +250,71 @@ jobs:
               --cov-report=xml:reports/tests/coverage.xml \
               --cov-report=json:reports/tests/coverage.json \
               --cov-report=term-missing \
+              --junitxml=reports/tests/junit.xml \
               --timeout=300
           fi
 
-      - name: Parse coverage & gate
+      - name: Parse metrics & gate
         id: gate
         if: always()
         working-directory: target
         shell: bash
         run: |
           python - <<'PY'
-          import json, pathlib, os, sys
-          p=pathlib.Path('reports/tests/coverage.json')
-          cov=0.0
-          if p.exists():
-              try: cov=float(json.load(open(p)).get('totals',{}).get('percent_covered',0.0))
-              except: pass
-          thr=float(os.environ.get('COVERAGE_THRESHOLD','70'))
-          tests_ok='${{ steps.run.outcome }}'=='success'
-          ok=(cov>=thr) and tests_ok
-          print(f"Coverage={cov:.2f}%, Thr={thr}, TestsOk={tests_ok}, Gate={'OK' if ok else 'FAIL'}")
+          import json, pathlib, sys
+          from xml.etree import ElementTree as ET
+
+          # Coverage %
+          cov_json = pathlib.Path('reports/tests/coverage.json')
+          cov = 0.0
+          if cov_json.exists():
+              try:
+                  cov = float(json.load(open(cov_json)).get('totals',{}).get('percent_covered',0.0))
+              except Exception:
+                  pass
+
+          # Pass/Fail % from JUnit
+          junit = pathlib.Path('reports/tests/junit.xml')
+          passed=failed=errors=skipped=0
+          if junit.exists():
+              root = ET.parse(junit).getroot()
+              # aggregate top-level attributes if present
+              tests = int(root.attrib.get('tests', 0))
+              failures = int(root.attrib.get('failures', 0))
+              errors = int(root.attrib.get('errors', 0))
+              skipped = int(root.attrib.get('skipped', root.attrib.get('disabled', 0)))
+              # fallback: sum testcase children
+              if tests == 0:
+                  tests = 0
+                  for tc in root.iter('testcase'):
+                      tests += 1
+                      if tc.find('skipped') is not None: skipped += 1
+                      elif tc.find('failure') is not None: failures += 1
+                      elif tc.find('error') is not None: errors += 1
+              passed = max(0, tests - failures - errors - skipped)
+
+              run_total = passed + failures + errors
+              pass_pct = (100.0 * passed / run_total) if run_total > 0 else 0.0
+              fail_pct = (100.0 * (failures + errors) / run_total) if run_total > 0 else 0.0
+          else:
+              pass_pct = fail_pct = 0.0
+
+          print(f"Pass% (excl skipped): {pass_pct:.2f}%")
+          print(f"Fail% (excl skipped): {fail_pct:.2f}%")
+          print(f"Coverage%: {cov:.2f}%")
+
+          thr = float(${{
+            env.COVERAGE_THRESHOLD
+          }})
+          ok = cov >= thr and pass_pct == 100.0
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
-              f.write(f"coverage={cov:.2f}\nready={'true' if ok else 'false'}\n")
+              f.write(f"coverage={cov:.2f}\n")
+              f.write(f"pass_pct={pass_pct:.2f}\n")
+              f.write(f"fail_pct={fail_pct:.2f}\n")
+              f.write(f"ready={'true' if ok else 'false'}\n")
           sys.exit(0 if ok else 1)
           PY
+
 
       - name: Upload reports
         if: always()

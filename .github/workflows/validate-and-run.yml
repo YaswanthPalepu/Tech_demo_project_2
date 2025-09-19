@@ -7,11 +7,9 @@ on:
         description: "Repo to validate against"
         required: true
         default: "https://github.com/DeviPrasad372002/django-test-app.git"
-  # workflow_run:
-  #   workflows: ["AI Test Generation"]
-  #   types: [completed]
-  push:
-    branches: ["test2"]
+  workflow_run:
+    workflows: ["AI Test Generation"]
+    types: [completed]
 
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
@@ -126,76 +124,72 @@ jobs:
             pip install fastapi starlette pydantic
           fi
 
-      - name: Infer & install missing imports from repo/tests
+      - name: Force compatible Django & DRF (only if Django)
+        if: steps.detect.outputs.is_django == 'true'
         working-directory: target
         shell: bash
         run: |
-          python - <<'PY'
-          import os, sys, re, pathlib, subprocess, importlib.util
-          root = pathlib.Path('.').resolve()
-          EXC={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','site-packages','__pycache__'}
-          aliases = {
-            "bs4":"beautifulsoup4","yaml":"PyYAML","cv2":"opencv-python","sklearn":"scikit-learn",
-            "PIL":"Pillow","Crypto":"pycryptodome","MySQLdb":"mysqlclient","mysql":"mysqlclient",
-            "psycopg2":"psycopg2-binary","httpx":"httpx","requests":"requests","uvicorn":"uvicorn",
-            "fastapi":"fastapi","starlette":"starlette","pydantic":"pydantic","typing_extensions":"typing-extensions",
-            "annotated_types":"annotated-types","sqlalchemy":"SQLAlchemy","flask":"flask","django":"Django",
-            "click":"click","typer":"typer","jinja2":"Jinja2","ujson":"ujson","orjson":"orjson",
-            "pymongo":"pymongo","redis":"redis","pytest":"pytest","jwt":"PyJWT","markupsafe":"MarkupSafe",
-            "rest_framework":"djangorestframework","slugify":"python-slugify"
-          }
-          std = set(getattr(sys, "stdlib_module_names", set()))
-          def is_local(top): return (root/(top+".py")).exists() or (root/top).is_dir()
-          mods=set()
-          for p in root.rglob('*.py'):
-              if any(part in EXC for part in p.parts): continue
-              try: s=p.read_text(encoding='utf-8',errors='ignore')
-              except: continue
-              mods.update(m.split('.')[0] for m in re.findall(r'^\s*import\s+([A-Za-z_][\w\.]*)', s, re.M))
-              mods.update(m.split('.')[0] for m in re.findall(r'^\s*from\s+([A-Za-z_][\w\.]*)\s+import\b', s, re.M))
-          need=[]
-          for top in sorted(mods):
-              if not top or top in std or is_local(top) or top.startswith('_'): continue
-              if importlib.util.find_spec(top) is not None: continue
-              need.append(aliases.get(top, top))
-          if need:
-              print("Installing:", ", ".join(need))
-              subprocess.check_call([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-input", *need])
-          else:
-              print("No missing imports to install")
-          PY
+          pip install -c "$PIP_CONSTRAINT" -U "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15" pytest-django
 
-      # NEW: pull generated tests from the triggering workflow run (if any)
-      - name: Download generated tests artifact (workflow_run only)
-        if: github.event_name == 'workflow_run'
+      # Fetch generated tests artifact (works for both workflow_run and manual dispatch)
+      - name: Fetch generated tests artifact
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -e
-          mkdir -p _dl
-          curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
-            "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/artifacts" \
-            > _dl/list.json
-          ART_URL=$(python - <<'PY'
-          import json
-          j=json.load(open('_dl/list.json'))
-          for a in j.get('artifacts',[]):
-              n=a.get('name','').lower()
-              if any(k in n for k in ('generated','tests','ai-test','ai_tests','testgen')):
-                  print(a['archive_download_url']); break
-          PY
-          )
-          if [ -n "$ART_URL" ]; then
-            curl -sS -L -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
-              "$ART_URL" -o _dl/a.zip
-            unzip -q _dl/a.zip -d tests || true
-            echo "✅ Downloaded generated tests artifact into ./tests"
+          mkdir -p _dl tests
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            RUN_ID="${{ github.event.workflow_run.id }}"
           else
-            echo "ℹ️ No matching artifact found on triggering run."
+            RUN_ID=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "${{ github.api_url }}/repos/${{ github.repository }}/actions/workflows" \
+              | python - <<'PY'
+              import json,sys,os
+              j=json.load(sys.stdin)
+              wid = ""
+              for w in j.get("workflows",[]):
+                  if w.get("name")=="AI Test Generation":
+                      wid = str(w.get("id","")); break
+              print(wid)
+              PY
+              )
+            if [ -n "$RUN_ID" ]; then
+              RUN_ID=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+                "${{ github.api_url }}/repos/${{ github.repository }}/actions/workflows/${RUN_ID}/runs?status=success&per_page=1" \
+                | python - <<'PY'
+            import json,sys
+            j=json.load(sys.stdin)
+            print(j.get("workflow_runs",[{}])[0].get("id",""))
+            PY
+            )
+            fi
+          fi
+          if [ -n "$RUN_ID" ]; then
+            curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
+              > _dl/list.json
+            ART_URL=$(python - <<'PY'
+            import json
+            j=json.load(open('_dl/list.json'))
+            for a in j.get('artifacts',[]):
+                n=a.get('name','').lower()
+                if n in ('generated-tests','generated_tests') or any(k in n for k in ('generated','testgen')):
+                    print(a['archive_download_url']); break
+            PY
+            )
+            if [ -n "$ART_URL" ]; then
+              curl -sS -L -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+                "$ART_URL" -o _dl/a.zip
+              unzip -q _dl/a.zip -d tests || true
+              echo "✅ Downloaded generated tests artifact into ./tests"
+            else
+              echo "ℹ️ No matching artifact found on selected run."
+            fi
+          else
+            echo "ℹ️ Could not locate a recent 'AI Test Generation' run."
           fi
 
-      # copy tests into target if we have any (from this repo or downloaded)
       - name: Copy generated tests into target (if any)
         shell: bash
         run: |
@@ -206,7 +200,7 @@ jobs:
             rsync -a tests/ target/tests/generated/
             echo "✅ Copied ${COUNT} generated test files into target/tests/generated"
           else
-            echo "ℹ️ No generated tests found in this repo or downloaded artifacts."
+            echo "❌ No generated tests available"; exit 1
           fi
 
       - name: Write runtime conftest (repo-agnostic) into target/tests/generated
@@ -318,10 +312,10 @@ jobs:
                   raise
           builtins.__import__ = _smart_import
           PY
-          python - <<'PY'
-          from pathlib import Path
-          print("✅ Wrote conftest:", Path("tests/generated/conftest.py").resolve())
-          PY
+                    python - <<'PY'
+                    from pathlib import Path
+                    print("✅ Wrote conftest:", Path("tests/generated/conftest.py").resolve())
+                    PY
 
       - name: Discover generated tests (in target)
         id: discover

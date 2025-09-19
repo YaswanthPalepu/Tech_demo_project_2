@@ -19,14 +19,13 @@ on:
         required: false
         default: "0"
         description: "Minimum coverage threshold (%)"
-  # push:
-  #   branches: ["test2"]
 
 jobs:
   generate:
     runs-on: self-hosted
     permissions:
-      contents: write
+      contents: read
+      actions: write
     env:
       AZURE_OPENAI_KEY:         ${{ secrets.AZURE_OPENAI_KEY         || secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT    || secrets.AZURE_OPENAI_API_ENDPOINT }}
@@ -64,21 +63,10 @@ jobs:
         run: |
           echo "TARGET_ROOT=target" >> $GITHUB_ENV
           REPO_SLUG="$(echo "${REPO_URL}" | sed -E 's#^https?://github.com/##; s#[^A-Za-z0-9._-]#_#g')"
-          REPO_PATH="$(echo "${REPO_URL}" | sed -E 's#^https?://github.com/##; s/\.git$//')"
           OUTDIR="tests/generated/${REPO_SLUG}/current"
           mkdir -p "$OUTDIR"
-          DEFAULT_BRANCH="$(git -C target remote show origin | sed -n '/HEAD branch/s/.*: //p')"
-          [ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"
-          {
-            echo "REPO_SLUG=$REPO_SLUG"
-            echo "OUTDIR=$OUTDIR"
-            echo "REPO_PATH=$REPO_PATH"
-            echo "DEFAULT_BRANCH=$DEFAULT_BRANCH"
-          } >> "$GITHUB_ENV"
-          echo "repo_slug=$REPO_SLUG"            >> "$GITHUB_OUTPUT"
-          echo "outdir=$OUTDIR"                  >> "$GITHUB_OUTPUT"
-          echo "repo_path=$REPO_PATH"            >> "$GITHUB_OUTPUT"
-          echo "default_branch=$DEFAULT_BRANCH"  >> "$GITHUB_OUTPUT"
+          echo "OUTDIR=$OUTDIR" >> "$GITHUB_ENV"
+          echo "outdir=$OUTDIR" >> "$GITHUB_OUTPUT"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -90,157 +78,44 @@ jobs:
           python -m pip install --upgrade "pip<25" wheel setuptools
           python -m pip install -U httpx requests
 
-      - name: Detect stack (Django or not)
-        id: detect
-        working-directory: target
-        run: |
-          python - <<'PY'
-          import os, json, pathlib, re
-          def has(patterns, text): return any(re.search(p, text, re.I) for p in patterns)
-          is_django = False
-          # Tell-tales: manage.py + settings.py, requirements/pyproject mentions
-          if (pathlib.Path('manage.py').exists() and list(pathlib.Path('.').rglob('settings.py'))):
-              is_django = True
-          else:
-              blobs = []
-              for p in ['requirements.txt','requirements-dev.txt','pyproject.toml','Pipfile','setup.cfg','setup.py']:
-                  if pathlib.Path(p).exists():
-                      try: blobs.append(pathlib.Path(p).read_text(encoding='utf-8', errors='ignore'))
-                      except: pass
-              joined = '\n'.join(blobs)
-              if has([r'\bdjango\b', r'\bdjangorestframework\b'], joined):
-                  is_django = True
-          print("is_django:", is_django)
-          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
-              f.write(f"is_django={'true' if is_django else 'false'}\n")
-          PY
-
-      - name: Set Django constraints (only if Django)
-        if: steps.detect.outputs.is_django == 'true'
-        run: |
-          cat > /tmp/compat-constraints.txt << 'EOF'
-          Django>=3.2,<4.3
-          djangorestframework>=3.12,<3.15
-          EOF
-          echo "PIP_CONSTRAINT=/tmp/compat-constraints.txt" >> "$GITHUB_ENV"
-
-      - name: Install project dependencies (safe/agnostic)
-        working-directory: target
-        run: |
-          python -m pip install --upgrade "pip<25" wheel setuptools
-          if compgen -G "requirements*.txt" >/dev/null; then
-            grep -hvE '(^-e|^git\+|^hg\+|^svn\+|^bzr\+|^file:)' requirements*.txt \
-              | sed -E 's/^psycopg2([^a-zA-Z0-9]|$)/psycopg2-binary\1/i' \
-              > /tmp/req.clean.txt
-            if [ -s /tmp/req.clean.txt ]; then
-              if [ -n "${PIP_CONSTRAINT:-}" ] && [ -f "${PIP_CONSTRAINT}" ]; then
-                pip install -c "${PIP_CONSTRAINT}" -r /tmp/req.clean.txt || true
-              else
-                pip install -r /tmp/req.clean.txt || true
-              fi
-            fi
-          fi
-          if [ -f pyproject.toml ] && grep -q "\[tool.poetry\]" pyproject.toml; then
-            pip install poetry || true
-            poetry export -f requirements.txt --without-hashes -o /tmp/poetry.req || true
-            [ -s /tmp/poetry.req ] && pip install ${PIP_CONSTRAINT:+-c "$PIP_CONSTRAINT"} -r /tmp/poetry.req || true
-          fi
-          if [ -f pyproject.toml ] && grep -q "\[tool.pdm\]" pyproject.toml; then
-            pip install pdm || true
-            pdm export -o /tmp/pdm.req --without-hashes --dev || true
-            [ -s /tmp/pdm.req ] && pip install ${PIP_CONSTRAINT:+-c "$PIP_CONSTRAINT"} -r /tmp/pdm.req || true
-          fi
-
-      - name: Force compatible Django & DRF (only if Django)
-        if: steps.detect.outputs.is_django == 'true'
-        run: |
-          python -m pip install --upgrade -c "$PIP_CONSTRAINT" "Django>=3.2,<4.3" "djangorestframework>=3.12,<3.15"
-          python -m pip install -U pytest-django
-
-      - name: Print core versions (debug)
-        run: |
-          python - <<'PY'
-          import importlib
-          for n in ("django","djangorestframework","flask","pytest","pytest_cov"):
-              try:
-                  m=importlib.import_module(n); print(f"{n}: {getattr(m,'__version__','?')}")
-              except Exception as e:
-                  print(f"{n}: not installed ({e})")
-          PY
-
-      - name: Analyze target codebase
-        run: |
-          if [ -f src/analyzer.py ] || python -c "import importlib; importlib.util.find_spec('src.analyzer')" >/dev/null 2>&1; then
-            python -m src.analyzer --root target > /tmp/analysis.json
-          else
-            echo "{}" > /tmp/analysis.json
-          fi
-
-      - name: Generate tests
+      - name: Generate tests (project-specific generator or fallback)
         env:
           TARGET_ROOT: target
           TESTGEN_FORCE: ${{ github.event.inputs.force_gen || 'false' }}
-          TESTGEN_STRICT_FAIL: "1"
-          TESTGEN_ENABLE_DJANGO_BOOTSTRAP: ${{ steps.detect.outputs.is_django == 'true' && '1' || '0' }}
-          TESTGEN_FIX_FLASK: "0"
-          TESTGEN_AUTO_PIP: "0"
         run: |
           python - <<'PY'
-          import os, json, importlib
-          outdir = os.environ.get('OUTDIR','tests/generated/out')
-          os.makedirs(outdir, exist_ok=True)
-          try:
-              analysis = json.load(open('/tmp/analysis.json'))
-          except Exception:
-              analysis = {}
+          import os, importlib, json, pathlib, shutil
+          outdir = pathlib.Path(os.environ.get('OUTDIR','tests/generated/out'))
+          outdir.mkdir(parents=True, exist_ok=True)
           try:
               gen = importlib.import_module('src.gen.generate')
-              if os.environ.get('TESTGEN_FORCE','false').lower() == 'true':
-                  os.environ['TESTGEN_FORCE'] = 'true'
-              gen.generate_all(analysis, outdir=outdir, focus_files=None)
+              if os.environ.get('TESTGEN_FORCE','false').lower()=='true':
+                  os.environ['TESTGEN_FORCE']='true'
+              gen.generate_all({}, outdir=str(outdir), focus_files=None)
           except Exception as e:
-              print("Generator not available or failed:", e)
+              # Fallback: create a placeholder so artifact is always produced
+              (outdir/'README.txt').write_text(f"Generator not available: {e}\n")
           PY
 
-      - name: List generated tests
-        run: |
-          echo "Listing ${OUTDIR}"
-          ls -lah "${OUTDIR}" || true
-          echo "Preview .py files:"
-          find "${OUTDIR}" -type f -name 'test_*.py' | sed 's/^/ - /' || true
-
-      - name: Copy generated tests into target repo
-        run: |
-          mkdir -p target/tests/generated
-          cp -r "${OUTDIR}"/* target/tests/generated/ 2>/dev/null || true
-          echo "Final tests copied into target repo:"
-          find target/tests/generated -name "test_*.py" | head -20 || true
-
-      - name: Quarantine syntactically invalid generated tests
-        working-directory: target
+      - name: Quarantine syntactically invalid tests (collect-only)
         run: |
           python - <<'PY'
           import ast, pathlib
-          import_text = "import pytest as _pytest\n_pytest.skip('quarantined invalid generated test', allow_module_level=True)\n"
-          base = pathlib.Path("tests/generated")
+          base = pathlib.Path("${OUTDIR}")
           if base.exists():
               for p in base.rglob("test_*.py"):
-                  try:
-                      ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
+                  try: ast.parse(p.read_text(encoding="utf-8"))
                   except SyntaxError:
-                      p.write_text(import_text + "\n\"\"\"\n" + p.read_text(encoding="utf-8") + "\n\"\"\"\n", encoding="utf-8")
-                      print(f"Quarantined: {p}")
+                      txt = p.read_text(encoding="utf-8")
+                      p.write_text("import pytest as _pytest\n_pytest.skip('quarantined invalid generated test', allow_module_level=True)\n\n\"\"\"\n"+txt+"\n\"\"\"\n", encoding="utf-8")
+                      print("Quarantined:", p)
           PY
 
-      - name: Package artifact (always produce something)
+      - name: Package artifact (no commit)
         run: |
           mkdir -p gen_artifact
-          if [ -d target/tests/generated ]; then rsync -a target/tests/generated/ gen_artifact/; fi
-          if [ -d "${OUTDIR}" ]; then rsync -a "${OUTDIR}"/ gen_artifact/; fi
-          find gen_artifact -type f -name 'test_*.py' | wc -l > gen_artifact/_count.txt
-          [ -s gen_artifact/_count.txt ] || echo "0" > gen_artifact/_count.txt
-          [ -f gen_artifact/README.txt ] || echo "Generated tests artifact bundle" > gen_artifact/README.txt
-          echo "Bundled files:"; find gen_artifact | sed 's/^/ - /'
+          rsync -a "${OUTDIR}/" gen_artifact/ 2>/dev/null || true
+          echo "Bundled files:"; find gen_artifact -maxdepth 2 -type f | sed 's/^/ - /' || true
 
       - name: Upload generated tests artifact
         uses: actions/upload-artifact@v4
@@ -248,46 +123,3 @@ jobs:
           name: generated-tests
           path: gen_artifact
           retention-days: 7
-
-      - name: Sanity check generated tests (collect-only)
-        env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
-        run: |
-          cd target || exit 0
-          pytest -q --collect-only tests/generated || true
-
-      - name: Commit & push generated tests (best-effort)
-        env:
-          GH_PAT3: ${{ secrets.GH_PAT3 }}
-        run: |
-          cd target
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -n "$GH_PAT3" ]; then
-            git remote set-url origin "https://x-access-token:${GH_PAT3}@github.com/${{ steps.meta.outputs.repo_path }}.git"
-          fi
-          git add tests/generated || true
-          if git diff --staged --quiet; then exit 0; fi
-          git commit -m "chore(testgen): update generated tests [skip ci]" || true
-          git pull --rebase origin "${DEFAULT_BRANCH}" || true
-          git push origin HEAD:"${DEFAULT_BRANCH}" || true
-
-      - name: Upload handoff metadata
-        if: always()
-        run: |
-          cat > /tmp/handoff.json <<EOF
-          {
-            "repo_url": "${REPO_URL}",
-            "repo_path": "${{ steps.meta.outputs.repo_path }}",
-            "default_branch": "${{ steps.meta.outputs.default_branch }}",
-            "outdir": "${OUTDIR}"
-          }
-          EOF
-
-      - name: Publish handoff artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: handoff-meta
-          path: /tmp/handoff.json
-          retention-days: 3

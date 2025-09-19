@@ -1,10 +1,12 @@
 name: Validate Generated Tests (CI Gate)
 
 on:
-  workflow_run:
-    workflows: ["AI Test Generation"]
-    types: [completed]
-
+  # workflow_run:
+  #   workflows: ["AI Test Generation"]
+  #   types: [completed]
+  push:
+    branches:
+      - test2
 concurrency:
   group: validate-tests-${{ github.workflow }}-${{ github.run_id }}
   cancel-in-progress: true
@@ -55,6 +57,16 @@ jobs:
           fi
           git clone --depth=1 "$CLEAN_URL" target
           echo "✅ cloned into ./target"
+
+      # Pull generated tests from the upstream workflow (optional; won't fail if missing)
+      - name: Download generated tests artifact from upstream run
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          name: generated-tests
+          path: target/tests/generated
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install project dependencies (safe/agnostic)
         working-directory: target
@@ -126,7 +138,7 @@ jobs:
           EOF
           echo "✅ Wrote .coveragerc"
 
-      - name: Run migrations if Django
+      - name: Run migrations if Django (safe)
         if: steps.detect.outputs.is_django == 'true'
         working-directory: target
         shell: bash
@@ -134,20 +146,27 @@ jobs:
           set -e
           echo "Running Django migrations for ${DJANGO_SETTINGS_MODULE}"
           python - <<'PY'
+          import os
+          os.environ.setdefault('DJANGO_SETTINGS_MODULE', os.environ['DJANGO_SETTINGS_MODULE'])
           import django
-          from django.core.management import call_command
           django.setup()
-          call_command('migrate', interactive=False, verbosity=0)
-          print("✅ migrate done")
+          from django.conf import settings
+          engine = (getattr(settings,'DATABASES',{}).get('default',{}).get('ENGINE','') or '')
+          if not engine or engine == 'django.db.backends.dummy':
+              print("⏭️  Skipping migrations: no real DB engine configured.")
+          else:
+              from django.core.management import call_command
+              call_command('migrate', interactive=False, verbosity=0)
+              print("✅ migrate done")
           PY
 
-      - name: Discover test files (exclude venv/vendor)
+      - name: Discover test files (non-fatal if none)
         id: discover
         working-directory: target
         shell: bash
         run: |
           python - <<'PY'
-          import os, sys
+          import os
           EXC={'.git','.venv','venv','env','.tox','.pytest_cache','node_modules','site-packages','__pycache__'}
           tests=[]
           for root,dirs,files in os.walk('.', topdown=True):
@@ -155,11 +174,12 @@ jobs:
               for f in files:
                   if f.endswith('.py') and (f.startswith('test_') or f.endswith('_test.py') or f.endswith('.test.py')):
                       tests.append(os.path.join(root,f))
-          if not tests:
-              print("❌ No test files found"); sys.exit(1)
           tests=sorted(set(tests))
-          open('/tmp/test_files.txt','w').write('\n'.join(tests))
-          print(f"✅ Running pytest on {len(tests)} files")
+          if tests:
+              open('/tmp/test_files.txt','w').write('\n'.join(tests))
+              print(f"✅ Will run pytest on {len(tests)} discovered files")
+          else:
+              print("ℹ️ No explicit list. Pytest will auto-discover.")
           PY
           echo "test_files=/tmp/test_files.txt" >> "$GITHUB_OUTPUT"
 
@@ -168,6 +188,7 @@ jobs:
         working-directory: target
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          TARGET_ROOT: ${{ github.workspace }}/target
         shell: bash
         run: |
           mkdir -p reports/tests
@@ -177,19 +198,23 @@ jobs:
             PLUGINS="$PLUGINS -p pytest_django"
             DS_OPT="--ds=${DJANGO_SETTINGS_MODULE}"
           fi
-          mapfile -t FILES < /tmp/test_files.txt
-          set +e
-          pytest -v --tb=short $PLUGINS $DS_OPT \
-            --cov=. --cov-config=.coveragerc \
-            --cov-report=xml:reports/tests/coverage.xml \
-            --cov-report=json:reports/tests/coverage.json \
-            --cov-report=term-missing \
-            --timeout=300 \
-            "${FILES[@]}"
-          code=$?
-          set -e
-          echo "pytest_exit_code=$code" >> "$GITHUB_OUTPUT"
-          exit $code
+          if [ -f /tmp/test_files.txt ] && [ -s /tmp/test_files.txt ]; then
+            mapfile -t FILES < /tmp/test_files.txt
+            pytest -v --tb=short $PLUGINS $DS_OPT \
+              --cov=. --cov-config=.coveragerc \
+              --cov-report=xml:reports/tests/coverage.xml \
+              --cov-report=json:reports/tests/coverage.json \
+              --cov-report=term-missing \
+              --timeout=300 \
+              "${FILES[@]}"
+          else
+            pytest -v --tb=short $PLUGINS $DS_OPT \
+              --cov=. --cov-config=.coveragerc \
+              --cov-report=xml:reports/tests/coverage.xml \
+              --cov-report=json:reports/tests/coverage.json \
+              --cov-report=term-missing \
+              --timeout=300
+          fi
 
       - name: Parse coverage & gate
         id: gate
@@ -205,7 +230,7 @@ jobs:
               try: cov=float(json.load(open(p)).get('totals',{}).get('percent_covered',0.0))
               except: pass
           thr=float(os.environ.get('COVERAGE_THRESHOLD','70'))
-          tests_ok=('${{ steps.run.outcome }}'=='success')
+          tests_ok='${{ steps.run.outcome }}'=='success'
           ok=(cov>=thr) and tests_ok
           print(f"Coverage={cov:.2f}%, Thr={thr}, TestsOk={tests_ok}, Gate={'OK' if ok else 'FAIL'}")
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
@@ -230,3 +255,4 @@ jobs:
             echo "✅ All tests passed. Coverage **${{ steps.gate.outputs.coverage }}%** ≥ threshold." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "❌ Tests failed or coverage below threshold (**${{ steps.gate.outputs.coverage }}%**)." >> "$GITHUB_STEP_SUMMARY"
+          fi

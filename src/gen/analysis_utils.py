@@ -15,7 +15,7 @@ COMMON_PKG_ALIASES = {
 DENY_GENERIC = {
     "models","views","urls","settings","config","tests","schemas","forms","admin","migrations",
     "apps","serializers","permissions","filters","routers","services","repository","helpers","utils",
-    "compat","extensions","renderers","relations"  # common local names; avoid pip guesses
+    "compat","extensions","renderers","relations"
 }
 DENY_TOPS = set(DENY_GENERIC) | {
     "__future__","__main__","builtins","typing","types","dataclasses","importlib","asyncio","json","re","os","sys",
@@ -77,7 +77,7 @@ def filter_by_files(analysis: Dict[str, Any], focus_files: Optional[Set[str]]):
         return analysis, True
     return f, False
 
-# --- Skip GUI/heavy deps when not installed ---
+# Skip GUI/heavy deps when not installed
 _HEAVY = {
     "PyQt5": ("import PyQt5", "from PyQt5"),
     "PySide6": ("import PySide6", "from PySide6"),
@@ -101,7 +101,6 @@ def _file_has_marker(path: str, needles) -> bool:
         return False
 
 def prune_unavailable_targets(compact: Dict[str, Any]) -> Dict[str, Any]:
-    # allow opt-in GUI shims to keep targets
     if os.getenv("TESTGEN_ENABLE_GUI_SHIMS","0").lower() in ("1","true","yes"):
         return compact
     bad_files = set()

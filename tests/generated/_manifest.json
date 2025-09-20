@@ -1,84 +1,343 @@
 {
   "code_state": {
-    "database.py": {
-      "file_hash": "d003a7d7e8faab91c136a0864e450873781c1e6789d1fb6b0cb9411af8f8aa64",
-      "signatures": {
-        "functiondef:get_db": "fb221d9de9fc08fd8acc64a995a56038b71bcd11c15021328a453905d706c73d"
-      }
+    "manage.py": {
+      "file_hash": "f9b511d23134d1a815db9d6240f940a437f7b1a4e24e8b8ea269ad9dcf1f5fe2",
+      "signatures": {},
+      "last_modified": 1758174966.816288
     },
-    "main.py": {
-      "file_hash": "18eef38333bf5c95e417aeeede098ea87a9c70849a8e00509c6f82b2783d0a11",
-      "signatures": {
-        "functiondef:root": "ade3a5f090947b02996ee0c7eef09840c8a6e85cce6ce03c5709314b7bfc47eb"
-      }
+    "conduit/urls.py": {
+      "file_hash": "036472508a29750c8d14f4998246fbd184da724c3e9eb07d08523d2f41e4c276",
+      "signatures": {},
+      "last_modified": 1758174966.816288
     },
-    "routers/cart.py": {
-      "file_hash": "4833b9658e38c00a3e4c974066a134c55ea961b181a5ec9c2f420c42b4a92fb5",
-      "signatures": {
-        "functiondef:add_to_cart": "3c006fa450bbdfde8d9496416f737d1dc6bab554012f1f6b3063132e73051996",
-        "functiondef:remove_from_cart": "c5153940180efeac87eafe037894fc0234ef406d311750ceb94ae252bdb8b6e2",
-        "functiondef:get_cart": "99972a53d1d246e57aa64de72c861a7434c5b23a8e2e337c1f493bd02a8b68e4"
-      }
+    "conduit/settings.py": {
+      "file_hash": "4adc87dfe8b915d370d18745b3b8f6f252ebd2a0f3920f68d12812fc7d312e5f",
+      "signatures": {},
+      "last_modified": 1758174966.816288
     },
-    "routers/products.py": {
-      "file_hash": "894d3c498e66d3d0a3227615277131dd5d2257cac240cad51d0c1421de3ba0ab",
-      "signatures": {
-        "functiondef:get_products": "50def8e762fdb419b55025e6d6fe3bd6a7a9fc5e8088c3fcc77b9ea0574a53d2"
-      }
+    "conduit/wsgi.py": {
+      "file_hash": "d4d34decafaea3cbfd3b34627c612c412662152eaaa7f675619ef4e8f4300953",
+      "signatures": {},
+      "last_modified": 1758174966.816288
     },
-    "routers/auth.py": {
-      "file_hash": "3e66db242827c9c7cf43076a5e19ba76cb707f253c7409df8abaf795e2aba5f2",
+    "conduit/apps/core/renderers.py": {
+      "file_hash": "718469fed966889beb0d8c55a86090c75496a6a43892b0d55dbc61f1446ec0c6",
       "signatures": {
-        "functiondef:signup": "cf066de94e1649a2c2d8d45f6f5d0f8de2e58785e1201211d308046125b89ba2",
-        "functiondef:login": "3bb87256a0a1b118f8651b0edf38814bc2f8cd84e01e9524153e7ed25a494971"
-      }
+        "class:ConduitJSONRenderer": "f05b10aae9b6d82c1c4456f1885ec9bfd519c0bdc00eb98bb7068a1f7168ce6e",
+        "function:render": "51e6603dfc2674587ada8be471ff7607845ff942a307e89bd21167831cffafab"
+      },
+      "last_modified": 1758174966.813288
     },
-    "routers/orders.py": {
-      "file_hash": "03260597e5bbd74b8bc0cdf3fb0580a7d5413a2242d19155d3a9100ed743b962",
+    "conduit/apps/core/utils.py": {
+      "file_hash": "1f07bec39f2c68c3392ed8b5a4299e016032904b0df183628a9b8bb4ceff3da5",
       "signatures": {
-        "functiondef:checkout": "92cae3b641c5adc6cc52412ef912071ded9d0ececbc746148654124a0dae38a6",
-        "functiondef:get_orders": "215528760d335a37651f9b9a21e492077bcf11e7c42d2f8981275511fd135f89"
-      }
+        "function:generate_random_string": "c14eec0db1925e2a5faf2e09ad643541caa6bbf43ce3244e8c0d1b46efa7d770"
+      },
+      "last_modified": 1758174966.813288
     },
-    "models/db_models.py": {
-      "file_hash": "6a893dee3276a159adeda5580c132d5d66b975c37b377a3a62727bd18d192772",
+    "conduit/apps/core/models.py": {
+      "file_hash": "52391f1487fadf5da70e6fd953b80cfbe2bc4836fedcb9fe37a320cdbf0b26f0",
       "signatures": {
-        "classdef:UserDB": "8614aaaf2aa5eb220936c681cdd029b3908b7e38fde891b0ce1ac344cde272c1",
-        "classdef:OrderDB": "8cde6973f975de06da14f403e7a6cf87b45a239c4a5c5f2a4025066433793498"
-      }
+        "class:TimestampedModel": "d285205f98da0d9fd798b06829ca8d653a0772965b609d409fee959b1b62ed16",
+        "class:Meta": "146a08aab47e5a2edacdc10e1873d286bb6b63dd6a413f705859e07f9b10b9f0"
+      },
+      "last_modified": 1758174966.813288
     },
-    "models/schemas.py": {
-      "file_hash": "4915473f299b2260dfbe318a66cdf2b917f5f6c676fccc58397723bc1a7c8599",
+    "conduit/apps/core/exceptions.py": {
+      "file_hash": "cdf5f3fb6d229017215094a87f9580650173e85f3923bc9bd76eaa9a862a241d",
       "signatures": {
-        "classdef:Product": "a5dd8d54b431c6123c6e8950128e10352dd333b21eabe7ae4bbfe64ad9f3a01d",
-        "classdef:CartItem": "2063afb831df533834d9f5c3dfcfa9de573f669f0f8efca75ae31436cc431d04",
-        "classdef:DetailedCartItem": "0d3d88907c74ec98bc43481fb7b0f971e0d4295f0a21b36d3f7788dd10f79a1e",
-        "classdef:User": "9a05911de0d37008ab54df6ec787bb9a3de919f7e4c01bacc01d775f041a83b3",
-        "classdef:CheckoutRequest": "26d6838b99b2d117da403fd01f779e97faf95d1b29c5668fc38c8f730a6fcd13"
-      }
+        "function:core_exception_handler": "9d5a290a1cd74f238d72d49701cad702afdffb5a13f4f6c5b75875bddc3ff938",
+        "function:_handle_generic_error": "52804f4aac16f852723df27558134ded948645b7b03fb1570de328758def09f6",
+        "function:_handle_not_found_error": "f90f5c753394f5aeb6e28f09a3b7aca5987db7e830a95b04db39cb74fe929876"
+      },
+      "last_modified": 1758174966.813288
+    },
+    "conduit/apps/articles/relations.py": {
+      "file_hash": "b0ed9db6fd6e90cde3ccf64d9c596f23d3ceaa916c9fdda56a9eae5a88dba572",
+      "signatures": {
+        "class:TagRelatedField": "314b68236c508acf5e243cd0c6a17fbf664a4fcb514daa1ffe6a024abafca667",
+        "function:get_queryset": "1e7309c7f4800f044c9487e36cf97ebff919df565ac223048ce14dafada8af6c",
+        "function:to_internal_value": "180e213c3523fa4fb707909bd38011df6a63741e894063cc4a575555c5f5f252",
+        "function:to_representation": "350a2a28583f9ca0230554220b427ccaf60cb33aa84abe9b72d26815f766cfa5"
+      },
+      "last_modified": 1758174966.8122878
+    },
+    "conduit/apps/articles/renderers.py": {
+      "file_hash": "78d87d5aa5ea372f22e59ee1350cadd39d1aec3349bf1c6b4b369b2e3e282907",
+      "signatures": {
+        "class:ArticleJSONRenderer": "ed8b344a7b997be9998a54bd050d97c025c3f1b7b92d98763a7e9dd0f2817632",
+        "class:CommentJSONRenderer": "1d0b8b9a4f24cf435e98269154a15e96a6638b43919c7eb797de0820c1d7b29d"
+      },
+      "last_modified": 1758174966.8122878
+    },
+    "conduit/apps/articles/urls.py": {
+      "file_hash": "e6f93f314eab98ebe438b1900bd3b4c626692cb61629c5e92957b5b1ed86e5f5",
+      "signatures": {},
+      "last_modified": 1758174966.8122878
+    },
+    "conduit/apps/articles/signals.py": {
+      "file_hash": "08980d9515abd4e975b6794ca2ff774beca37684fec246d3687b96fa07c8a460",
+      "signatures": {
+        "function:add_slug_to_article_if_not_exists": "656cdd1f7823ecce9f8405f5bc899c002745e8930c66fdbabc8dca29990df796"
+      },
+      "last_modified": 1758174966.8122878
+    },
+    "conduit/apps/articles/serializers.py": {
+      "file_hash": "94a57ef604b65f93e182297dc0ddfa86deda72057f21beb8cae1415f6bab2bc4",
+      "signatures": {
+        "class:ArticleSerializer": "e01072e68a3aebfb4b951eb6b5f3b65aa6000c93f0884b62f08565d0788e240d",
+        "class:CommentSerializer": "65a872d3011a66c4a4efe1b07012f473a162cc10176bb1372a0c1345c2b78e88",
+        "class:TagSerializer": "9b95ef64e62381d3f0f862027f421afc145ecfeb133154255ecc9bd7669e59b2",
+        "class:Meta": "ee9e2517f9d2b826be475f4936706904ce05bb3af2ca1b16370b57867ad42881",
+        "function:create": "8a8b2cea33448cddb1d6d53744dde547af011b923b8fc677b3830c95188c5f7f",
+        "function:get_created_at": "7ea2196f964fbff597c6722fb8cec4ea5f93c46fc28ae13af9b43cd39c6b377b",
+        "function:get_favorited": "2ed54f18f2cec6f04e935b07b275f3801aeb0b4e038c610fc7efdb4a17f249d5",
+        "function:get_favorites_count": "481452d3e72b00cd4a3ffa97cfb3c3518c427d8708cef1ed7efc5abb315d3887",
+        "function:get_updated_at": "211f74ca423f662d499d1d310674e86991eb770a145847dbcf9b1f9c6fe8dcec",
+        "function:to_representation": "33bdf28b37c7e0f0394957c3924f03f1beb9affa93f0d785a7eaa8a4b25ad2ed"
+      },
+      "last_modified": 1758174966.8122878
+    },
+    "conduit/apps/articles/views.py": {
+      "file_hash": "925b4352745073771fa14c14ec5617004200fcef2003f7e7e8df5a04e9f083ff",
+      "signatures": {
+        "class:ArticleViewSet": "38ec0707a0ece783a00bfaa16d73c94b6959edd7fc84f99356187a30e095979c",
+        "class:CommentsListCreateAPIView": "65bdbc8f041ee9442d898eb4230be6d9da73721d04b6b27b25050e6bfd9499ff",
+        "class:CommentsDestroyAPIView": "c551e1b69c2e9065f52474b0858e762e1c6b37d05b34ac62f5c6f66f0d12094f",
+        "class:ArticlesFavoriteAPIView": "17e4bec30b2135e4c240cbde2c86306bece0a25c14af611189626ff96e171553",
+        "class:TagListAPIView": "c49e24464679d448f1effa74dc5eb90186f0232c1eec526354ca60c6b8e40e33",
+        "class:ArticlesFeedAPIView": "b81011f05792b459e8a1e791dc37024e844b96efe9e82f7dc7a0f1d35994499a",
+        "function:get_queryset": "3857c3f2e9ae51d340afdf9e33b2fb06ffca7d97e0ff43ffd80aa898fdbd1ffa",
+        "function:create": "8bb120c2a8371a75ebe95accedbc7bc7bdefd86332398fa8e548ca9c902f0a94",
+        "function:list": "b7707b26ec496d74a9cd016dc9ae0b41945536b05ae5857c7242b8273d42b118",
+        "function:retrieve": "4dd8e91a069ad041b147115f0b562162ffad1cbbdffee7b9751844cbec543465",
+        "function:update": "1c62c42b1a8116a4c26e850278fdc844d947ee401432e3d31830bf784b89fdfc",
+        "function:filter_queryset": "1cd13bdf2d2486cc629e182346180a0c1ee9d750b227d59da7e7b25fb5a7b996",
+        "function:destroy": "09e438105a71c32cf9471c8e37d8800bf9b19d23205ca1737489f6ba77a953ff",
+        "function:delete": "714daa8af05c17aacd391cb6cce70c827d1fc27e52a64b41a81d497dc0400875",
+        "function:post": "e29f9e6a6212e122a5c558fb8ba2f9d2fccc08a45565e7032b68c097e335c276"
+      },
+      "last_modified": 1758174966.8122878
+    },
+    "conduit/apps/articles/models.py": {
+      "file_hash": "59101d4163bd1493ae0afb49af1a70ec3a0368bf457e77bbcbd1a9e117ff8be9",
+      "signatures": {
+        "class:Article": "8382c0f2872a7a7d5656fac914667fe456ce7b1aa3f6f8ba0caf5fc481fd0531",
+        "class:Comment": "f8d7001056362e0e1940ab7b12963f3fc6e47b4d1be78a192bd5e7285db36f33",
+        "class:Tag": "d5f7d07395fbadbb498919a802b0d3c18d1608475e924a5ac9f9723e0c44b4d7",
+        "function:__str__": "ce851a4d11fd6a24e80a96c8ce72899a1aed8f53432622a196467ec19a5dbaa9"
+      },
+      "last_modified": 1758174966.8122878
+    },
+    "conduit/apps/profiles/renderers.py": {
+      "file_hash": "08f7842d55f2b82d51ac53a4b88d5c985a90a0fe6a82dbac15ada428bfaf69d3",
+      "signatures": {
+        "class:ProfileJSONRenderer": "9fbee27a70a97db398b4785c562d2d846ef0c091bdff35f9987915ddf52e1638"
+      },
+      "last_modified": 1758174966.816288
+    },
+    "conduit/apps/profiles/urls.py": {
+      "file_hash": "afa5898a9e0a9703d17d276280d623ec571b7c50409be960ee0059db55213ea4",
+      "signatures": {},
+      "last_modified": 1758174966.816288
+    },
+    "conduit/apps/profiles/serializers.py": {
+      "file_hash": "5511072ab01d8650d59bc11c4afdfa3dd853cb19cc21579f27b09d1863d0b076",
+      "signatures": {
+        "class:ProfileSerializer": "e723a2bea05177dc308e1195ec789d081b4cbbb803aeb04973426bfa592fec73",
+        "class:Meta": "ed835f818162565b757d70d37f11ae34a35d83f7d3316f6fbf4074cb0e556bab",
+        "function:get_image": "7766096a3fa9005a17c23e55dfd9da659ca369bbc6f80a30b7a1b9537f10513b",
+        "function:get_following": "216d0164cd9105da277d53ca32fd0b0d828c0376bb44f9f08cc42815175b0492"
+      },
+      "last_modified": 1758174966.816288
+    },
+    "conduit/apps/profiles/views.py": {
+      "file_hash": "68d4c199ba883ad2e239e98a8946f466b6995130c75acbfba0c8ed3e4a1550e3",
+      "signatures": {
+        "class:ProfileRetrieveAPIView": "5c0867cb67f1cba7ad097da392b25b8f5d798c217ae659878cd0eb3e53f5c132",
+        "class:ProfileFollowAPIView": "b7a633bab2fe09e3cfde0e91c78f723ce890938ac395a334c7346e1ed22b3bd8",
+        "function:retrieve": "6f86dfa705de2303c462dbafb225c9b865c37ab7eba0f4cb5c0f027292c3870a",
+        "function:delete": "d5c701dd45d3b957355d87ebe2477207ecb6afabf4b03f150c41159fdb6652b8",
+        "function:post": "1c71010f0599edac5cf2a980a8ffc44a6ddbe4f684c649dbe15c866b6fb0ceef"
+      },
+      "last_modified": 1758174966.816288
+    },
+    "conduit/apps/profiles/models.py": {
+      "file_hash": "d3537ccd85a33ece85a7a054569a6ae6bd9dc30a6bb7f0d06994ed7b21dc8e22",
+      "signatures": {
+        "class:Profile": "29541997f14f0004d2a2b149d65ef6f3019ffa42411908df4212a90aafa71313",
+        "function:__str__": "b77e1db4afdcfab33defa01d3b7a86b42fcf4a2b647dfb974fe31b5d7f64b5b0",
+        "function:follow": "e22eb894b47a5253873f679505d6abe30628429efbe2aff4a7e23ec1f7d26ad9",
+        "function:unfollow": "311365a302ec8394fc46da65aa4ab24b26aedb71fe319db5a763d15bb5ff871e",
+        "function:is_following": "3ae0790b2d742128441319d24b2ad32b6d62a2f9c5a8ac98a4b0b409fe48d239",
+        "function:is_followed_by": "2c604f0b87a852ecbca97eae2ad21673892ff680232ec11e26c2475a3825d6c5",
+        "function:favorite": "050f0b6d9198d9fc59fac210a22f5f69c2224da3df93d9e8cb7c261a075edfc1",
+        "function:unfavorite": "f1e939ffdbe0bd06dae70b2d387b625a076bc917ffeb258294f940a7f5e73bbe",
+        "function:has_favorited": "7f4e73d1e8752ea5c827efb0c47b9fa448b7c4b86056eff4420372efd840bc38"
+      },
+      "last_modified": 1758174966.8152878
+    },
+    "conduit/apps/profiles/exceptions.py": {
+      "file_hash": "4fae1e93ed746e640cf30085cb91aa884a9063bc237c5c19383842fdce37b300",
+      "signatures": {
+        "class:ProfileDoesNotExist": "aa89873ea156ba3b3f5d6937e605a7e17fc7ab8a3869aadca00fd11459469fa1"
+      },
+      "last_modified": 1758174966.814288
+    },
+    "conduit/apps/authentication/renderers.py": {
+      "file_hash": "2450d44f98e393ed468a82577f069d6f4df4ce6abaf580f46a78cb994d3bc0e9",
+      "signatures": {
+        "class:UserJSONRenderer": "bfd44d249b89e38f579a2c67fe6949498933a126cc94c68ec3748a2ec7506352",
+        "function:render": "c5566424092cc6cb848e27a74f16d2fd8e47a9af49c491865969c163dd292077"
+      },
+      "last_modified": 1758174966.813288
+    },
+    "conduit/apps/authentication/backends.py": {
+      "file_hash": "02416320ecd69afea6e2c4ba5904b6a4ec6975a5adfb9c1097461da73b8273eb",
+      "signatures": {
+        "class:JWTAuthentication": "3f3dbb483a749f633bda385fe13209beeaaffd709ac1f70a96e0ae78ed6b8a81",
+        "function:authenticate": "668bd4e18f8a7369dc4b9ed282d40d6baac3a4364a35ed18050eb18641a04fee",
+        "function:_authenticate_credentials": "ed5a007efd981d6f89d9c190b8a89b6e5c2fc625cf0b5ced8a6a61c2d7b0339c"
+      },
+      "last_modified": 1758174966.8122878
+    },
+    "conduit/apps/authentication/urls.py": {
+      "file_hash": "c26551558c77f58f9e4f585aec97f4ad3304f2d9623290519d8e8caf445e37c6",
+      "signatures": {},
+      "last_modified": 1758174966.813288
+    },
+    "conduit/apps/authentication/signals.py": {
+      "file_hash": "b29e428a9c14845f08b95562a31edbf433d3135ad061e3690418f43c217bd9d8",
+      "signatures": {
+        "function:create_related_profile": "e772f9a25301b9ac900dec937e7fd34af6a4e47bd613890cd60ea93fe4a9c93e"
+      },
+      "last_modified": 1758174966.813288
+    },
+    "conduit/apps/authentication/serializers.py": {
+      "file_hash": "533d7da7ca403045575cffa117cc978e5e7fd8d9d6f813a1d805f8f5ce95414a",
+      "signatures": {
+        "class:RegistrationSerializer": "992cf73c777c8d5d8add50879ebaadd82f5a74f3d9f87c50355f53f74b29b019",
+        "class:LoginSerializer": "b394a3e84572db7f4be842a30b1b00494aadf65900b2e89a11acb8badd1cd9c6",
+        "class:UserSerializer": "6e59d2ba28813fb016fbf1f6f8ba0e7b1c40bf1964cb3601d2a81c8ede707b13",
+        "class:Meta": "52326acc129108ebc3805cc51bc2c1af5cf74b3137240ef156986b999097b0c9",
+        "function:create": "63a7f0485db9d4282c11ccd23519c3494e4a31b6651e87adf9cc34779c7cdeb7",
+        "function:validate": "0a38f9fadbfc245e97575a361f2aa31b0818cabb5953a338555f744c79f24bf7",
+        "function:update": "b2f6c99a3b02f8549036548bc0162d3fa79a8e4fba47433c7ec44c9200e12835"
+      },
+      "last_modified": 1758174966.813288
+    },
+    "conduit/apps/authentication/views.py": {
+      "file_hash": "8895854da40e8bd4c1705d973287927610dbe15e3ed046c611b8b6d1b556a2b4",
+      "signatures": {
+        "class:RegistrationAPIView": "2f73c701d29ef1832cd49dbcfe8a159d7d2c32c025f6318c3d1b0a1ee61b27fb",
+        "class:LoginAPIView": "54dea8088f4c100dc059f2062772f655b044e36b7c1adf3e4e0e342b109f74b7",
+        "class:UserRetrieveUpdateAPIView": "093f7b0105d024213df2f7a90dba5d2dca95cdea0a311b03f585202efe6bbe76",
+        "function:post": "5c2aa8d73de14cab31b046f76d393546a517790c0b10676fb44fde569d33e453",
+        "function:retrieve": "ff4f759e7308276fff723bfeca079a114a504fd0a17b8993fc1d18bc2e6512c9",
+        "function:update": "1d9c149b782537d1814a4987d3539144e0084cb169001d276277b5924dbb7fc8"
+      },
+      "last_modified": 1758174966.813288
+    },
+    "conduit/apps/authentication/models.py": {
+      "file_hash": "52a33ec3c597ca39ca87f3f7215f3cbbefd0d31396b1189f4f5d2c9de40b43f4",
+      "signatures": {
+        "class:UserManager": "5ab4c0363e842f7825fa5668b78978de3565c5faae9a671545b65bdf429c21e2",
+        "class:User": "5b4a773cec1181d31681596803437df0bc857006f7aa72189b90a70582388b7d",
+        "function:create_user": "162fca22da3dbefb18ab3de733388eb8e104da1c812c363b1e412e752dcdbbb0",
+        "function:create_superuser": "7da0a2f352fdad31ea04702cab4ed277bd13384207c6e3969da36e5798ec1c61",
+        "function:__str__": "ece9b8ac6980785dffa5e01f2e0441d1d234edbcdb820288414755873e36fce1",
+        "function:token": "8fe4e97c9470da4265742cda7b3c67573896bf10ca4b6a5902a6c35993d4f33a",
+        "function:get_full_name": "2939aa5a8587f13cc8e505aabdca8474a58dd6fb4a9d560b0b5d1851f012fc33",
+        "function:get_short_name": "f46c0438c2fe1f2a15b704ea44013e4f2ffe0546fec1dae606ec6e8ca5c7445e",
+        "function:_generate_jwt_token": "0bcff2f24f6b686e1977ad406e897dbcf0a3b4b698543935e309b4a73da143e8"
+      },
+      "last_modified": 1758174966.813288
+    },
+    "conduit/apps/articles/migrations/0001_initial.py": {
+      "file_hash": "f533c6efe13892770808e417035882bf88d1fd4d3150c9990afb46d625771a98",
+      "signatures": {
+        "class:Migration": "1d60a27234bda6f9bfe87b6f9afa8bbbfafc02ccc1adb946361a1fbb01b2ef3a"
+      },
+      "last_modified": 1758174966.8112879
+    },
+    "conduit/apps/articles/migrations/0002_comment.py": {
+      "file_hash": "7650b2c59ea67c261f2d35e7a7d0888d9c7746697ba00b936944056d3086d1a4",
+      "signatures": {
+        "class:Migration": "7d464c09b516f0f93f83f46a1d8e62fd95b6ff395f4e94686688cb40474be4fc"
+      },
+      "last_modified": 1758174966.8112879
+    },
+    "conduit/apps/articles/migrations/0003_auto_20160828_1656.py": {
+      "file_hash": "e3643b1c45afaad33c0064830fc60d9af396c3be2d2fa7457ac70862e5493427",
+      "signatures": {
+        "class:Migration": "25dab7779a61283e6b8d2bf8dae0b18120a22a2e62ad16632722cc2ad49927a0"
+      },
+      "last_modified": 1758174966.8112879
+    },
+    "conduit/apps/profiles/migrations/0001_initial.py": {
+      "file_hash": "28319b2632391f9abd113cf35e104517ea354b96c72e081c73dca926f3f9c181",
+      "signatures": {
+        "class:Migration": "e662fdf7bde39420eadacfd8b600bb02e509a9daab13a2cc957c18524b9b01d6"
+      },
+      "last_modified": 1758174966.814288
+    },
+    "conduit/apps/profiles/migrations/0003_profile_favorites.py": {
+      "file_hash": "16c59ba8a4351da05c82ad77b0f57050e87e3206242486301c916ecf75bd1ead",
+      "signatures": {
+        "class:Migration": "71c0e22f435178c564f9a038e51ea82eb1bb91a02467bac14c82f4ba35ab7909"
+      },
+      "last_modified": 1758174966.8152878
+    },
+    "conduit/apps/profiles/migrations/0002_profile_follows.py": {
+      "file_hash": "c0383ceebaf7cf94369b770c0e1aa85d9d9252af764545f21bbca10200a3f724",
+      "signatures": {
+        "class:Migration": "9594edc066f38154f4535a97c498869d94eb3928c07b9959db6bed919fb766c6"
+      },
+      "last_modified": 1758174966.814288
+    },
+    "conduit/apps/authentication/migrations/0001_initial.py": {
+      "file_hash": "30e91e3334e7f9495c34344f2d0dcc472082b3d63aa0d02556d71d7227b2d3cb",
+      "signatures": {
+        "class:Migration": "4d25455b6f745e4f37871c19e74d82e28820802bbe220221f85377a74759b634"
+      },
+      "last_modified": 1758174966.8122878
     }
   },
+  "last_scan": 1758366557.8642268,
   "runs": [
     {
-      "ts": "2025-09-20T08:10:52.454240Z",
+      "timestamp": "2025-09-20T11:24:40.562624Z",
       "files_generated": [
-        "tests/generated/test_unit_20250920080411_01.py",
-        "tests/generated/test_unit_20250920080411_02.py",
-        "tests/generated/test_unit_20250920080411_03.py",
-        "tests/generated/test_unit_20250920080411_04.py",
-        "tests/generated/test_unit_20250920080411_05.py",
-        "tests/generated/test_integ_20250920080411_01.py",
-        "tests/generated/test_integ_20250920080411_02.py",
-        "tests/generated/test_integ_20250920080411_03.py",
-        "tests/generated/test_e2e_20250920080411_01.py",
-        "tests/generated/test_e2e_20250920080411_02.py"
+        "test_unit_20250920_110923_01.py",
+        "test_unit_20250920_110923_02.py",
+        "test_unit_20250920_110923_03.py",
+        "test_unit_20250920_110923_04.py",
+        "test_integ_20250920_110923_01.py",
+        "test_integ_20250920_110923_02.py",
+        "test_integ_20250920_110923_03.py"
       ],
+      "file_count": 7,
       "change_summary": {
-        "added_or_modified": 8,
+        "added_or_modified": 35,
         "deleted": 0,
-        "no_changes": false,
-        "files_analyzed": 8
+        "unchanged": 0,
+        "total_analyzed": 35
+      },
+      "generation_metadata": {
+        "total_size_bytes": 256198,
+        "average_file_size": 36599,
+        "test_function_count": 141
       }
     }
-  ]
+  ],
+  "statistics": {
+    "total_runs": 1,
+    "total_files_generated": 7,
+    "last_generation": "2025-09-20T11:24:40.562624Z",
+    "generation_summary": {
+      "unit_tests": 4,
+      "integration_tests": 3,
+      "e2e_tests": 0
+    }
+  }
 }

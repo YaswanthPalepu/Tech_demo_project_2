@@ -1,9 +1,9 @@
-import os, re, ast, json, pathlib, datetime, time
+# src/gen/generate.py
+import os, re, ast, json, pathlib, datetime, time, argparse
 from typing import Dict, Any, List, Optional, Set
 
-__all__ = ["generate_all"]
+__all__ = ["generate_all", "main"]
 
-# --- lazy postprocess import with fallbacks to avoid hard import failures at module import time
 try:
     from .postprocess import (
         extract_python_only, validate_code, skip_brittle_functions, header_guard_banned, massage
@@ -27,7 +27,6 @@ except Exception as _e:
     def massage(code: str): return code
 
 def _create_conftest(outdir: pathlib.Path) -> str:
-    # local import to avoid module-level failures
     from .conftest_text import conftest_text
     from .writer import write_text
     p = outdir / "conftest.py"
@@ -35,7 +34,6 @@ def _create_conftest(outdir: pathlib.Path) -> str:
     return str(p)
 
 def _gen_validated(messages, attempts=3, backoff=(3,7,15)):
-    # local import to avoid module-level failures
     from .openai_client import client, deployment_name, chat_completion_create, RateLimitError
     cli = client()
     dep = deployment_name()
@@ -49,39 +47,29 @@ def _gen_validated(messages, attempts=3, backoff=(3,7,15)):
                 cleaned = extract_python_only(raw)
                 ok, reason = validate_code(cleaned)
                 if ok:
-                    base = skip_brittle_functions(cleaned)
-                    base = header_guard_banned(base)
+                    base = header_guard_banned(skip_brittle_functions(cleaned))
                     post = massage(base)
                     ok2, r2 = validate_code(post)
-                    if ok2:
-                        return post
-                    print(f"↩️ postprocess broke syntax, using base: {r2}")
+                    if ok2: return post
                     ok3, r3 = validate_code(base)
-                    if ok3:
-                        return base
+                    if ok3: return base
                     reason = f"post-process and base validation failed: {r2} / {r3}"
                 messages.append({"role":"user","content":
-                                 f"Invalid: {reason}. Regenerate strict pytest code only. "
-                                 f"Guard imports; prefer parametrize; no custom fixtures."})
+                                 "Invalid: {reason}. Regenerate strict pytest code only. "
+                                 "Guard imports; prefer parametrize; no custom fixtures."})
                 break
             except RateLimitError:
-                if sleep_s < backoff[-1]:
-                    continue
-                else:
-                    break
+                if sleep_s < backoff[-1]: continue
+                else: break
             except Exception as e:
                 print(f"⚠️ gen attempt {attempt} error: {e}")
                 break
     raise RuntimeError(f"LLM generation failed after {attempts} attempts: {reason}")
 
 def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files: Optional[List[str]] = None):
-    # local imports to prevent import errors from blocking symbol export
     from . import env
     from .change import detect_changes
-    from .analysis_utils import (
-        compact_analysis, filter_by_files, infer_required_packages, pip_install,
-        prune_unavailable_targets,
-    )
+    from .analysis_utils import compact_analysis, filter_by_files, infer_required_packages, pip_install, prune_unavailable_targets
     from .prompt import build_prompt, files_per_kind, focus_for, runtime_guard
     from .writer import write_text, cleanup_deleted_and_modified, update_manifest
 
@@ -94,8 +82,8 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
 
     target_root = pathlib.Path(os.environ.get("TARGET_ROOT", "target"))
 
-    # detect_changes returns: (deleted, added_or_modified, unchanged_bool)
-    deleted, added_or_modified, unchanged = detect_changes(target_root, manifest)
+    # Correct order: (added_or_modified, deleted, unchanged)
+    added_or_modified, deleted, unchanged = detect_changes(target_root, manifest)
 
     summary = {
         "added_or_modified": len(added_or_modified),
@@ -122,16 +110,9 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
     if not raw_focus and not force:
         raw_focus = set(added_or_modified)
 
-    # Filter, compact, then prune targets that require unavailable GUI/heavy libs
     filtered, _ = filter_by_files(analysis, raw_focus if raw_focus else None)
-    compact = compact_analysis(filtered)
-    before = sum(len(compact.get(k,[])) for k in ("functions","classes","routes"))
-    compact = prune_unavailable_targets(compact)
-    after = sum(len(compact.get(k,[])) for k in ("functions","classes","routes"))
-    if after < before:
-        print(f"⏭️  Pruned {before - after} targets requiring unavailable GUI/heavy libs")
+    compact = prune_unavailable_targets(compact_analysis(filtered))
 
-    # Install inferred deps to help imports in generated tests
     pkgs = infer_required_packages(compact)
     if pkgs:
         print("📦 Installing inferred packages…")
@@ -144,7 +125,6 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
     if total_targets == 0:
         raise RuntimeError("No test targets found in analysis.")
 
-    # decide kinds and purge stale e2e when no routes
     has_routes = bool(compact.get("routes"))
     if not has_routes:
         for p in out.glob("test_e2e_*.py"):
@@ -152,6 +132,7 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
             except Exception: pass
     kinds = ["unit","integ"] if not has_routes else ["unit","integ","e2e"]
 
+    header = runtime_guard(compact)
     for kind in kinds:
         nfiles = files_per_kind(compact, kind)
         if nfiles <= 0:
@@ -159,39 +140,47 @@ def generate_all(analysis: Dict[str, Any], outdir="tests/generated", focus_files
             continue
         print(f"🔧 Generating {nfiles} {kind} files…")
         for i in range(nfiles):
-            label, _names = focus_for(compact, kind, i, nfiles)
-            guard = runtime_guard(compact)
+            label, _ = focus_for(compact, kind, i, nfiles)
             msgs = build_prompt(kind, compact_json, label, i+1, nfiles, compact)
             code = _gen_validated(msgs)
-            fname = f"test_{kind}_{ts}_{i+1:02d}.py"
-            final_code = guard + code
-            ast.parse(final_code, filename=fname)
-            path = out / fname
-            write_text(path, final_code)
-            created.append(str(path))
 
-    if os.getenv("GENERATED_LIST_PATH"):
-        try:
-            pathlib.Path(os.getenv("GENERATED_LIST_PATH")).write_text(json.dumps(created, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+            # Only prepend our header if the model did not already emit one
+            already_guarded = bool(re.search(r"TARGET_ROOT|pytest\.skip\(.*allow_module_level=True\)", code))
+            final_code = code if already_guarded else (header + code)
+
+            fname = f"test_{kind}_{ts}_{i+1:02d}.py"
+            ast.parse(final_code, filename=fname)  # fail fast if broken
+            write_text(out / fname, final_code)
+            created.append(str(out / fname))
 
     update_manifest(out, created, summary)
-    if created:
-        print(f"✅ Generated {len(created)} test files")
-        if added_or_modified:
-            print(f"   focused on {len(added_or_modified)} changed files")
-    else:
-        print("ℹ️ No tests generated.")
+    print(f"✅ Generated {len(created)} test files" if created else "ℹ️ No tests generated.")
 
-if __name__ == "__main__":
+def main():
+    ap = argparse.ArgumentParser(description="Generate pytest suites via Azure OpenAI.")
+    ap.add_argument("--target", default="target", help="Path to the Python project to test")
+    ap.add_argument("--outdir", default="tests/generated", help="Where to write tests")
+    ap.add_argument("--focus-json", default=os.getenv("FOCUS_FILES_JSON_PATH",""), help="Optional JSON list of files to focus")
+    ap.add_argument("--force", action="store_true", help="Force generation even if unchanged")
+    args = ap.parse_args()
+
+    if args.force: os.environ["TESTGEN_FORCE"] = "true"
+    os.environ["TARGET_ROOT"] = args.target
+
     try:
         try:
-            import src.analyzer as analyzer  # type: ignore
+            import src.analyzer as analyzer
         except Exception:
-            import analyzer  # type: ignore
-        analysis = analyzer.analyze_python_tree(pathlib.Path("."))
+            import analyzer
+        analysis = analyzer.analyze_python_tree(pathlib.Path(args.target))
     except Exception as e:
         raise RuntimeError(f"Analyzer import/run failed: {e}") from e
-    generate_all(analysis)
-    print("✅ Generated tests in tests/generated")
+
+    if args.focus_json:
+        os.environ["FOCUS_FILES_JSON_PATH"] = args.focus_json
+
+    generate_all(analysis, outdir=args.outdir)
+    print(f"✅ Generated tests in {args.outdir}")
+
+if __name__ == "__main__":
+    main()

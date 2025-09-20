@@ -1,0 +1,84 @@
+{
+  "code_state": {
+    "database.py": {
+      "file_hash": "d003a7d7e8faab91c136a0864e450873781c1e6789d1fb6b0cb9411af8f8aa64",
+      "signatures": {
+        "functiondef:get_db": "fb221d9de9fc08fd8acc64a995a56038b71bcd11c15021328a453905d706c73d"
+      }
+    },
+    "main.py": {
+      "file_hash": "18eef38333bf5c95e417aeeede098ea87a9c70849a8e00509c6f82b2783d0a11",
+      "signatures": {
+        "functiondef:root": "ade3a5f090947b02996ee0c7eef09840c8a6e85cce6ce03c5709314b7bfc47eb"
+      }
+    },
+    "routers/cart.py": {
+      "file_hash": "4833b9658e38c00a3e4c974066a134c55ea961b181a5ec9c2f420c42b4a92fb5",
+      "signatures": {
+        "functiondef:add_to_cart": "3c006fa450bbdfde8d9496416f737d1dc6bab554012f1f6b3063132e73051996",
+        "functiondef:remove_from_cart": "c5153940180efeac87eafe037894fc0234ef406d311750ceb94ae252bdb8b6e2",
+        "functiondef:get_cart": "99972a53d1d246e57aa64de72c861a7434c5b23a8e2e337c1f493bd02a8b68e4"
+      }
+    },
+    "routers/products.py": {
+      "file_hash": "894d3c498e66d3d0a3227615277131dd5d2257cac240cad51d0c1421de3ba0ab",
+      "signatures": {
+        "functiondef:get_products": "50def8e762fdb419b55025e6d6fe3bd6a7a9fc5e8088c3fcc77b9ea0574a53d2"
+      }
+    },
+    "routers/auth.py": {
+      "file_hash": "3e66db242827c9c7cf43076a5e19ba76cb707f253c7409df8abaf795e2aba5f2",
+      "signatures": {
+        "functiondef:signup": "cf066de94e1649a2c2d8d45f6f5d0f8de2e58785e1201211d308046125b89ba2",
+        "functiondef:login": "3bb87256a0a1b118f8651b0edf38814bc2f8cd84e01e9524153e7ed25a494971"
+      }
+    },
+    "routers/orders.py": {
+      "file_hash": "03260597e5bbd74b8bc0cdf3fb0580a7d5413a2242d19155d3a9100ed743b962",
+      "signatures": {
+        "functiondef:checkout": "92cae3b641c5adc6cc52412ef912071ded9d0ececbc746148654124a0dae38a6",
+        "functiondef:get_orders": "215528760d335a37651f9b9a21e492077bcf11e7c42d2f8981275511fd135f89"
+      }
+    },
+    "models/db_models.py": {
+      "file_hash": "6a893dee3276a159adeda5580c132d5d66b975c37b377a3a62727bd18d192772",
+      "signatures": {
+        "classdef:UserDB": "8614aaaf2aa5eb220936c681cdd029b3908b7e38fde891b0ce1ac344cde272c1",
+        "classdef:OrderDB": "8cde6973f975de06da14f403e7a6cf87b45a239c4a5c5f2a4025066433793498"
+      }
+    },
+    "models/schemas.py": {
+      "file_hash": "4915473f299b2260dfbe318a66cdf2b917f5f6c676fccc58397723bc1a7c8599",
+      "signatures": {
+        "classdef:Product": "a5dd8d54b431c6123c6e8950128e10352dd333b21eabe7ae4bbfe64ad9f3a01d",
+        "classdef:CartItem": "2063afb831df533834d9f5c3dfcfa9de573f669f0f8efca75ae31436cc431d04",
+        "classdef:DetailedCartItem": "0d3d88907c74ec98bc43481fb7b0f971e0d4295f0a21b36d3f7788dd10f79a1e",
+        "classdef:User": "9a05911de0d37008ab54df6ec787bb9a3de919f7e4c01bacc01d775f041a83b3",
+        "classdef:CheckoutRequest": "26d6838b99b2d117da403fd01f779e97faf95d1b29c5668fc38c8f730a6fcd13"
+      }
+    }
+  },
+  "runs": [
+    {
+      "ts": "2025-09-20T08:10:52.454240Z",
+      "files_generated": [
+        "tests/generated/test_unit_20250920080411_01.py",
+        "tests/generated/test_unit_20250920080411_02.py",
+        "tests/generated/test_unit_20250920080411_03.py",
+        "tests/generated/test_unit_20250920080411_04.py",
+        "tests/generated/test_unit_20250920080411_05.py",
+        "tests/generated/test_integ_20250920080411_01.py",
+        "tests/generated/test_integ_20250920080411_02.py",
+        "tests/generated/test_integ_20250920080411_03.py",
+        "tests/generated/test_e2e_20250920080411_01.py",
+        "tests/generated/test_e2e_20250920080411_02.py"
+      ],
+      "change_summary": {
+        "added_or_modified": 8,
+        "deleted": 0,
+        "no_changes": false,
+        "files_analyzed": 8
+      }
+    }
+  ]
+}

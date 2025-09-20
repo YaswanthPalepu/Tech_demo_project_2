@@ -303,18 +303,18 @@
       "last_modified": 1758174966.8122878
     }
   },
-  "last_scan": 1758379166.7609859,
+  "last_scan": 1758387562.98521,
   "runs": [
     {
-      "timestamp": "2025-09-20T14:47:10.868139Z",
+      "timestamp": "2025-09-20T17:06:33.567178Z",
       "files_generated": [
-        "test_unit_20250920_143929_01.py",
-        "test_unit_20250920_143929_02.py",
-        "test_unit_20250920_143929_03.py",
-        "test_unit_20250920_143929_04.py",
-        "test_integ_20250920_143929_01.py",
-        "test_integ_20250920_143929_02.py",
-        "test_integ_20250920_143929_03.py"
+        "test_unit_20250920_165926_01.py",
+        "test_unit_20250920_165926_02.py",
+        "test_unit_20250920_165926_03.py",
+        "test_unit_20250920_165926_04.py",
+        "test_integ_20250920_165926_01.py",
+        "test_integ_20250920_165926_02.py",
+        "test_integ_20250920_165926_03.py"
       ],
       "file_count": 7,
       "change_summary": {
@@ -324,16 +324,16 @@
         "total_analyzed": 35
       },
       "generation_metadata": {
-        "total_size_bytes": 133926,
-        "average_file_size": 19132,
-        "test_function_count": 75
+        "total_size_bytes": 132258,
+        "average_file_size": 18894,
+        "test_function_count": 76
       }
     }
   ],
   "statistics": {
     "total_runs": 1,
     "total_files_generated": 7,
-    "last_generation": "2025-09-20T14:47:10.868139Z",
+    "last_generation": "2025-09-20T17:06:33.567178Z",
     "generation_summary": {
       "unit_tests": 4,
       "integration_tests": 3,

@@ -1,0 +1,30 @@
+[run]
+source = conduit
+omit = 
+    */tests/*
+    */test_*
+    */__pycache__/*
+    */venv/*
+    */env/*
+    */site-packages/*
+    */migrations/*
+    manage.py
+    */settings/*
+    */wsgi.py
+    */asgi.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    class .*\(Protocol\):
+    @(abc\.)?abstractmethod
+
+show_missing = True
+skip_covered = False
+
+[html]
+directory = htmlcov

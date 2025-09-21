@@ -156,33 +156,33 @@ def dedupe_keep(items: List[Dict[str, str]], key: str, limit: int) -> List[Dict[
     return result
 
 def compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
-    """Create compact analysis optimized for test generation."""
+    """Create compact analysis optimized for test generation with better coverage targeting."""
     
-    # Calculate dynamic limits based on codebase size
+    # Calculate dynamic limits based on codebase size with increased coverage focus
     total_functions = len(analysis.get("functions", []))
     total_classes = len(analysis.get("classes", []))
     total_routes = len(analysis.get("routes", []))
     
-    # Scale limits based on codebase complexity
+    # Scale limits based on codebase complexity - increased limits for better coverage
     if total_functions > 500:
-        func_limit = 150
-        class_limit = 75
-        route_limit = 50
+        func_limit = 200  # Increased from 150
+        class_limit = 100  # Increased from 75
+        route_limit = 75   # Increased from 50
     elif total_functions > 200:
-        func_limit = 100
-        class_limit = 50
-        route_limit = 40
+        func_limit = 150  # Increased from 100
+        class_limit = 75  # Increased from 50
+        route_limit = 60  # Increased from 40
     else:
-        func_limit = 80
-        class_limit = 40
-        route_limit = 30
+        func_limit = 120  # Increased from 80
+        class_limit = 60  # Increased from 40
+        route_limit = 45  # Increased from 30
     
     # Sort by file for logical grouping
     functions = sorted(analysis.get("functions", []), key=lambda x: (x.get("file", ""), x.get("lineno", 0)))
     classes = sorted(analysis.get("classes", []), key=lambda x: (x.get("file", ""), x.get("lineno", 0)))
     routes = sorted(analysis.get("routes", []), key=lambda x: (x.get("file", ""), x.get("lineno", 0)))
     
-    # Prioritize items that appear to be public/important
+    # Enhanced priority scoring for better test coverage
     def priority_score(item):
         name = item.get("name") or item.get("handler", "")
         file_path = item.get("file", "")
@@ -191,19 +191,39 @@ def compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
         
         # Higher priority for public functions/classes
         if not name.startswith("_"):
-            score += 10
+            score += 15  # Increased from 10
         
         # Higher priority for main modules
-        if any(main_file in file_path for main_file in ["main.py", "app.py", "api.py"]):
-            score += 5
+        if any(main_file in file_path for main_file in ["main.py", "app.py", "api.py", "views.py"]):
+            score += 10  # Increased from 5
         
         # Higher priority for router/endpoint files
-        if any(pattern in file_path for pattern in ["router", "endpoint", "api", "view"]):
-            score += 3
+        if any(pattern in file_path for pattern in ["router", "endpoint", "api", "view", "controller"]):
+            score += 7   # Increased from 3
+        
+        # Higher priority for model files
+        if any(pattern in file_path for pattern in ["model", "schema", "serializer"]):
+            score += 5
+        
+        # Higher priority for service/business logic files
+        if any(pattern in file_path for pattern in ["service", "business", "logic", "manager"]):
+            score += 4
+        
+        # Prioritize Django app files
+        if any(pattern in file_path for pattern in ["apps/", "django"]):
+            score += 6
+        
+        # Prioritize FastAPI/Flask route handlers
+        if item.get("method") in ["get", "post", "put", "delete", "patch"]:
+            score += 8
         
         # Lower priority for test files (shouldn't be many, but just in case)
         if "test" in file_path.lower():
-            score -= 10
+            score -= 20  # Increased penalty
+        
+        # Lower priority for migration files
+        if "migration" in file_path.lower():
+            score -= 15
         
         return score
     
@@ -510,3 +530,54 @@ def validate_analysis_quality(analysis: Dict[str, Any]) -> Tuple[bool, str]:
         status_msg += f". Warnings: {'; '.join(warnings)}"
     
     return True, status_msg
+
+def enhance_coverage_targeting(compact: Dict[str, Any]) -> Dict[str, Any]:
+    """Enhance targeting to improve test coverage of critical paths."""
+    
+    # Identify critical coverage patterns
+    critical_patterns = {
+        "django_views": ["views.py", "api.py"],
+        "django_models": ["models.py"],
+        "django_serializers": ["serializers.py"],
+        "django_signals": ["signals.py"],
+        "fastapi_routes": ["main.py", "app.py", "router"],
+        "flask_routes": ["app.py", "routes.py"],
+        "business_logic": ["service", "manager", "business"]
+    }
+    
+    # Score items based on coverage importance
+    def coverage_score(item):
+        file_path = item.get("file", "").lower()
+        score = 0
+        
+        # High priority for web framework entry points
+        for pattern_name, patterns in critical_patterns.items():
+            if any(pattern in file_path for pattern in patterns):
+                if "django" in pattern_name:
+                    score += 20
+                elif "fastapi" in pattern_name or "flask" in pattern_name:
+                    score += 25
+                elif "business" in pattern_name:
+                    score += 15
+        
+        # Priority for public APIs
+        name = item.get("name", "")
+        if not name.startswith("_"):
+            score += 10
+        
+        # Priority for CRUD operations
+        if any(crud in name.lower() for crud in ["create", "read", "update", "delete", "get", "post", "put", "patch"]):
+            score += 8
+        
+        # Priority for authentication/authorization
+        if any(auth in name.lower() for auth in ["login", "auth", "permission", "token"]):
+            score += 12
+        
+        return score
+    
+    # Re-sort all targets by coverage importance
+    for key in ["functions", "classes", "routes"]:
+        if key in compact:
+            compact[key].sort(key=coverage_score, reverse=True)
+    
+    return compact

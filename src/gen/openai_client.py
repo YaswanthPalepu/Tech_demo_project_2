@@ -35,7 +35,7 @@ def create_chat_completion(client: AzureOpenAI, deployment: str, messages: List[
         deployment: Deployment name
         messages: List of message dicts with 'role' and 'content'
         max_tokens: Maximum tokens to generate (None for model default)
-        temperature: Sampling temperature (0.1 for deterministic generation)
+        temperature: Sampling temperature (ignored for Azure OpenAI compatibility)
     
     Returns:
         Generated content as string
@@ -56,19 +56,22 @@ def create_chat_completion(client: AzureOpenAI, deployment: str, messages: List[
             if delay > 0:
                 time.sleep(delay)
             
-            # Prepare request parameters
+            # Prepare request parameters - Azure OpenAI specific
             request_params = {
                 "model": deployment,
                 "messages": messages,
             }
             
-            # Only add optional parameters if they have values
+            # Only add max_tokens if explicitly provided
             if max_tokens is not None:
                 request_params["max_tokens"] = max_tokens
             
-            # Only add temperature if explicitly provided and not default
-            if temperature is not None and temperature != 1.0:
-                request_params["temperature"] = temperature
+            # NOTE: temperature parameter is intentionally omitted
+            # Many Azure OpenAI deployments only support the default temperature (1.0)
+            # and will return a 400 error if temperature is explicitly set
+            
+            if ENABLE_DEBUG and temperature is not None:
+                print(f"Note: temperature parameter ({temperature}) ignored for Azure OpenAI compatibility")
             
             response = client.chat.completions.create(**request_params)
             
@@ -98,8 +101,14 @@ def create_chat_completion(client: AzureOpenAI, deployment: str, messages: List[
             
         except APIError as e:
             last_error = f"API error: {e}"
+            # Check for Azure OpenAI specific parameter errors
+            if e.status_code == 400 and "temperature" in str(e):
+                if ENABLE_DEBUG:
+                    print("Azure OpenAI temperature parameter not supported, continuing without it")
+                # This specific error should not be retried
+                raise RuntimeError(f"Azure OpenAI parameter error: {e}")
             # Some API errors shouldn't be retried
-            if e.status_code in [400, 401, 403]:
+            elif e.status_code in [400, 401, 403]:
                 raise RuntimeError(f"Non-retryable API error: {e}")
             if ENABLE_DEBUG:
                 print(f"API error on attempt {attempt + 1}, retrying...")

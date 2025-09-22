@@ -17,7 +17,7 @@ import os
 def main():
     """Main entry point with error handling."""
     try:
-        from .generate import main as generate_main
+        from .enhanced_generate import main as generate_main
         return generate_main()
     except ImportError as e:
         print(f"Import error: {e}")

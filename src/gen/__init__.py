@@ -14,7 +14,7 @@ Key features:
 - Framework-agnostic support (FastAPI, Flask, Django)
 """
 
-from .generate import generate_all, main
+from .enhanced_generate import generate_all, main
 
 __version__ = "2.0.0"
 __author__ = "Test Generation System"

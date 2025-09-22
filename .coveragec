@@ -7,11 +7,8 @@ omit =
     */venv/*
     */env/*
     */site-packages/*
-    */migrations/*
-    manage.py
     */settings/*
-    */wsgi.py
-    */asgi.py
+  
 
 [report]
 exclude_lines =

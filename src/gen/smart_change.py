@@ -226,3 +226,18 @@ def finalize_generation(target_root: str, changed_files: Set[str], generated_tes
     if changed_files and generated_test_files:
         update_test_mapping(target_root, changed_files, generated_test_files)
         print(f"Generation completed: {len(generated_test_files)} test files for {len(changed_files)} source files")
+
+def detect_changes(target_root, manifest_path):
+    """
+    Compatibility wrapper for existing code.
+    Returns the old format: (added_or_modified, deleted, unchanged)
+    """
+    target_root_str = str(target_root)
+    should_generate, changed_files, deleted_files = should_generate_tests(target_root_str)
+    
+    # Convert to old format
+    added_or_modified = changed_files
+    deleted = deleted_files
+    unchanged = set()  # We don't track unchanged files in granular mode
+    
+    return added_or_modified, deleted, unchanged

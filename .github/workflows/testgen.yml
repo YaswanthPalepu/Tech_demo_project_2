@@ -6,16 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       target_repo:
-        description: "owner/repo OR full https URL"
+        description: "Full https URL of the target repo"
         required: true
         default: "https://github.com/DeviPrasad372002/django-test-app.git"
       target_branch:
         description: "Branch to write to"
         default: "local"
-      target_subdir:
-        description: "Subdirectory containing Python code (optional)"
-        required: false
-        default: "https://github.com/DeviPrasad372002/django-test-app.git"
       python_version:
         description: "Python version"
         default: "3.12"
@@ -27,6 +23,7 @@ env:
   AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
   AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
   AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+  GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
 
 jobs:
   generate:
@@ -35,74 +32,20 @@ jobs:
       - name: Checkout ai-testgen repo (this)
         uses: actions/checkout@v4
 
-      - name: Resolve and clone target -> ./target
-        env:
-          IN_REPO: ${{ github.event.inputs.target_repo }}
-          IN_BRANCH: ${{ github.event.inputs.target_branch }}
-          TOKEN: ${{ secrets.GH_PAT3 }}
+      - name: Clone target repo
         run: |
-          set -euo pipefail
           rm -rf target
-          if [[ "$IN_REPO" == http* ]]; then
-            URL="$IN_REPO"
-            if [[ -n "${TOKEN:-}" ]]; then
-              URL="${URL/https:\/\/github.com/https:\/\/x-access-token:${TOKEN}@github.com}"
-            fi
-          else
-            URL="https://x-access-token:${TOKEN}@github.com/${IN_REPO}.git"
-          fi
-
-          if git ls-remote --heads "$URL" "$IN_BRANCH" | grep -q "$IN_BRANCH"; then
-            git clone --depth 1 --branch "$IN_BRANCH" "$URL" target
-          else
-            git clone --depth 1 "$URL" target
-            git -C target checkout -b "$IN_BRANCH"
-          fi
-
-          git config --global --add safe.directory "$PWD/target"
-          echo "Top-level tree:"
-          ls -la target | sed -n '1,120p'
-          echo "Total .py files in repo:"
+          git clone --depth 1 --branch "${{ github.event.inputs.target_branch || 'local' }}" \
+            "https://x-access-token:${GITHUB_TOKEN}@${{ github.event.inputs.target_repo#https:// }}" target
+          ls -la target
           find target -type f -name '*.py' | wc -l
-
-      - name: Select TARGET_ROOT (auto-detect or input)
-        env:
-          SUBDIR: ${{ github.event.inputs.target_subdir }}
-        run: |
-          set -euo pipefail
-          ROOT="target"
-          if [[ -n "${SUBDIR}" ]]; then
-            CAND="target/${SUBDIR}"
-            if [[ ! -d "$CAND" ]]; then
-              echo "Specified subdir not found: $CAND"; exit 1
-            fi
-            ROOT="$CAND"
-          else
-            # auto-pick directory with the most .py files (depth ≤ 3)
-            BEST=""; BEST_N=0
-            while IFS= read -r -d '' D; do
-              N=$(find "$D" -type f -name '*.py' | wc -l | tr -d ' ')
-              if [[ "$N" -gt "$BEST_N" ]]; then BEST="$D"; BEST_N="$N"; fi
-            done < <(printf '%s\0' target target/* target/*/* target/*/*/* 2>/dev/null | xargs -0 -I{} bash -lc '[[ -d "{}" ]] && printf "%s\0" "{}"' || true)
-            if [[ "$BEST_N" -gt 0 ]]; then ROOT="$BEST"; fi
-          fi
-          echo "Chosen TARGET_ROOT: $ROOT"
-          echo "Python files under TARGET_ROOT:"
-          find "$ROOT" -type f -name '*.py' | wc -l
-
-          if [[ "$(find "$ROOT" -type f -name '*.py' | wc -l | tr -d ' ')" -eq 0 ]]; then
-            echo "❌ No Python files found under $ROOT"; exit 1
-          fi
-
-          echo "TARGET_ROOT=$PWD/$ROOT" >> $GITHUB_ENV
-          echo "PYTHONPATH=$PWD/$ROOT" >> $GITHUB_ENV
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ github.event.inputs.python_version }}
+          python-version: ${{ github.event.inputs.python_version || '3.12' }}
 
-      - name: Create venv and install generator deps
+      - name: Create venv and install deps
         run: |
           python -m venv .venv
           . .venv/bin/activate
@@ -110,31 +53,27 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest pytest-cov
 
-      - name: Run analyzer + generator on TARGET_ROOT
+      - name: Run analyzer + generator
         env:
+          TARGET_ROOT: ${{ github.workspace }}/target
+          PYTHONPATH: ${{ github.workspace }}/target
           TESTGEN_FORCE: "true"
         run: |
           . .venv/bin/activate
-          echo "TARGET_ROOT=$TARGET_ROOT"
-          echo "PYTHONPATH=$PYTHONPATH"
           python -m src.gen --target "$TARGET_ROOT" --outdir "$TARGET_ROOT/tests/generated"
 
       - name: Show generated tests
         run: |
-          ls -al "$TARGET_ROOT/tests/generated" || true
-          find "$TARGET_ROOT/tests/generated" -maxdepth 1 -type f -name 'test_*.py' | wc -l
+          ls -al target/tests/generated || true
+          find target/tests/generated -maxdepth 1 -type f -name 'test_*.py' | wc -l
 
-      - name: Commit changes to same branch on target
+      - name: Commit changes to same branch
         working-directory: target
         env:
-          BRANCH: ${{ github.event.inputs.target_branch }}
-          TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+          BRANCH: ${{ github.event.inputs.target_branch || 'local' }}
           GIT_AUTHOR_NAME: ai-testgen-bot
           GIT_AUTHOR_EMAIL: actions@users.noreply.github.com
-          GIT_COMMITTER_NAME: ai-testgen-bot
-          GIT_COMMITTER_EMAIL: actions@users.noreply.github.com
         run: |
-          set -euo pipefail
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
@@ -144,8 +83,4 @@ jobs:
           fi
 
           git commit -m "chore(tests): AI-generated tests [skip ci]"
-          ORIGIN_URL=$(git remote get-url origin)
-          if [[ "$ORIGIN_URL" != *"x-access-token"* ]]; then
-            ORIGIN_URL="${ORIGIN_URL/https:\/\/github.com/https:\/\/x-access-token:${TOKEN}@github.com}"
-          fi
-          git push "$ORIGIN_URL" "HEAD:${BRANCH}"
+          git push origin "HEAD:${BRANCH}"

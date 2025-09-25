@@ -29,7 +29,7 @@ env:
 
 jobs:
   generate:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout ai-testgen repo (this)
         uses: actions/checkout@v4

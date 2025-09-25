@@ -1,8 +1,11 @@
 # src/gen/openai_client.py
 import time
-from typing import List, Dict, Optional
-from openai import AzureOpenAI, RateLimitError, APIError, APITimeoutError
-from .env import get_any_env, get_optional_env, ENABLE_DEBUG
+from typing import Dict, List, Optional
+
+from openai import APIError, APITimeoutError, AzureOpenAI, RateLimitError
+
+from .env import ENABLE_DEBUG, get_any_env, get_optional_env
+
 
 def create_client() -> AzureOpenAI:
     """Create Azure OpenAI client with comprehensive configuration."""

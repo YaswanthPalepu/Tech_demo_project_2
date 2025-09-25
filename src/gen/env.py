@@ -1,6 +1,8 @@
 # src/gen/env.py
-import os, pathlib, json
-from typing import Optional, List, Dict, Any
+import json
+import os
+import pathlib
+from typing import Any, Dict, List, Optional
 
 # Project root detection with fallback handling
 try:

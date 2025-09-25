@@ -1,15 +1,24 @@
 # src/gen/enhanced_generate.py - Drop-in replacement for generate.py
 
-import os, re, ast, json, pathlib, datetime, time, argparse, traceback
-from typing import Dict, Any, List, Optional, Set, Tuple
+import argparse
+import ast
+import datetime
+import json
+import os
+import pathlib
+import re
+import time
+import traceback
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 __all__ = ["generate_all", "main"]
 
 try:
-    from .postprocess import extract_python_only, validate_code, massage
+    from .postprocess import extract_python_only, massage, validate_code
 except Exception as _e:
     print(f"Warning: postprocess import failed: {_e}; using fallbacks")
-    import re as _re, ast as _ast
+    import ast as _ast
+    import re as _re
     
     def extract_python_only(text: str) -> str:
         if "```" in text:
@@ -305,7 +314,9 @@ def edge_case_generator():
 
 def _generate_with_enhanced_retry(messages: List[Dict], max_attempts: int = 5) -> str:
     """Generate test code with enhanced retry logic for better coverage."""
-    from .openai_client import create_client, get_deployment_name, create_chat_completion, RateLimitError, APIError
+    from .openai_client import (APIError, RateLimitError,
+                                create_chat_completion, create_client,
+                                get_deployment_name)
     
     client = create_client()
     deployment = get_deployment_name()
@@ -595,10 +606,14 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     """Generate comprehensive test suite optimized for maximum coverage."""
     from . import env
     from .change import detect_changes
-    from .enhanced_analysis_utils import (compact_analysis, filter_by_files, infer_required_packages,
-                                        pip_install, prune_unavailable_targets, enhance_coverage_targeting)
+    from .enhanced_analysis_utils import (compact_analysis,
+                                          enhance_coverage_targeting,
+                                          filter_by_files,
+                                          infer_required_packages, pip_install,
+                                          prune_unavailable_targets)
     from .enhanced_prompt import build_prompt, files_per_kind, focus_for
-    from .writer import write_text, cleanup_deleted_and_modified, update_manifest
+    from .writer import (cleanup_deleted_and_modified, update_manifest,
+                         write_text)
     
     print("🚀 Starting ENHANCED test generation for MAXIMUM COVERAGE...")
     

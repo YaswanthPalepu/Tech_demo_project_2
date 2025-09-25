@@ -1,5 +1,9 @@
 # src/analyzer.py
-import ast, pathlib, json, os, argparse
+import argparse
+import ast
+import json
+import os
+import pathlib
 from typing import Any, Dict, List
 
 SKIP_DIR_NAMES = {".git", ".github", ".venv", "venv", "env", "node_modules", "site-packages",

@@ -1,7 +1,9 @@
 # src/gen/enhanced_prompt.py - Drop-in replacement for prompt.py
 
-import json, random, os
-from typing import Dict, Any, List, Tuple, Optional
+import json
+import os
+import random
+from typing import Any, Dict, List, Optional, Tuple
 
 SYSTEM_MIN = (
 "Generate comprehensive pytest test code with maximum coverage strategy.\n"
@@ -61,7 +63,7 @@ E2E_ENHANCED = (
 "- Test rate limiting and security features\n"
 )
 
-MAX_TEST_FILES = {"unit": 8, "integ": 6, "e2e": 4}  # Increased for better coverage
+MAX_TEST_FILES = {"unit": 4, "integ": 4, "e2e": 2}  # Increased for better coverage
 
 # Enhanced scaffold with comprehensive testing utilities
 ENHANCED_SCAFFOLD = '''

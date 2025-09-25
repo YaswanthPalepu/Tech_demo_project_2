@@ -1,7 +1,16 @@
 # src/gen/enhanced_analysis_utils.py - Drop-in replacement for analysis_utils.py
 
-import os, re, math, pathlib, random, json, subprocess, sys, importlib.util
-from typing import Dict, Any, List, Tuple, Optional, Set
+import importlib.util
+import json
+import math
+import os
+import pathlib
+import random
+import re
+import subprocess
+import sys
+from typing import Any, Dict, List, Optional, Set, Tuple
+
 from .env import norm_rel
 
 # Enhanced package alias mapping (same as original)

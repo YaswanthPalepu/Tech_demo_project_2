@@ -11,8 +11,9 @@ Examples:
     TESTGEN_FORCE=true python -m src.gen
 """
 
-import sys
 import os
+import sys
+
 
 def main():
     """Main entry point with error handling."""

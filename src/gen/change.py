@@ -1,6 +1,11 @@
 # src/gen/change.py
-import ast, hashlib, json, pathlib, time
-from typing import Dict, Tuple, Set, Optional
+import ast
+import hashlib
+import json
+import pathlib
+import time
+from typing import Dict, Optional, Set, Tuple
+
 
 def _compute_hash(content: str) -> str:
     """Compute SHA256 hash of content for change detection."""

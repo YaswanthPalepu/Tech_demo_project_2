@@ -3,16 +3,17 @@ Professional, repo-agnostic pytest configuration for AI-generated tests.
 Enhanced for maximum framework compatibility and test stability.
 """
 
-import os
-import sys
-import warnings
 import builtins
-import random
-import types
 import importlib
 import inspect
-import pytest
+import os
+import random
+import sys
+import types
+import warnings
 from unittest.mock import patch
+
+import pytest
 
 # ---------------- General test env ----------------
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -79,8 +80,8 @@ builtins.__import__ = _import_override
 # Try Flask factory
 create_app = None
 try:
-    from flask import Flask
     from conduit.app import create_app as _flask_factory
+    from flask import Flask
     create_app = _flask_factory
 except Exception:
     pass
@@ -90,7 +91,8 @@ django_setup = False
 try:
     import django
     from django.conf import settings as _dj_settings
-    from django.test.utils import setup_test_environment, teardown_test_environment
+    from django.test.utils import (setup_test_environment,
+                                   teardown_test_environment)
     django_setup = True
 except Exception:
     pass
@@ -199,9 +201,10 @@ def django_db_setup():
     """Set up test database for Django projects."""
     try:
         from django.conf import settings
-        from django.test.utils import setup_test_environment, teardown_test_environment
-        from django.db import connection
         from django.core.management import execute_from_command_line
+        from django.db import connection
+        from django.test.utils import (setup_test_environment,
+                                       teardown_test_environment)
         
         if not settings.configured:
             settings.configure(

@@ -1,6 +1,10 @@
 # src/gen/postprocess.py
-import re, ast, json, textwrap
+import ast
+import json
+import re
+import textwrap
 from typing import Tuple
+
 
 def _normalize_indentation(code: str) -> str:
     """Normalize indentation issues that cause syntax errors."""

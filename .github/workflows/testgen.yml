@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       target_repo:
-        description: "Full HTTPS URL of the target repo (e.g. https://github.com/owner/repo.git)"
+        description: "target repo "
         required: true
-        default: "https://github.com/DeviPrasad372002/django-test-app.git"
+        default: "https://github.com/DeviPrasad372002/backend_code.git"
       target_branch:
         description: "Branch in the target repo to write to"
         default: "main"  
@@ -38,7 +38,7 @@ jobs:
         run: |
           set -e
           rm -rf target
-          AUTH_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/DeviPrasad372002/django-test-app.git"
+          AUTH_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/DeviPrasad372002/backend_code.git"
           git clone --depth 1 --branch main "$AUTH_URL" target
           echo "TARGET_DIR=$PWD/target" >> $GITHUB_ENV
           git -C target rev-parse --abbrev-ref HEAD

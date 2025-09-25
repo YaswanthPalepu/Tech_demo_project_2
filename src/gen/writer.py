@@ -1,8 +1,13 @@
 """
 Professional test file writer with enhanced formatting and metadata management.
 """
-import pathlib, shutil, datetime, json, re, hashlib
-from typing import List, Set, Dict, Any
+import datetime
+import hashlib
+import json
+import pathlib
+import re
+import shutil
+from typing import Any, Dict, List, Set
 
 # Professional header for generated test files
 PROFESSIONAL_HEADER = '''"""
@@ -31,7 +36,8 @@ def _normalize_minimal(s: str) -> str:
 
 def write_text(file_path: pathlib.Path, content: str):
     """Write test content with minimal-risk path first, then formatted fallback."""
-    import ast, textwrap
+    import ast
+    import textwrap
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
 

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       target_repo:
-        description: "Full https URL of the target repo"
+        description: "Full HTTPS URL of the target repo"
         required: true
         default: "https://github.com/DeviPrasad372002/django-test-app.git"
       target_branch:
@@ -20,6 +20,8 @@ permissions:
   contents: write
 
 env:
+  REPO_URL_DEFAULT: "https://github.com/DeviPrasad372002/django-test-app.git"
+  BRANCH_DEFAULT: "local"
   AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
   AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
   AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
@@ -32,11 +34,17 @@ jobs:
       - name: Checkout ai-testgen repo (this)
         uses: actions/checkout@v4
 
-      - name: Clone target repo
+      - name: Clone target repo → ./target
+        id: clone
+        env:
+          IN_URL: ${{ github.event.inputs.target_repo || env.REPO_URL_DEFAULT }}
+          IN_BRANCH: ${{ github.event.inputs.target_branch || env.BRANCH_DEFAULT }}
         run: |
+          set -e
           rm -rf target
-          git clone --depth 1 --branch "${{ github.event.inputs.target_branch || 'local' }}" \
-            "https://x-access-token:${GITHUB_TOKEN}@${{ github.event.inputs.target_repo#https:// }}" target
+          AUTH_URL="${IN_URL/https:\/\//https:\/\/x-access-token:${GITHUB_TOKEN}@}"
+          git clone --depth 1 --branch "${IN_BRANCH}" "${AUTH_URL}" target
+          echo "TARGET_DIR=$PWD/target" >> $GITHUB_ENV
           ls -la target
           find target -type f -name '*.py' | wc -l
 
@@ -47,6 +55,7 @@ jobs:
 
       - name: Create venv and install deps
         run: |
+          set -e
           python -m venv .venv
           . .venv/bin/activate
           python -m pip install -U pip setuptools wheel
@@ -55,32 +64,30 @@ jobs:
 
       - name: Run analyzer + generator
         env:
-          TARGET_ROOT: ${{ github.workspace }}/target
-          PYTHONPATH: ${{ github.workspace }}/target
+          TARGET_ROOT: ${{ env.TARGET_DIR }}
+          PYTHONPATH: ${{ env.TARGET_DIR }}
           TESTGEN_FORCE: "true"
         run: |
+          set -e
           . .venv/bin/activate
           python -m src.gen --target "$TARGET_ROOT" --outdir "$TARGET_ROOT/tests/generated"
 
       - name: Show generated tests
         run: |
-          ls -al target/tests/generated || true
-          find target/tests/generated -maxdepth 1 -type f -name 'test_*.py' | wc -l
+          ls -al "$TARGET_DIR/tests/generated" || true
+          find "$TARGET_DIR/tests/generated" -maxdepth 1 -type f -name 'test_*.py' | wc -l
 
       - name: Commit changes to same branch
         working-directory: target
         env:
-          BRANCH: ${{ github.event.inputs.target_branch || 'local' }}
+          BRANCH: ${{ github.event.inputs.target_branch || env.BRANCH_DEFAULT }}
           GIT_AUTHOR_NAME: ai-testgen-bot
           GIT_AUTHOR_EMAIL: actions@users.noreply.github.com
         run: |
+          set -e
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
-
           git add tests/generated || true
-          if git diff --cached --quiet; then
-            echo "No changes to commit."; exit 0
-          fi
-
+          if git diff --cached --quiet; then exit 0; fi
           git commit -m "chore(tests): AI-generated tests [skip ci]"
           git push origin "HEAD:${BRANCH}"

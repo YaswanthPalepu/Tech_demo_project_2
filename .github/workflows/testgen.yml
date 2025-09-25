@@ -11,7 +11,7 @@ on:
         default: "https://github.com/DeviPrasad372002/django-test-app.git"
       target_branch:
         description: "Branch to write to"
-        default: "local"
+        default: "main"
       python_version:
         description: "Python version"
         default: "3.12"

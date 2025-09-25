@@ -15,7 +15,7 @@ on:
       target_subdir:
         description: "Subdirectory containing Python code (optional)"
         required: false
-        default: ""
+        default: "https://github.com/DeviPrasad372002/django-test-app.git"
       python_version:
         description: "Python version"
         default: "3.12"

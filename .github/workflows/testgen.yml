@@ -11,7 +11,7 @@ on:
         default: "https://github.com/DeviPrasad372002/django-test-app.git"
       target_branch:
         description: "Branch in the target repo to write to"
-        default: "main"   # <— use a real branch name
+        default: "main"  
       python_version:
         description: "Python version"
         default: "3.12"
@@ -34,17 +34,16 @@ jobs:
 
       - name: Clone target repo → ./target (always)
         env:
-          IN_URL: ${{ github.event.inputs.target_repo }}
-          BRANCH: ${{ github.event.inputs.target_branch }}
+          GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
         run: |
           set -e
           rm -rf target
-          AUTH_URL="${IN_URL/https:\/\//https:\/\/x-access-token:${GITHUB_TOKEN}@}"
-          git clone --depth 1 "${AUTH_URL}" target
-          git -C target fetch origin --depth 1 "$BRANCH" || true
-          git -C target checkout -B "$BRANCH" "origin/$BRANCH" || git -C target checkout -b "$BRANCH"
+          AUTH_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/DeviPrasad372002/django-test-app.git"
+          git clone --depth 1 --branch main "$AUTH_URL" target
           echo "TARGET_DIR=$PWD/target" >> $GITHUB_ENV
+          git -C target rev-parse --abbrev-ref HEAD
           find target -type f -name '*.py' | wc -l
+
 
       - name: Setup Python
         uses: actions/setup-python@v5

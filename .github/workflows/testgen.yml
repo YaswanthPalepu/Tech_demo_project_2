@@ -2,16 +2,16 @@ name: Generate AI Tests for External Repo
 
 on:
   push:
-    branches: [local]
+    branches: [local]  # this is your CI branch for THIS repo; OK to keep
   workflow_dispatch:
     inputs:
       target_repo:
-        description: "Full HTTPS URL of the target repo"
+        description: "Full HTTPS URL of the target repo (e.g. https://github.com/owner/repo.git)"
         required: true
         default: "https://github.com/DeviPrasad372002/django-test-app.git"
       target_branch:
-        description: "Branch to write to"
-        default: main
+        description: "Branch in the target repo to write to"
+        default: "main"   # <— use a real branch name
       python_version:
         description: "Python version"
         default: "3.12"
@@ -20,12 +20,10 @@ permissions:
   contents: write
 
 env:
-  REPO_URL_DEFAULT: "https://github.com/DeviPrasad372002/django-test-app.git"
-  BRANCH_DEFAULT: "local"
+  GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
   AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
   AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
   AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
-  GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
 
 jobs:
   generate:
@@ -34,24 +32,24 @@ jobs:
       - name: Checkout ai-testgen repo (this)
         uses: actions/checkout@v4
 
-      - name: Clone target repo → ./target
-        id: clone
+      - name: Clone target repo → ./target (always)
         env:
-          IN_URL: ${{ github.event.inputs.target_repo || env.REPO_URL_DEFAULT }}
-          IN_BRANCH: ${{ github.event.inputs.target_branch || env.BRANCH_DEFAULT }}
+          IN_URL: ${{ github.event.inputs.target_repo }}
+          BRANCH: ${{ github.event.inputs.target_branch }}
         run: |
           set -e
           rm -rf target
           AUTH_URL="${IN_URL/https:\/\//https:\/\/x-access-token:${GITHUB_TOKEN}@}"
-          git clone --depth 1 --branch "${IN_BRANCH}" "${AUTH_URL}" target
+          git clone --depth 1 "${AUTH_URL}" target
+          git -C target fetch origin --depth 1 "$BRANCH" || true
+          git -C target checkout -B "$BRANCH" "origin/$BRANCH" || git -C target checkout -b "$BRANCH"
           echo "TARGET_DIR=$PWD/target" >> $GITHUB_ENV
-          ls -la target
           find target -type f -name '*.py' | wc -l
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ github.event.inputs.python_version || '3.12' }}
+          python-version: ${{ github.event.inputs.python_version }}
 
       - name: Create venv and install deps
         run: |
@@ -77,10 +75,10 @@ jobs:
           ls -al "$TARGET_DIR/tests/generated" || true
           find "$TARGET_DIR/tests/generated" -maxdepth 1 -type f -name 'test_*.py' | wc -l
 
-      - name: Commit changes to same branch
+      - name: Commit changes to same branch on target
         working-directory: target
         env:
-          BRANCH: ${{ github.event.inputs.target_branch || env.BRANCH_DEFAULT }}
+          BRANCH: ${{ github.event.inputs.target_branch }}
           GIT_AUTHOR_NAME: ai-testgen-bot
           GIT_AUTHOR_EMAIL: actions@users.noreply.github.com
         run: |

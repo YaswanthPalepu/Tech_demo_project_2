@@ -609,7 +609,7 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
                 focus_files: Optional[List[str]] = None):
     """Generate comprehensive test suite optimized for maximum coverage."""
     from . import env
-    from .change import detect_changes
+    from .smart_change import detect_changes
     from .smart_change import (should_generate_tests, prepare_for_generation, 
                               finalize_generation)  # ADD THIS IMPORT
     from .enhanced_analysis_utils import (compact_analysis,

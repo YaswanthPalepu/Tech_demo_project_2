@@ -43,7 +43,7 @@ jobs:
         run: |
           python -m pip install -U pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi
-          pip install pytest pytest-cov
+          pip install pytest pytest-cov httpx
 
       - name: Run tests with coverage
         working-directory: target
@@ -51,6 +51,20 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/target
         run: |
           pytest -q --cov=. --cov-report=xml:coverage.xml --cov-report=term-missing || true
+      - name: Show test summary
+        working-directory: target
+        run: |
+          python - <<'PYCODE'
+          import xml.etree.ElementTree as ET
+          tree = ET.parse("pytest-report.xml")
+          root = tree.getroot()
+          total = int(root.attrib.get("tests", 0))
+          failures = int(root.attrib.get("failures", 0))
+          errors = int(root.attrib.get("errors", 0))
+          skipped = int(root.attrib.get("skipped", 0))
+          passed = total - failures - errors - skipped
+          print(f"Total: {total}, Passed: {passed}, Failed: {failures+errors}, Skipped: {skipped}")
+          PYCODE
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4

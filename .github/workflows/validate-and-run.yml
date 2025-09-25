@@ -9,7 +9,7 @@ on:
         default: "DeviPrasad372002/django-test-app"
       ref:
         description: "Branch or SHA to test"
-        default: "local"
+        default: "main"
       python_version:
         description: "Python version"
         default: "3.12"

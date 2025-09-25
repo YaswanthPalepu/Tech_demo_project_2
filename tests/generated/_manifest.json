@@ -208,48 +208,5 @@
       "last_modified": 1758260444.084116
     }
   },
-  "last_scan": 1758547388.9502962,
-  "runs": [
-    {
-      "timestamp": "2025-09-22T13:57:45.920725Z",
-      "files_generated": [
-        "test_unit_coverage_20250922_132330_01.py",
-        "test_unit_coverage_20250922_132330_02.py",
-        "test_unit_coverage_20250922_132330_03.py",
-        "test_unit_coverage_20250922_132330_04.py",
-        "test_unit_coverage_20250922_132330_05.py",
-        "test_unit_coverage_20250922_132330_06.py",
-        "test_unit_coverage_20250922_132330_07.py",
-        "test_unit_coverage_20250922_132330_08.py",
-        "test_integ_coverage_20250922_132330_01.py",
-        "test_integ_coverage_20250922_132330_02.py",
-        "test_integ_coverage_20250922_132330_03.py",
-        "test_integ_coverage_20250922_132330_04.py",
-        "test_integ_coverage_20250922_132330_05.py",
-        "test_integ_coverage_20250922_132330_06.py"
-      ],
-      "file_count": 14,
-      "change_summary": {
-        "added_or_modified": 18,
-        "deleted": 0,
-        "unchanged": 0,
-        "total_analyzed": 18
-      },
-      "generation_metadata": {
-        "total_size_bytes": 420465,
-        "average_file_size": 30033,
-        "test_function_count": 252
-      }
-    }
-  ],
-  "statistics": {
-    "total_runs": 1,
-    "total_files_generated": 14,
-    "last_generation": "2025-09-22T13:57:45.920725Z",
-    "generation_summary": {
-      "unit_tests": 8,
-      "integration_tests": 6,
-      "e2e_tests": 0
-    }
-  }
+  "last_scan": 1758802289.0188777
 }

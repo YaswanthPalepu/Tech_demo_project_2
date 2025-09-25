@@ -1,127 +1,90 @@
-name: AI Test Generation
+name: Generate AI Tests for External Repo
 
 on:
-  workflow_dispatch:
-    inputs:
-      repo_url:
-        description: "Repo to analyze"
-        required: true
-        default: "https://github.com/DeviPrasad372002/django-test-app.git"
-      force_gen:
-        required: false
-        default: "false"
-        description: "Force regeneration of all tests (overwrites existing)"
-      prompt_style:
-        required: false
-        default: "ultra_bare"
-        description: "Prompt style to use (ultra_bare, bare, normal, detailed, ultra_detailed)"
-      coverage_threshold:
-        required: false
-        default: "0"
-        description: "Minimum coverage threshold (%)"
   push:
     branches:
-      - test2
+      - local
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: "Repository to generate tests for (e.g., user/repo)"
+        required: true
+        default: "https://github.com/DeviPrasad372002/django-test-app.git"
+      target_branch:
+        description: "Branch to base the PR on"
+        default: "local"
+      python_version:
+        description: "Python version"
+        default: "3.12"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+  AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+  AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+  GH_PAT: ${{ secrets.GH_PAT }} 
+
 jobs:
   generate:
-    runs-on: self-hosted
-    permissions:
-      contents: read
-      actions: write
-    env:
-      AZURE_OPENAI_KEY:         ${{ secrets.AZURE_OPENAI_KEY         || secrets.AZURE_OPENAI_API_KEY }}
-      AZURE_OPENAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT    || secrets.AZURE_OPENAI_API_ENDPOINT }}
-      AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION || secrets.OPENAI_API_VERSION }}
-      AZURE_OPENAI_DEPLOYMENT:  ${{ secrets.AZURE_OPENAI_DEPLOYMENT  || secrets.OPENAI_DEPLOYMENT }}
-      TESTGEN_PROMPT_STYLE: ${{ github.event.inputs.prompt_style || 'ultra_bare' }}
-      TESTGEN_STRICT_FAIL: "1"
-      DATABASE_URL: "sqlite:///:memory:"
-      DB_URL: "sqlite:///:memory:"
-      SQLALCHEMY_DATABASE_URI: "sqlite:///:memory:"
-      PYTHONUTF8: "1"
-      PIP_NO_CACHE_DIR: "1"
-
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout ai-testgen repo (this)
+        uses: actions/checkout@v4
+
+      - name: Checkout target repo
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Preflight – verify required secrets
-        run: |
-          : "${AZURE_OPENAI_KEY:?Missing AZURE_OPENAI_KEY or AZURE_OPENAI_API_KEY}"
-          : "${AZURE_OPENAI_ENDPOINT:?Missing AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_API_ENDPOINT}"
-          : "${AZURE_OPENAI_API_VERSION:?Missing AZURE_OPENAI_API_VERSION or OPENAI_API_VERSION}"
-          : "${AZURE_OPENAI_DEPLOYMENT:?Missing AZURE_OPENAI_DEPLOYMENT or OPENAI_DEPLOYMENT}"
-
-      - name: Clone target repository
-        run: |
-          REPO_URL="${{ github.event.inputs.repo_url || 'https://github.com/DeviPrasad372002/django-test-app.git' }}"
-          echo "REPO_URL=$REPO_URL" >> $GITHUB_ENV
-          git clone --depth 1 "$REPO_URL" target
-
-      - name: Derive OUTDIR, TARGET_ROOT and repo metadata
-        id: meta
-        run: |
-          echo "TARGET_ROOT=target" >> $GITHUB_ENV
-          REPO_SLUG="$(echo "${REPO_URL}" | sed -E 's#^https?://github.com/##; s#[^A-Za-z0-9._-]#_#g')"
-          OUTDIR="tests/generated/${REPO_SLUG}/current"
-          mkdir -p "$OUTDIR"
-          echo "OUTDIR=$OUTDIR" >> "$GITHUB_ENV"
-          echo "outdir=$OUTDIR" >> "$GITHUB_OUTPUT"
+          repository: ${{ github.event.inputs.target_repo }}
+          ref: ${{ github.event.inputs.target_branch }}
+          token: ${{ secrets.GH_PAT }}
+          path: target
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: ${{ github.event.inputs.python_version }}
 
-      - name: Base tooling
+      - name: Install deps for generator
         run: |
-          python -m pip install --upgrade "pip<25" wheel setuptools
-          python -m pip install -U httpx requests
+          python -m pip install -U pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # harden: ensure test deps present
+          pip install pytest pytest-cov
 
-      - name: Generate tests (project-specific generator or fallback)
+      - name: Run analyzer + generator against target
         env:
-          TARGET_ROOT: target
-          TESTGEN_FORCE: ${{ github.event.inputs.force_gen || 'false' }}
+          TARGET_ROOT: ${{ github.workspace }}/target
+          PYTHONPATH: ${{ github.workspace }}/target
+          TESTGEN_FORCE: "true"
         run: |
-          python - <<'PY'
-          import os, importlib, json, pathlib, shutil
-          outdir = pathlib.Path(os.environ.get('OUTDIR','tests/generated/out'))
-          outdir.mkdir(parents=True, exist_ok=True)
-          try:
-              gen = importlib.import_module('src.gen.generate')
-              if os.environ.get('TESTGEN_FORCE','false').lower()=='true':
-                  os.environ['TESTGEN_FORCE']='true'
-              gen.generate_all({}, outdir=str(outdir), focus_files=None)
-          except Exception as e:
-              # Fallback: create a placeholder so artifact is always produced
-              (outdir/'README.txt').write_text(f"Generator not available: {e}\n")
-          PY
+          python -m src.gen --target "$TARGET_ROOT" --outdir "$TARGET_ROOT/tests/generated"
 
-      - name: Quarantine syntactically invalid tests (collect-only)
+      - name: Show generated tests
         run: |
-          python - <<'PY'
-          import ast, pathlib
-          base = pathlib.Path("${OUTDIR}")
-          if base.exists():
-              for p in base.rglob("test_*.py"):
-                  try: ast.parse(p.read_text(encoding="utf-8"))
-                  except SyntaxError:
-                      txt = p.read_text(encoding="utf-8")
-                      p.write_text("import pytest as _pytest\n_pytest.skip('quarantined invalid generated test', allow_module_level=True)\n\n\"\"\"\n"+txt+"\n\"\"\"\n", encoding="utf-8")
-                      print("Quarantined:", p)
-          PY
+          ls -al target/tests/generated || true
 
-      - name: Package artifact (no commit)
+      - name: Commit changes to same branch
+        working-directory: target
+        env:
+          GIT_AUTHOR_NAME: ai-testgen-bot
+          GIT_AUTHOR_EMAIL: actions@users.noreply.github.com
+          GIT_COMMITTER_NAME: ai-testgen-bot
+          GIT_COMMITTER_EMAIL: actions@users.noreply.github.com
         run: |
-          mkdir -p gen_artifact
-          rsync -a "${OUTDIR}/" gen_artifact/ 2>/dev/null || true
-          echo "Bundled files:"; find gen_artifact -maxdepth 2 -type f | sed 's/^/ - /' || true
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
 
-      - name: Upload generated tests artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-tests
-          path: gen_artifact
-          retention-days: 7
+          git add tests/generated || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore(tests): AI-generated tests [skip ci]"
+          git push origin HEAD:${{ github.event.inputs.target_branch }}
+
+
+     

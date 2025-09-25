@@ -10,6 +10,10 @@ import re
 import time
 import traceback
 from typing import Any, Dict, List, Optional, Set, Tuple
+from .smart_change import (
+    should_generate_tests, 
+    prepare_for_generation, 
+    finalize_generation)
 
 __all__ = ["generate_all", "main"]
 
@@ -606,6 +610,8 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     """Generate comprehensive test suite optimized for maximum coverage."""
     from . import env
     from .change import detect_changes
+    from .smart_change import (should_generate_tests, prepare_for_generation, 
+                              finalize_generation)  # ADD THIS IMPORT
     from .enhanced_analysis_utils import (compact_analysis,
                                           enhance_coverage_targeting,
                                           filter_by_files,
@@ -627,43 +633,36 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     conftest_path = _create_enhanced_conftest(output_dir)
     print(f"✅ Created enhanced conftest: {conftest_path}")
     
-    # Detect changes for intelligent regeneration
+    # REPLACE the existing change detection with granular version
     target_root = pathlib.Path(os.environ.get("TARGET_ROOT", "target"))
     if not target_root.exists():
         raise RuntimeError(f"Target directory not found: {target_root}")
     
-    added_or_modified, deleted, unchanged = detect_changes(target_root, manifest_path)
+    # NEW: Granular change detection
+    should_generate, changed_files, deleted_files = should_generate_tests(str(target_root))
     
-    change_summary = {
-        "added_or_modified": len(added_or_modified),
-        "deleted": len(deleted),
-        "unchanged": len(unchanged),
-        "total_analyzed": len(added_or_modified) + len(deleted) + len(unchanged)
-    }
+    if not should_generate:
+        print("ℹ️  No changes detected - preserving all existing tests")
+        return []
     
-    print(f"📊 Change analysis: {change_summary['added_or_modified']} modified, "
-          f"{change_summary['deleted']} deleted, {change_summary['unchanged']} unchanged")
+    # NEW: Clean up tests for changed/deleted files only
+    print(f"🧹 Preparing granular generation for {len(changed_files)} changed files...")
+    prepare_for_generation(str(target_root), changed_files, deleted_files)
     
-    # Enhanced generation logic
+    # Enhanced generation logic (keep your existing logic)
     force_generation = os.getenv("TESTGEN_FORCE", "false").lower() == "true"
     coverage_mode = os.getenv("COVERAGE_MODE", "maximum").lower()
     
-    if not force_generation and not added_or_modified and not deleted and coverage_mode != "maximum":
-        existing_tests = list(output_dir.glob("test_*.py"))
-        if existing_tests:
-            print("ℹ️  No changes detected. Use TESTGEN_FORCE=true or COVERAGE_MODE=maximum for regeneration.")
-            return
-    
     if force_generation or coverage_mode == "maximum":
         print("🔄 Maximum coverage mode - regenerating ALL tests for optimal coverage...")
+    else:
+        print(f"🎯 Granular mode - generating tests for {len(changed_files)} changed files...")
     
-    # Clean up old tests
-    cleanup_deleted_and_modified(output_dir, deleted, added_or_modified)
-    
-    # Enhanced analysis processing
+    # Keep your existing analysis processing
     focus_file_set = set(focus_files or [])
     if not focus_file_set and not force_generation:
-        focus_file_set = added_or_modified
+        # NEW: Focus on changed files for granular generation
+        focus_file_set = changed_files if changed_files else set()
     
     # Filter and enhance analysis for maximum coverage
     filtered_analysis, no_targets = filter_by_files(analysis, focus_file_set if focus_file_set else None)
@@ -671,17 +670,17 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
         print("⚠️  No targets in focus files, using full analysis for maximum coverage")
         filtered_analysis = analysis
     
-    # Enhanced processing pipeline
+    # Enhanced processing pipeline (keep existing)
     compact = prune_unavailable_targets(compact_analysis(filtered_analysis))
     compact = enhance_coverage_targeting(compact)
     
-    # Install enhanced packages for better coverage
+    # Install enhanced packages for better coverage (keep existing)
     required_packages = infer_required_packages(compact)
     if required_packages:
         print(f"📦 Installing packages for comprehensive testing: {', '.join(required_packages)}")
         pip_install(required_packages)
     
-    # Validate enhanced targets
+    # Validate enhanced targets (keep existing)
     total_targets = sum(len(compact.get(key, [])) for key in ["functions", "classes", "routes"])
     if total_targets == 0:
         raise RuntimeError("No testable targets found for coverage optimization.")
@@ -692,14 +691,14 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     print(f"   🌐 Routes: {len(compact.get('routes', []))}")
     print(f"   📊 Total Coverage Targets: {total_targets}")
     
-    # Enhanced test type determination
+    # Enhanced test type determination (keep existing)
     has_routes = bool(compact.get("routes"))
     test_kinds = ["unit", "integ"]
     if has_routes:
         test_kinds.append("e2e")
         print("🌐 API routes detected - generating comprehensive E2E tests")
     
-    # ENHANCED test generation with maximum coverage focus
+    # ENHANCED test generation with maximum coverage focus (keep existing)
     compact_json = json.dumps(compact, separators=(",", ":"))
     generated_files = []
     timestamp = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -715,7 +714,7 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
         
         for file_index in range(num_files):
             try:
-                # Get enhanced focus targets
+                # Get enhanced focus targets (keep existing)
                 focus_label, focus_names, shard_targets = focus_for(compact, test_kind, file_index, num_files)
                 
                 if not focus_names:
@@ -725,10 +724,10 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
                 print(f"🎯 Generating {test_kind} test {file_index + 1}/{num_files}")
                 print(f"   📋 Targets: {len(focus_names)} ({focus_label[:80]}...)")
                 
-                # Gather enhanced context for maximum coverage
+                # Gather enhanced context for maximum coverage (keep existing)
                 context = _gather_enhanced_context(target_root, filtered_analysis, focus_names, max_bytes=75000)
                 
-                # Build enhanced prompt for maximum coverage
+                # Build enhanced prompt for maximum coverage (keep existing)
                 prompt_messages = build_prompt(
                     kind=test_kind,
                     compact_json=compact_json,
@@ -739,17 +738,17 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
                     context=context
                 )
                 
-                # Generate with enhanced retry logic
+                # Generate with enhanced retry logic (keep existing)
                 test_code = _generate_with_enhanced_retry(prompt_messages, max_attempts=5)
                 
-                # Enhanced validation and optimization
+                # Enhanced validation and optimization (keep existing)
                 test_methods_count = len([line for line in test_code.splitlines() 
                                         if line.strip().startswith('def test_')])
                 total_test_methods += test_methods_count
                 
                 print(f"   ✅ Generated {test_methods_count} test methods")
                 
-                # Enhanced code validation
+                # Enhanced code validation (keep existing)
                 final_validation, validation_error = validate_code(test_code)
                 if not final_validation:
                     print(f"⚠️  Code validation warning: {validation_error}")
@@ -761,18 +760,18 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
                     else:
                         test_code = _fix_syntax_for_coverage(test_code)
                 
-                # Create enhanced filename
+                # Create enhanced filename (keep existing)
                 filename = f"test_{test_kind}_coverage_{timestamp}_{file_index + 1:02d}.py"
                 file_path = output_dir / filename
                 
-                # Final validation before writing
+                # Final validation before writing (keep existing)
                 try:
                     ast.parse(test_code, filename=filename)
                 except SyntaxError as e:
                     print(f"⚠️  Syntax error detected: {e}")
                     test_code = _generate_coverage_fallback(test_kind, focus_names, 5)
                 
-                # Write enhanced test file
+                # Write enhanced test file (keep existing)
                 write_text(file_path, test_code)
                 generated_files.append(str(file_path))
                 print(f"📁 Generated: {filename}")
@@ -781,7 +780,7 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
                 print(f"❌ Error generating {test_kind} test {file_index + 1}: {e}")
                 traceback.print_exc()
                 
-                # Enhanced fallback generation
+                # Enhanced fallback generation (keep existing)
                 fallback_filename = f"test_{test_kind}_fallback_{timestamp}_{file_index + 1:02d}.py"
                 fallback_path = output_dir / fallback_filename
                 fallback_code = _generate_coverage_fallback(test_kind, focus_names if 'focus_names' in locals() else [], 3)
@@ -790,10 +789,21 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
                 generated_files.append(str(fallback_path))
                 print(f"🔄 Created coverage fallback: {fallback_filename}")
     
-    # Update manifest with enhanced results
+    # NEW: Update granular mappings after generation
+    if generated_files and changed_files:
+        finalize_generation(str(target_root), changed_files, generated_files)
+    
+    # Update manifest with enhanced results (keep existing)
+    change_summary = {
+        "added_or_modified": len(changed_files),
+        "deleted": len(deleted_files),
+        "unchanged": 0,  # We don't track unchanged in granular mode
+        "total_analyzed": len(changed_files) + len(deleted_files),
+        "granular_mode": True
+    }
     update_manifest(output_dir, generated_files, change_summary)
     
-    # Enhanced summary with coverage expectations
+    # Enhanced summary with coverage expectations (keep existing)
     if generated_files:
         print(f"\n🎉 ENHANCED TEST GENERATION COMPLETE!")
         print(f"📊 Coverage Statistics:")
@@ -802,6 +812,11 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
         print(f"   🎯 Coverage Targets: {total_targets}")
         print(f"   📈 Expected Coverage Increase: 45-75% (from current 15%)")
         print(f"   🏆 Target Final Coverage: 60-90%")
+        
+        # NEW: Show granular generation info
+        if not force_generation:
+            print(f"   🎯 Granular Mode: Generated tests for {len(changed_files)} changed files")
+            print(f"   🛡️  Preserved: Tests for unchanged files remain intact")
         
         print(f"\n📋 Generated Test Files:")
         for file_path in generated_files:
@@ -821,6 +836,7 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     
     print(f"\n📂 Test output directory: {output_dir}")
     return generated_files
+
 
 def _generate_coverage_fallback(test_kind: str, focus_names: List[str], method_count: int = 5) -> str:
     """Generate fallback test code optimized for coverage."""

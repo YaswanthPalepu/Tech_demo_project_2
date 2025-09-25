@@ -8,7 +8,7 @@ on:
       target_repo:
         description: "owner/repo of the target codebase"
         required: true
-        default: "DeviPrasad372002/django-test-app"
+        default: "https://github.com/DeviPrasad372002/django-test-app.git"
       target_branch:
         description: "Branch to write to"
         default: "local"

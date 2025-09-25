@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       target_repo:
-        description: "owner/repo of the target codebase"
+        description: "owner/repo OR full https URL"
         required: true
         default: "https://github.com/DeviPrasad372002/django-test-app.git"
       target_branch:
@@ -18,71 +18,89 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 env:
   AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
   AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
   AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
-  GH_PAT: ${{ secrets.GH_PAT3 }}
 
 jobs:
   generate:
     runs-on: self-hosted
-    env:
-      TARGET_REPO: ${{ github.event.inputs.target_repo || github.repository }}
-      TARGET_BRANCH: ${{ github.event.inputs.target_branch || github.ref_name }}
-      PY_VER: ${{ github.event.inputs.python_version || '3.12' }}
     steps:
       - name: Checkout ai-testgen repo (this)
         uses: actions/checkout@v4
 
-      - name: Checkout target repo
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.TARGET_REPO }}
-          ref: ${{ env.TARGET_BRANCH }}
-          token: ${{ env.GH_PAT }}
-          path: target
-
-      - name: Allow git in self-hosted workspace
+      - name: Resolve and clone target -> ./target
+        env:
+          IN_REPO: ${{ github.event.inputs.target_repo }}
+          IN_BRANCH: ${{ github.event.inputs.target_branch }}
+          TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
         run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE/target"
+          set -euo pipefail
+          rm -rf target
+          if [[ "$IN_REPO" == http* ]]; then
+            URL="$IN_REPO"
+            if [[ -n "${TOKEN:-}" ]]; then
+              URL="${URL/https:\/\/github.com/https:\/\/x-access-token:${TOKEN}@github.com}"
+            fi
+          else
+            URL="https://x-access-token:${TOKEN}@github.com/${IN_REPO}.git"
+          fi
+
+          if git ls-remote --heads "$URL" "$IN_BRANCH" | grep -q "$IN_BRANCH"; then
+            git clone --depth 1 --branch "$IN_BRANCH" "$URL" target
+          else
+            git clone --depth 1 "$URL" target
+            git -C target checkout -b "$IN_BRANCH"
+          fi
+
+          git config --global --add safe.directory "$PWD/target"
+          echo "Python files in target:"
+          find target -type f -name "*.py" | wc -l
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PY_VER }}
+          python-version: ${{ github.event.inputs.python_version }}
 
-      - name: Create venv and install deps (no system pip)
+      - name: Create venv and install generator deps
         run: |
           python -m venv .venv
-          .venv/bin/python -m pip install -U pip setuptools wheel
-          if [ -f requirements.txt ]; then .venv/bin/pip install -r requirements.txt; fi
-          # Ensure test deps
-          .venv/bin/pip install pytest pytest-cov
+          . .venv/bin/activate
+          python -m pip install -U pip setuptools wheel
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest pytest-cov
 
-      - name: Run analyzer + generator against target
+      - name: Run analyzer + generator on target
         env:
           TARGET_ROOT: ${{ github.workspace }}/target
           PYTHONPATH: ${{ github.workspace }}/target
           TESTGEN_FORCE: "true"
         run: |
-          .venv/bin/python -m src.gen --target "$TARGET_ROOT" --outdir "$TARGET_ROOT/tests/generated"
+          . .venv/bin/activate
+          if [ "$(find target -type f -name '*.py' | wc -l)" -eq 0 ]; then
+            echo "❌ No Python files found under target/"
+            exit 1
+          fi
+          python -m src.gen --target "$TARGET_ROOT" --outdir "$TARGET_ROOT/tests/generated"
 
       - name: Show generated tests
         run: |
           ls -al target/tests/generated || true
+          find target/tests/generated -maxdepth 1 -type f -name 'test_*.py' | wc -l
 
-      - name: Commit changes to same branch
+      - name: Commit changes to same branch on target
         working-directory: target
         env:
+          BRANCH: ${{ github.event.inputs.target_branch }}
+          TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
           GIT_AUTHOR_NAME: ai-testgen-bot
           GIT_AUTHOR_EMAIL: actions@users.noreply.github.com
           GIT_COMMITTER_NAME: ai-testgen-bot
           GIT_COMMITTER_EMAIL: actions@users.noreply.github.com
         run: |
+          set -euo pipefail
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
@@ -93,4 +111,8 @@ jobs:
           fi
 
           git commit -m "chore(tests): AI-generated tests [skip ci]"
-          git push origin HEAD:${{ env.TARGET_BRANCH }}
+          ORIGIN_URL=$(git remote get-url origin)
+          if [[ "$ORIGIN_URL" != *"x-access-token"* ]]; then
+            ORIGIN_URL="${ORIGIN_URL/https:\/\/github.com/https:\/\/x-access-token:${TOKEN}@github.com}"
+          fi
+          git push "$ORIGIN_URL" "HEAD:${BRANCH}"

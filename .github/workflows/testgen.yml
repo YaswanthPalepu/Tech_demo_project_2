@@ -53,9 +53,9 @@ jobs:
       - name: Create venv and install deps
         run: |
           set -e
-          python -m venv .venv
+          python3 -m venv .venv
           . .venv/bin/activate
-          python -m pip install -U pip setuptools wheel
+          python3 -m pip install -U pip setuptools wheel
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest pytest-cov
 

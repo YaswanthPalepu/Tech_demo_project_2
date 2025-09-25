@@ -12,6 +12,10 @@ on:
       target_branch:
         description: "Branch to write to"
         default: "local"
+      target_subdir:
+        description: "Subdirectory containing Python code (optional)"
+        required: false
+        default: ""
       python_version:
         description: "Python version"
         default: "3.12"
@@ -56,8 +60,42 @@ jobs:
           fi
 
           git config --global --add safe.directory "$PWD/target"
-          echo "Python files in target:"
-          find target -type f -name "*.py" | wc -l
+          echo "Top-level tree:"
+          ls -la target | sed -n '1,120p'
+          echo "Total .py files in repo:"
+          find target -type f -name '*.py' | wc -l
+
+      - name: Select TARGET_ROOT (auto-detect or input)
+        env:
+          SUBDIR: ${{ github.event.inputs.target_subdir }}
+        run: |
+          set -euo pipefail
+          ROOT="target"
+          if [[ -n "${SUBDIR}" ]]; then
+            CAND="target/${SUBDIR}"
+            if [[ ! -d "$CAND" ]]; then
+              echo "Specified subdir not found: $CAND"; exit 1
+            fi
+            ROOT="$CAND"
+          else
+            # auto-pick directory with the most .py files (depth ≤ 3)
+            BEST=""; BEST_N=0
+            while IFS= read -r -d '' D; do
+              N=$(find "$D" -type f -name '*.py' | wc -l | tr -d ' ')
+              if [[ "$N" -gt "$BEST_N" ]]; then BEST="$D"; BEST_N="$N"; fi
+            done < <(printf '%s\0' target target/* target/*/* target/*/*/* 2>/dev/null | xargs -0 -I{} bash -lc '[[ -d "{}" ]] && printf "%s\0" "{}"' || true)
+            if [[ "$BEST_N" -gt 0 ]]; then ROOT="$BEST"; fi
+          fi
+          echo "Chosen TARGET_ROOT: $ROOT"
+          echo "Python files under TARGET_ROOT:"
+          find "$ROOT" -type f -name '*.py' | wc -l
+
+          if [[ "$(find "$ROOT" -type f -name '*.py' | wc -l | tr -d ' ')" -eq 0 ]]; then
+            echo "❌ No Python files found under $ROOT"; exit 1
+          fi
+
+          echo "TARGET_ROOT=$PWD/$ROOT" >> $GITHUB_ENV
+          echo "PYTHONPATH=$PWD/$ROOT" >> $GITHUB_ENV
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -72,23 +110,19 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest pytest-cov
 
-      - name: Run analyzer + generator on target
+      - name: Run analyzer + generator on TARGET_ROOT
         env:
-          TARGET_ROOT: ${{ github.workspace }}/target
-          PYTHONPATH: ${{ github.workspace }}/target
           TESTGEN_FORCE: "true"
         run: |
           . .venv/bin/activate
-          if [ "$(find target -type f -name '*.py' | wc -l)" -eq 0 ]; then
-            echo "❌ No Python files found under target/"
-            exit 1
-          fi
+          echo "TARGET_ROOT=$TARGET_ROOT"
+          echo "PYTHONPATH=$PYTHONPATH"
           python -m src.gen --target "$TARGET_ROOT" --outdir "$TARGET_ROOT/tests/generated"
 
       - name: Show generated tests
         run: |
-          ls -al target/tests/generated || true
-          find target/tests/generated -maxdepth 1 -type f -name 'test_*.py' | wc -l
+          ls -al "$TARGET_ROOT/tests/generated" || true
+          find "$TARGET_ROOT/tests/generated" -maxdepth 1 -type f -name 'test_*.py' | wc -l
 
       - name: Commit changes to same branch on target
         working-directory: target
@@ -106,8 +140,7 @@ jobs:
 
           git add tests/generated || true
           if git diff --cached --quiet; then
-            echo "No changes to commit."
-            exit 0
+            echo "No changes to commit."; exit 0
           fi
 
           git commit -m "chore(tests): AI-generated tests [skip ci]"

@@ -25,7 +25,7 @@ env:
   AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
   AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
   AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
-  GH_PAT: ${{ secrets.GH_PAT }} 
+  GH_PAT: ${{ secrets.GH_PAT3 }} 
 
 jobs:
   generate:

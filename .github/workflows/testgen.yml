@@ -1,5 +1,4 @@
 name: Generate AI Tests for External Repo (Granular)
-
 on:
   push:
     branches: [prasad,local]

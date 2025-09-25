@@ -6,7 +6,7 @@ on:
       target_repo:
         description: "owner/repo of the codebase to validate"
         required: true
-        default: "DeviPrasad372002/django-test-app"
+        default: "DeviPrasad372002/backend_code"
       ref:
         description: "Branch or SHA to test"
         default: "main"

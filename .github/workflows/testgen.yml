@@ -2,7 +2,7 @@ name: Generate AI Tests for External Repo (Granular)
 
 on:
   push:
-    branches: [local]
+    branches: [prasad,local]
   workflow_dispatch:
     inputs:
       target_repo:

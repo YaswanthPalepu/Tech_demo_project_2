@@ -2,16 +2,15 @@ name: Generate AI Tests for External Repo
 
 on:
   push:
-    branches:
-      - local
+    branches: [local]
   workflow_dispatch:
     inputs:
       target_repo:
-        description: "Repository to generate tests for (e.g., user/repo)"
+        description: "owner/repo of the target codebase"
         required: true
-        default: "https://github.com/DeviPrasad372002/django-test-app.git"
+        default: "DeviPrasad372002/django-test-app"
       target_branch:
-        description: "Branch to base the PR on"
+        description: "Branch to write to"
         default: "local"
       python_version:
         description: "Python version"
@@ -25,11 +24,15 @@ env:
   AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
   AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
   AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
-  GH_PAT: ${{ secrets.GH_PAT3 }} 
+  GH_PAT: ${{ secrets.GH_PAT3 }}
 
 jobs:
   generate:
     runs-on: self-hosted
+    env:
+      TARGET_REPO: ${{ github.event.inputs.target_repo || github.repository }}
+      TARGET_BRANCH: ${{ github.event.inputs.target_branch || github.ref_name }}
+      PY_VER: ${{ github.event.inputs.python_version || '3.12' }}
     steps:
       - name: Checkout ai-testgen repo (this)
         uses: actions/checkout@v4
@@ -37,22 +40,28 @@ jobs:
       - name: Checkout target repo
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.event.inputs.target_repo }}
-          ref: ${{ github.event.inputs.target_branch }}
-          token: ${{ secrets.GH_PAT3 }}
+          repository: ${{ env.TARGET_REPO }}
+          ref: ${{ env.TARGET_BRANCH }}
+          token: ${{ env.GH_PAT }}
           path: target
+
+      - name: Allow git in self-hosted workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/target"
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ github.event.inputs.python_version }}
+          python-version: ${{ env.PY_VER }}
 
-      - name: Install deps for generator
+      - name: Create venv and install deps (no system pip)
         run: |
-          python3 -m pip install -U pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # harden: ensure test deps present
-          pip install pytest pytest-cov
+          python -m venv .venv
+          .venv/bin/python -m pip install -U pip setuptools wheel
+          if [ -f requirements.txt ]; then .venv/bin/pip install -r requirements.txt; fi
+          # Ensure test deps
+          .venv/bin/pip install pytest pytest-cov
 
       - name: Run analyzer + generator against target
         env:
@@ -60,7 +69,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/target
           TESTGEN_FORCE: "true"
         run: |
-          python -m src.gen --target "$TARGET_ROOT" --outdir "$TARGET_ROOT/tests/generated"
+          .venv/bin/python -m src.gen --target "$TARGET_ROOT" --outdir "$TARGET_ROOT/tests/generated"
 
       - name: Show generated tests
         run: |
@@ -84,7 +93,4 @@ jobs:
           fi
 
           git commit -m "chore(tests): AI-generated tests [skip ci]"
-          git push origin HEAD:${{ github.event.inputs.target_branch }}
-
-
-     
+          git push origin HEAD:${{ env.TARGET_BRANCH }}

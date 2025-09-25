@@ -39,7 +39,7 @@ jobs:
         env:
           IN_REPO: ${{ github.event.inputs.target_repo }}
           IN_BRANCH: ${{ github.event.inputs.target_branch }}
-          TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+          TOKEN: ${{ secrets.GH_PAT3 }}
         run: |
           set -euo pipefail
           rm -rf target

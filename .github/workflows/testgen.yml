@@ -1,8 +1,8 @@
 name: Generate AI Tests for External Repo (Granular)
 
 on:
-  # push:
-  #   branches: [prasad,local]
+  push:
+    branches: [prasad,local]
   workflow_dispatch:
     inputs:
       target_repo:
@@ -18,7 +18,7 @@ on:
       force_regeneration:
         description: "Force complete test regeneration"
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write

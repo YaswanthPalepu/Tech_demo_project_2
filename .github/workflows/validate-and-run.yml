@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       target_repo:
-        description: "owner/repo of the codebase to validate"
+        description: "owner/repo to validate"
         required: true
         default: "DeviPrasad372002/django-test-app"
       ref:
-        description: "Branch or SHA to test"
+        description: "Branch or SHA"
         default: "main"
       python_version:
         description: "Python version"
@@ -18,8 +18,8 @@ permissions:
   contents: read
 
 env:
-  SONAR_HOST_URL: "http://localhost:9000"
-  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  SONAR_HOST_URL: "http://localhost:9000"         # local SonarQube on your self-hosted runner
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}         # create in local SonarQube > My Account > Security
 
 jobs:
   validate:
@@ -30,44 +30,56 @@ jobs:
         with:
           repository: ${{ github.event.inputs.target_repo }}
           ref: ${{ github.event.inputs.ref }}
-          token: ${{ secrets.GH_PAT3 }}
+          token: ${{ secrets.MY_GITHUB_TOKEN }}
           path: target
+
+      - name: Show tree
+        run: |
+          ls -la target | sed -n '1,120p'
+          echo "generated tests count:"
+          find target/tests/generated -maxdepth 1 -type f -name 'test_*.py' 2>/dev/null | wc -l
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ github.event.inputs.python_version }}
 
-      - name: Install project deps
+      - name: Create venv and install project deps
         working-directory: target
         run: |
-          python -m pip install -U pip
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install -U pip setuptools wheel
           if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi
-          pip install pytest pytest-cov httpx
+          # test deps
+          pip install pytest pytest-cov
 
       - name: Run generated tests with coverage
         working-directory: target
+        env:
+          PYTHONPATH: ${{ github.workspace }}/target
         run: |
-          pytest tests/generated \
+          . .venv/bin/activate
+          if [ ! -d tests/generated ]; then
+            echo "No generated tests found at tests/generated"; exit 1
+          fi
+          pytest -q tests/generated \
             --cov=. \
-            --cov-report=term-missing:skip-covered \
-            --cov-report=html || true
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing
 
-      
-
-      - name: Upload coverage artifact
+      - name: Upload coverage.xml
         uses: actions/upload-artifact@v4
         with:
           name: coverage-xml
           path: target/coverage.xml
-          if-no-files-found: warn
+          if-no-files-found: error
 
-      - name: SonarQube Scan
-        if: env.SONAR_HOST_URL && env.SONAR_TOKEN
+      - name: SonarQube Scan (local server)
         uses: SonarSource/sonarqube-scan-action@v2.3
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
         with:
           args: >
             -Dsonar.projectKey=${{ github.event.inputs.target_repo }}
@@ -78,6 +90,4 @@ jobs:
             -Dsonar.qualitygate.wait=true
 
       - name: Sonar summary link
-        if: env.SONAR_HOST_URL
-        run: |
-          echo "See dashboard: $SONAR_HOST_URL"
+        run: echo "SONAR_HOST_URL"

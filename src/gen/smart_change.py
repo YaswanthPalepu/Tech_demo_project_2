@@ -192,13 +192,18 @@ def should_generate_tests(target_root: str) -> Tuple[bool, Set[str], Set[str]]:
     """
     target_path = Path(target_root)
     
-    # Check force flag
+    # Check force flag - FIXED: Now handles force generation correctly
     force_flag = os.getenv('TESTGEN_FORCE', '').lower()
+    print(f"TESTGEN_FORCE environment variable: '{force_flag}'")
+    
     if force_flag in ['true', '1', 'yes']:
-        print("Force generation enabled - will regenerate all tests")
+        print("🚀 Force generation enabled - will regenerate all tests")
         # When forcing, we want to generate tests for ALL source files
         all_source_files = _get_source_files(target_path)
         all_files_set = set(all_source_files.keys())
+        print(f"Found {len(all_files_set)} source files for force generation:")
+        for f in sorted(all_files_set):
+            print(f"  - {f}")
         return True, all_files_set, set()  # Return all files as "changed"
     
     # Detect changes
@@ -216,7 +221,25 @@ def prepare_for_generation(target_root: str, changed_files: Set[str], deleted_fi
     if not changed_files and not deleted_files:
         return
     
-    # Load test mapping
+    # For force generation, clean up ALL existing tests
+    force_flag = os.getenv('TESTGEN_FORCE', '').lower()
+    if force_flag in ['true', '1', 'yes']:
+        target_path = Path(target_root)
+        test_dir = target_path / 'tests' / 'generated'
+        if test_dir.exists():
+            print("🧹 Force mode: Cleaning up all existing generated tests")
+            cleaned_count = 0
+            for test_file in test_dir.glob('test_*.py'):
+                try:
+                    test_file.unlink()
+                    cleaned_count += 1
+                    print(f"Deleted: {test_file.name}")
+                except Exception as e:
+                    print(f"Could not delete {test_file.name}: {e}")
+            print(f"Cleaned up {cleaned_count} existing test files")
+        return
+    
+    # Load test mapping for selective cleanup
     _, _, test_mapping = detect_changed_files(target_root)
     
     # Clean up tests for deleted source files

@@ -642,19 +642,22 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     should_generate, changed_files, deleted_files = should_generate_tests(str(target_root))
     
     if not should_generate:
-        print("ℹ️  No changes detected - preserving all existing tests")
+        print("ℹ️ No changes detected - preserving all existing tests")
         return []
     
     # NEW: Clean up tests for changed/deleted files only
     print(f"🧹 Preparing granular generation for {len(changed_files)} changed files...")
     prepare_for_generation(str(target_root), changed_files, deleted_files)
     
-    # Enhanced generation logic (keep your existing logic)
-    force_generation = os.getenv("TESTGEN_FORCE", "false").lower() == "true"
-    coverage_mode = os.getenv("COVERAGE_MODE", "maximum").lower()
+    # FIXED: Check force generation properly
+    force_generation = os.getenv("TESTGEN_FORCE", "false").lower() in ["true", "1", "yes"]
+    coverage_mode = os.getenv("COVERAGE_MODE", "normal").lower()  # Changed default from "maximum" to "normal"
     
-    if force_generation or coverage_mode == "maximum":
-        print("🔄 Maximum coverage mode - regenerating ALL tests for optimal coverage...")
+    # FIXED: Only force if explicitly requested OR if coverage mode is maximum AND force is enabled
+    if force_generation:
+        print("🔥 Force generation enabled - regenerating ALL tests...")
+    elif coverage_mode == "maximum" and len(changed_files) > 0:
+        print(f"🎯 Maximum coverage mode - generating comprehensive tests for {len(changed_files)} changed files...")
     else:
         print(f"🎯 Granular mode - generating tests for {len(changed_files)} changed files...")
     
@@ -667,8 +670,10 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     # Filter and enhance analysis for maximum coverage
     filtered_analysis, no_targets = filter_by_files(analysis, focus_file_set if focus_file_set else None)
     if no_targets:
-        print("⚠️  No targets in focus files, using full analysis for maximum coverage")
+        print("⚠️ No targets in focus files, using full analysis for maximum coverage")
         filtered_analysis = analysis
+    
+    # ... rest of your existing code remains the same ...
     
     # Enhanced processing pipeline (keep existing)
     compact = prune_unavailable_targets(compact_analysis(filtered_analysis))

@@ -190,10 +190,16 @@ def should_generate_tests(target_root: str) -> Tuple[bool, Set[str], Set[str]]:
     Returns:
         (should_generate, changed_files, deleted_files)
     """
+    target_path = Path(target_root)
+    
     # Check force flag
-    if os.getenv('TESTGEN_FORCE', '').lower() == 'true':
+    force_flag = os.getenv('TESTGEN_FORCE', '').lower()
+    if force_flag in ['true', '1', 'yes']:
         print("Force generation enabled - will regenerate all tests")
-        return True, set(), set()
+        # When forcing, we want to generate tests for ALL source files
+        all_source_files = _get_source_files(target_path)
+        all_files_set = set(all_source_files.keys())
+        return True, all_files_set, set()  # Return all files as "changed"
     
     # Detect changes
     changed_files, deleted_files, test_mapping = detect_changed_files(target_root)

@@ -63,7 +63,7 @@ jobs:
         env:
           TARGET_ROOT: ${{ env.TARGET_DIR }}
           PYTHONPATH: ${{ env.TARGET_DIR }}
-          TESTGEN_FORCE: ${{ github.event.inputs.force_regeneration || 'false' }}
+          TESTGEN_FORCE: ${{ inputs.force_regeneration || 'false' }}
           PYTHONUNBUFFERED: "1"
         run: |
           set -e

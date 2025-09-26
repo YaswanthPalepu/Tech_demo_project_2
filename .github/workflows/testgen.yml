@@ -63,12 +63,14 @@ jobs:
         env:
           TARGET_ROOT: ${{ env.TARGET_DIR }}
           PYTHONPATH: ${{ env.TARGET_DIR }}
-          TESTGEN_FORCE: ${{ inputs.force_regeneration || 'false' }}
+          # Fix: Convert boolean to string explicitly
+          TESTGEN_FORCE: ${{ inputs.force_regeneration == true && 'true' || 'false' }}
           PYTHONUNBUFFERED: "1"
         run: |
           set -e
           . .venv/bin/activate
           echo "=== Starting granular test generation ==="
+          echo "Force regeneration: $TESTGEN_FORCE"
           python -u -m src.gen --target "$TARGET_ROOT" --outdir "$TARGET_ROOT/tests/generated"
 
       - name: Show generation results
@@ -100,13 +102,14 @@ jobs:
             exit 0
           fi
           MODE="Granular update"
-          if [ "${{ github.event.inputs.force_regeneration }}" = "true" ]; then
+          # Fix: Use same boolean conversion logic
+          if [ "${{ inputs.force_regeneration == true && 'true' || 'false' }}" = "true" ]; then
             MODE="Force regeneration"
           fi
           git commit -m "chore(tests): AI-generated tests [skip ci]
           Mode: $MODE
           Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-                    git push origin "HEAD:$BRANCH"
+          git push origin "HEAD:$BRANCH"
 
       - name: Summary
         if: always()
@@ -114,5 +117,6 @@ jobs:
           echo "=== Summary ==="
           echo "Repo: ${{ github.event.inputs.target_repo }}"
           echo "Branch: ${{ github.event.inputs.target_branch || 'main' }}"
-          echo "Force mode: ${{ github.event.inputs.force_regeneration || 'false' }}"
+          # Fix: Use same boolean conversion logic
+          echo "Force mode: ${{ inputs.force_regeneration == true && 'true' || 'false' }}"
           echo "Total test files: ${TEST_COUNT:-0}"

@@ -41,7 +41,7 @@ jobs:
           set -e
           rm -rf target
           BRANCH="${{ github.event.inputs.target_branch || 'main' }}"
-          AUTH_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/DeviPrasad372002/backend_code.git"
+          AUTH_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/DeviPrasad372002/django-test-app.git"
           git clone --depth 10 --branch "$BRANCH" "$AUTH_URL" target
           echo "TARGET_DIR=$PWD/target" >> $GITHUB_ENV
           git -C target rev-parse --abbrev-ref HEAD

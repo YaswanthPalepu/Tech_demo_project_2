@@ -8,7 +8,7 @@ on:
       target_repo:
         description: "target repo"
         required: true
-        default: "https://github.com/DeviPrasad372002/backend_code.git"
+        default: "https://github.com/DeviPrasad372002/django-test-app"
       target_branch:
         description: "Branch in the target repo to write to"
         default: "main"

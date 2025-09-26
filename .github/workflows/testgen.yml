@@ -64,7 +64,7 @@ jobs:
           TARGET_ROOT: ${{ env.TARGET_DIR }}
           PYTHONPATH: ${{ env.TARGET_DIR }}
           # Fix: Convert boolean to string explicitly
-          TESTGEN_FORCE: ${{ inputs.force_regeneration == true && 'true' || 'false' }}
+          TESTGEN_FORCE: true
           PYTHONUNBUFFERED: "1"
         run: |
           set -e

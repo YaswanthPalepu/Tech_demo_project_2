@@ -1032,13 +1032,6 @@ ENHANCED COVERAGE EXAMPLES:
             traceback.print_exc()
         return 1
 
-try:
-    update_manifest(output_dir, generated_files, change_summary)
-except KeyError as e:
-    import traceback
-    print(f"KeyError details: {e}")
-    traceback.print_exc()
-    raise
 
 
 if __name__ == "__main__":

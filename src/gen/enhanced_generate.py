@@ -965,7 +965,7 @@ ENHANCED COVERAGE EXAMPLES:
     
     # Set enhanced environment variables
     if args.force:
-        os.environ["TESTGEN_FORCE"] = "true"
+        os.environ["TESTGEN_FORCE"] = "false"
     os.environ["TARGET_ROOT"] = args.target
     os.environ["COVERAGE_MODE"] = args.coverage_mode
     os.environ["COVERAGE_TARGET"] = str(args.coverage_target)
@@ -1031,6 +1031,15 @@ ENHANCED COVERAGE EXAMPLES:
         if os.getenv("TESTGEN_DEBUG", "0").lower() in ("1", "true"):
             traceback.print_exc()
         return 1
+
+try:
+    update_manifest(output_dir, generated_files, change_summary)
+except KeyError as e:
+    import traceback
+    print(f"KeyError details: {e}")
+    traceback.print_exc()
+    raise
+
 
 if __name__ == "__main__":
     exit(main())

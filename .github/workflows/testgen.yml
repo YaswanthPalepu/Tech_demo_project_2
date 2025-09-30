@@ -19,7 +19,7 @@ on:
      force_regeneration:
        description: "Force complete test regeneration"
        type: boolean
-       default: true
+       default: false
 
 
 permissions:

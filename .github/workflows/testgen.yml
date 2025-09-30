@@ -1,122 +1,133 @@
 name: Generate AI Tests for External Repo (Granular)
 
+
 on:
-  # push:
-  #   branches: [prasad,local]
-  workflow_dispatch:
-    inputs:
-      target_repo:
-        description: "target repo"
-        required: true
-        default: "https://github.com/DeviPrasad372002/django-test-app"
-      target_branch:
-        description: "Branch in the target repo to write to"
-        default: "main"
-      python_version:
-        description: "Python version"
-        default: "3.12"
-      force_regeneration:
-        description: "Force complete test regeneration"
-        type: boolean
-        default: true
+ push:
+   branches: [prasad,local]
+ workflow_dispatch:
+   inputs:
+     target_repo:
+       description: "target repo"
+       required: true
+       default: "https://github.com/DeviPrasad372002/flask-test-repo"
+     target_branch:
+       description: "Branch in the target repo to write to"
+       default: "main"
+     python_version:
+       description: "Python version"
+       default: "3.12"
+     force_regeneration:
+       description: "Force complete test regeneration"
+       type: boolean
+       default: true
+
 
 permissions:
-  contents: write
+ contents: write
+
 
 env:
-  GITHUB_TOKEN: ${{ secrets.GH_PAT3 }}
-  AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
-  AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
-  AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+ GITHUB_TOKEN: ${{ secrets.GH_PAT3 }}
+ AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+ AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+ AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+
 
 jobs:
-  generate:
-    runs-on: self-hosted
-    steps:
-      - name: Checkout ai-testgen repo
-        uses: actions/checkout@v4
+ generate:
+   runs-on: self-hosted
+   steps:
+     - name: Checkout ai-testgen repo
+       uses: actions/checkout@v4
 
-      - name: Clone target repo → ./target
-        run: |
-          set -e
-          rm -rf target
-          BRANCH="${{ github.event.inputs.target_branch || 'main' }}"
-          AUTH_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/DeviPrasad372002/django-test-app.git"
-          git clone --depth 10 --branch "$BRANCH" "$AUTH_URL" target
-          echo "TARGET_DIR=$PWD/target" >> $GITHUB_ENV
-          git -C target rev-parse --abbrev-ref HEAD
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ github.event.inputs.python_version }}
+     - name: Clone target repo → ./target
+       run: |
+         set -e
+         rm -rf target
+         BRANCH="${{ github.event.inputs.target_branch || 'main' }}"
+         AUTH_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/DeviPrasad372002/flask-test-repo.git"
+         git clone --depth 10 --branch "$BRANCH" "$AUTH_URL" target
+         echo "TARGET_DIR=$PWD/target" >> $GITHUB_ENV
+         git -C target rev-parse --abbrev-ref HEAD
 
-      - name: Install deps
-        run: |
-          set -e
-          python3 -m venv .venv
-          . .venv/bin/activate
-          pip install -U pip setuptools wheel pytest pytest-cov
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run analyzer + generator (granular)
-        env:
-          TARGET_ROOT: ${{ env.TARGET_DIR }}
-          PYTHONPATH: ${{ env.TARGET_DIR }}
-          # Fix: Convert boolean to string explicitly
-          TESTGEN_FORCE: true
-          PYTHONUNBUFFERED: "1"
-        run: |
-          set -e
-          . .venv/bin/activate
-          echo "=== Starting granular test generation ==="
-          echo "Force regeneration: $TESTGEN_FORCE"
-          python -u -m src.gen --target "$TARGET_ROOT" --outdir "$TARGET_ROOT/tests/generated"
+     - name: Setup Python
+       uses: actions/setup-python@v5
+       with:
+         python-version: ${{ github.event.inputs.python_version }}
 
-      - name: Show generation results
-        run: |
-          echo "=== Generated tests ==="
-          if [ -d "$TARGET_DIR/tests/generated" ]; then
-            TEST_COUNT=$(find "$TARGET_DIR/tests/generated" -name 'test_*.py' -type f | wc -l)
-            echo "Total test files: $TEST_COUNT"
-            echo "TEST_COUNT=$TEST_COUNT" >> $GITHUB_ENV
-            find "$TARGET_DIR/tests/generated" -name 'test_*.py' -type f | head -10
-          else
-            echo "No tests generated"
-            echo "TEST_COUNT=0" >> $GITHUB_ENV
-          fi
 
-      - name: Commit changes to target repo
-        working-directory: target
-        env:
-          BRANCH: ${{ github.event.inputs.target_branch || 'main' }}
-          GIT_AUTHOR_NAME: ai-testgen-bot
-          GIT_AUTHOR_EMAIL: actions@users.noreply.github.com
-        run: |
-          set -e
-          git config user.name "$GIT_AUTHOR_NAME"
-          git config user.email "$GIT_AUTHOR_EMAIL"
-          git add tests/generated || true
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
-          MODE="Granular update"
-          # Fix: Use same boolean conversion logic
-          if [ "${{ inputs.force_regeneration == true && 'true' || 'false' }}" = "true" ]; then
-            MODE="Force regeneration"
-          fi
-          git commit -m "chore(tests): AI-generated tests [skip ci]
-          Mode: $MODE
-          Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          git push origin "HEAD:$BRANCH"
+     - name: Install deps
+       run: |
+         set -e
+         python3 -m venv .venv
+         . .venv/bin/activate
+         pip install -U pip setuptools wheel pytest pytest-cov
+         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Summary
-        if: always()
-        run: |
-          echo "=== Summary ==="
-          echo "Repo: ${{ github.event.inputs.target_repo }}"
-          echo "Branch: ${{ github.event.inputs.target_branch || 'main' }}"
-          # Fix: Use same boolean conversion logic
-          echo "Force mode: ${{ inputs.force_regeneration == true && 'true' || 'false' }}"
-          echo "Total test files: ${TEST_COUNT:-0}"
+
+     - name: Run analyzer + generator (granular)
+       env:
+         TARGET_ROOT: ${{ env.TARGET_DIR }}
+         PYTHONPATH: ${{ env.TARGET_DIR }}
+         # Fix: Convert boolean to string explicitly
+         TESTGEN_FORCE: true
+         PYTHONUNBUFFERED: "1"
+       run: |
+         set -e
+         . .venv/bin/activate
+         echo "=== Starting granular test generation ==="
+         echo "Force regeneration: $TESTGEN_FORCE"
+         python -u -m src.gen --target "$TARGET_ROOT" --outdir "$TARGET_ROOT/tests/generated"
+
+
+     - name: Show generation results
+       run: |
+         echo "=== Generated tests ==="
+         if [ -d "$TARGET_DIR/tests/generated" ]; then
+           TEST_COUNT=$(find "$TARGET_DIR/tests/generated" -name 'test_*.py' -type f | wc -l)
+           echo "Total test files: $TEST_COUNT"
+           echo "TEST_COUNT=$TEST_COUNT" >> $GITHUB_ENV
+           find "$TARGET_DIR/tests/generated" -name 'test_*.py' -type f | head -10
+         else
+           echo "No tests generated"
+           echo "TEST_COUNT=0" >> $GITHUB_ENV
+         fi
+
+
+     - name: Commit changes to target repo
+       working-directory: target
+       env:
+         BRANCH: ${{ github.event.inputs.target_branch || 'main' }}
+         GIT_AUTHOR_NAME: ai-testgen-bot
+         GIT_AUTHOR_EMAIL: actions@users.noreply.github.com
+       run: |
+         set -e
+         git config user.name "$GIT_AUTHOR_NAME"
+         git config user.email "$GIT_AUTHOR_EMAIL"
+         git add tests/generated || true
+         if git diff --cached --quiet; then
+           echo "No changes to commit"
+           exit 0
+         fi
+         MODE="Granular update"
+         # Fix: Use same boolean conversion logic
+         if [ "${{ inputs.force_regeneration == true && 'true' || 'false' }}" = "true" ]; then
+           MODE="Force regeneration"
+         fi
+         git commit -m "chore(tests): AI-generated tests [skip ci]
+         Mode: $MODE
+         Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+         git push origin "HEAD:$BRANCH"
+
+
+     - name: Summary
+       if: always()
+       run: |
+         echo "=== Summary ==="
+         echo "Repo: ${{ github.event.inputs.target_repo }}"
+         echo "Branch: ${{ github.event.inputs.target_branch || 'main' }}"
+         # Fix: Use same boolean conversion logic
+         echo "Force mode: ${{ inputs.force_regeneration == true && 'true' || 'false' }}"
+         echo "Total test files: ${TEST_COUNT:-0}"

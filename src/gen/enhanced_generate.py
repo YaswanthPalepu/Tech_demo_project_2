@@ -1,5 +1,4 @@
 # src/gen/enhanced_generate.py - Drop-in replacement for generate.py
-
 import argparse
 import ast
 import datetime

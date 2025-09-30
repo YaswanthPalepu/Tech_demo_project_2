@@ -800,14 +800,15 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     
     # Update manifest with enhanced results (keep existing)
 # Update manifest with enhanced results (keep existing)
-    change_summary = {
-        "added_or_modified": len(changed_files),
-        "deleted": len(deleted_files),
-        "unchanged": 0,  # We don't track unchanged in granular mode
-        "total_analyzed": len(changed_files) + len(deleted_files),
-        "granular_mode": True
-    }
-    update_manifest(output_dir, generated_files, change_summary)
+        change_summary = {
+            "added_or_modified": len(changed_files),
+            "deleted": len(deleted_files),
+            "unchanged": 0,  
+            "total_analyzed": len(changed_files) + len(deleted_files),
+            "granular_mode": True,
+            "file_count": len(generated_files)
+        }
+        update_manifest(output_dir, generated_files, change_summary)
 
     
     # Enhanced summary with coverage expectations (keep existing)

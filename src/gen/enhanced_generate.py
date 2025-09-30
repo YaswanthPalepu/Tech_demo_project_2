@@ -805,7 +805,6 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
             "unchanged": 0,  
             "total_analyzed": len(changed_files) + len(deleted_files),
             "granular_mode": True,
-            "file_count": len(generated_files)
         }
     update_manifest(output_dir, generated_files, change_summary)
 

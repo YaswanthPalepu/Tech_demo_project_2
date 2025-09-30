@@ -72,7 +72,7 @@ jobs:
          TARGET_ROOT: ${{ env.TARGET_DIR }}
          PYTHONPATH: ${{ env.TARGET_DIR }}
          # Fix: Convert boolean to string explicitly
-         TESTGEN_FORCE: true
+         TESTGEN_FORCE: false
          PYTHONUNBUFFERED: "1"
        run: |
          set -e

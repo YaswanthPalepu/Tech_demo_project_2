@@ -808,7 +808,7 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
             "granular_mode": True,
             "file_count": len(generated_files)
         }
-        update_manifest(output_dir, generated_files, change_summary)
+    update_manifest(output_dir, generated_files, change_summary)
 
     
     # Enhanced summary with coverage expectations (keep existing)

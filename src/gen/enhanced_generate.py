@@ -799,6 +799,7 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
         finalize_generation(str(target_root), changed_files, generated_files)
     
     # Update manifest with enhanced results (keep existing)
+# Update manifest with enhanced results (keep existing)
     change_summary = {
         "added_or_modified": len(changed_files),
         "deleted": len(deleted_files),
@@ -807,22 +808,22 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
         "granular_mode": True
     }
     update_manifest(output_dir, generated_files, change_summary)
+
     
     # Enhanced summary with coverage expectations (keep existing)
     if generated_files:
-        print(f"\n🎉 ENHANCED TEST GENERATION COMPLETE!")
-        print(f"📊 Coverage Statistics:")
-        print(f"   📁 Generated Files: {len(generated_files)}")
-        print(f"   🧪 Total Test Methods: {total_test_methods}")
-        print(f"   🎯 Coverage Targets: {total_targets}")
-        print(f"   📈 Expected Coverage Increase: 45-75% (from current 15%)")
-        print(f"   🏆 Target Final Coverage: 60-90%")
-        
-        # NEW: Show granular generation info
-        if not force_generation:
-            print(f"   🎯 Granular Mode: Generated tests for {len(changed_files)} changed files")
-            print(f"   🛡️  Preserved: Tests for unchanged files remain intact")
-        
+    print(f"\n🎉 ENHANCED TEST GENERATION COMPLETE!")
+    print(f"📊 Coverage Statistics:")
+    print(f"   📝 Generated Files: {len(generated_files)}")
+    print(f"   🧪 Total Test Methods: {total_test_methods}")
+    print(f"   🎯 Coverage Targets: {total_targets}")
+    print(f"   📈 Expected Coverage Increase: 45-75% (from current 15%)")
+    print(f"   🏆 Target Final Coverage: 60-90%")
+    
+    # NEW: Show granular generation info
+    if not force_generation:
+        print(f"   🎯 Granular Mode: Generated tests for {len(changed_files)} changed files")
+        print(f"   🛡️ Preserved: Tests for unchanged files remain intact")
         print(f"\n📋 Generated Test Files:")
         for file_path in generated_files:
             file_name = pathlib.Path(file_path).name

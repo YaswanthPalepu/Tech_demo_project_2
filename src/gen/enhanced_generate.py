@@ -812,14 +812,14 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     
     # Enhanced summary with coverage expectations (keep existing)
     if generated_files:
-    print(f"\n🎉 ENHANCED TEST GENERATION COMPLETE!")
-    print(f"📊 Coverage Statistics:")
-    print(f"   📝 Generated Files: {len(generated_files)}")
-    print(f"   🧪 Total Test Methods: {total_test_methods}")
-    print(f"   🎯 Coverage Targets: {total_targets}")
-    print(f"   📈 Expected Coverage Increase: 45-75% (from current 15%)")
-    print(f"   🏆 Target Final Coverage: 60-90%")
-    
+        print(f"\n🎉 ENHANCED TEST GENERATION COMPLETE!")
+        print(f"📊 Coverage Statistics:")
+        print(f"   📝 Generated Files: {len(generated_files)}")
+        print(f"   🧪 Total Test Methods: {total_test_methods}")
+        print(f"   🎯 Coverage Targets: {total_targets}")
+        print(f"   📈 Expected Coverage Increase: 45-75% (from current 15%)")
+        print(f"   🏆 Target Final Coverage: 60-90%")
+        
     # NEW: Show granular generation info
     if not force_generation:
         print(f"   🎯 Granular Mode: Generated tests for {len(changed_files)} changed files")

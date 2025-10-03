@@ -1,10 +1,11 @@
-# src/gen/conftest_text.py
+# src/gen/conftest_text.py - COMPLETE drop-in replacement
 
 def conftest_text() -> str:
-    """Repo-agnostic conftest.py to stabilize AI-generated tests without touching project code."""
+    """Repo-agnostic conftest that PRIORITIZES REAL IMPORTS for actual coverage."""
     return '''"""
-Professional, repo-agnostic pytest configuration for AI-generated tests.
-Enhanced for maximum framework compatibility and test stability.
+Professional pytest configuration for AI-generated tests.
+CRITICAL CHANGE: Uses REAL imports first, stubs ONLY as absolute last resort.
+This ensures tests execute actual code for real coverage metrics.
 """
 
 import os
@@ -36,128 +37,100 @@ def _deterministic_setup():
     random.seed(42)
     yield
 
-# ---------------- Stub AI-generated base classes ----------------
-for _cls in ("EnhancedRenderer",):
-    if _cls not in globals():
-        globals()[_cls] = type(_cls, (object,), {})
+# ---------------- CRITICAL: Minimal stub system (last resort only) ----------------
+# REMOVED aggressive import override that created fake modules
+# Tests will now fail if imports don't work, forcing real imports
 
-# ---------------- Safe import override for test modules ----------------
-_original_import = builtins.__import__
-_DENY_TOPS = {
-    "requests", "urllib3", "ssl", "json", "simplejson",
-    "django", "fastapi", "flask", "pydantic", "sqlalchemy",
-}
+# Only create minimal stub classes for framework compatibility
+class EnhancedRenderer:
+    """Minimal stub only if real renderer not available."""
+    def render(self, data, *args, **kwargs):
+        if isinstance(data, (dict, list)):
+            import json
+            return json.dumps(data).encode('utf-8')
+        return str(data).encode('utf-8')
 
-def _top(name: str) -> str:
-    return name.split(".", 1)[0]
-
-def _ensure_module(name: str):
-    parts = name.split(".")
-    acc = []
-    for part in parts:
-        acc.append(part)
-        mod_name = ".".join(acc)
-        if mod_name not in sys.modules:
-            sys.modules[mod_name] = types.ModuleType(mod_name)
-    return sys.modules[name]
-
-def _is_test_caller(globals_):
-    nm = globals_.get("__name__", "") if isinstance(globals_, dict) else ""
-    return nm.startswith("test") or ".tests." in nm
-
-def _import_override(name, globals=None, locals=None, fromlist=(), level=0):
-    try:
-        return _original_import(name, globals, locals, fromlist, level)
-    except Exception:
-        if not _is_test_caller(globals or {}):
-            raise
-        top = _top(name)
-        if top in _DENY_TOPS:
-            raise
-        return _ensure_module(name)
-
-builtins.__import__ = _import_override
-
-# ---------------- Application context & client fixtures ----------------
-
-# Try Flask factory
-create_app = None
+# Try to import real app components first
 try:
-    from flask import Flask
-    from conduit.app import create_app as _flask_factory
-    create_app = _flask_factory
-except Exception:
-    pass
+    from conduit.app import create_app as _real_create_app
+    create_app = _real_create_app
+except ImportError:
+    try:
+        from flask import Flask
+        def create_app():
+            app = Flask(__name__)
+            app.config['TESTING'] = True
+            return app
+    except ImportError:
+        create_app = None
 
-# Try Django test setup
+# Try Django setup
 django_setup = False
 try:
     import django
     from django.conf import settings as _dj_settings
     from django.test.utils import setup_test_environment, teardown_test_environment
+    
+    if not _dj_settings.configured:
+        _dj_settings.configure(
+            DEBUG=True,
+            TESTING=True,
+            SECRET_KEY='test-secret-for-coverage',
+            DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
+            INSTALLED_APPS=[
+                'django.contrib.auth',
+                'django.contrib.contenttypes',
+                'django.contrib.sessions',
+            ],
+            MIDDLEWARE=[],
+        )
+        django.setup()
     django_setup = True
-except Exception:
+except ImportError:
     pass
 
 @pytest.fixture(scope="session")
 def app():
-    """
-    Provide an application instance with context for Flask or Django.
-    Skip if no known framework found.
-    """
-    # Flask
+    """Application fixture - REAL app first, stub only if unavailable."""
     if create_app:
         application = create_app()
-        ctx = application.app_context()
-        ctx.push()
-        yield application
-        ctx.pop()
+        if hasattr(application, 'app_context'):
+            ctx = application.app_context()
+            ctx.push()
+            yield application
+            ctx.pop()
+        else:
+            yield application
         return
-
-    # Django
+    
     if django_setup:
         setup_test_environment()
-        if not _dj_settings.configured:
-            _dj_settings.configure(
-                DEBUG=True,
-                INSTALLED_APPS=[],
-                DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}
-            )
-        django.setup()
         yield None
         teardown_test_environment()
         return
-
-    pytest.skip("No supported web framework (Flask/Django) detected for app fixture")
+    
+    pytest.skip("No app framework detected")
 
 @pytest.fixture
 def client(app):
-    """
-    Provide test client: Flask test_client or Django client.
-    Skip if unavailable.
-    """
-    # Flask
+    """Test client - REAL client first."""
     try:
-        return app.test_client()
+        if hasattr(app, 'test_client'):
+            return app.test_client()
     except Exception:
         pass
-
-    # Django
+    
     try:
         from django.test import Client as _DjangoClient
         return _DjangoClient()
     except Exception:
         pass
-
+    
     pytest.skip("No test client available")
 
-# ---------------- Stub common hooks if missing ----------------
-for fn in ("register_blueprints", "init_app", "setup", "register_commands"):
-    if create_app and not hasattr(create_app, fn):
-        setattr(create_app, fn, lambda *a, **kw: None)
-
-# ---------------- Generic helper fixtures ----------------
+# ---------------- Helper fixtures for coverage ----------------
 def _permissive_stub(**kwargs):
+    """Minimal stub creator - use sparingly."""
     obj = types.SimpleNamespace()
     for k, v in kwargs.items():
         setattr(obj, k, v)
@@ -165,9 +138,7 @@ def _permissive_stub(**kwargs):
 
 @pytest.fixture
 def clean_environment(monkeypatch):
-    """
-    Reset environment variables for each test.
-    """
+    """Reset environment for each test."""
     for var in ("DATABASE_URL", "REDIS_URL", "API_KEY", "SECRET_KEY"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("TESTING", "true")
@@ -175,9 +146,7 @@ def clean_environment(monkeypatch):
 
 @pytest.fixture
 def mock_file_operations():
-    """
-    Mock file operations for deterministic testing.
-    """
+    """Mock file I/O for deterministic tests."""
     with patch("pathlib.Path.exists", return_value=True), \
          patch("pathlib.Path.read_text", return_value="mock"), \
          patch("pathlib.Path.write_text"), \
@@ -186,17 +155,20 @@ def mock_file_operations():
         yield
 
 @pytest.fixture
-def mock_request():
-    """
-    Provide a generic stubbed request with minimal properties.
-    """
-    req = _permissive_stub(data={}, headers={}, user=_permissive_stub())
-    return req
+def sample_data():
+    """Generic sample data."""
+    return {
+        "foo": "bar",
+        "num": 123,
+        "none": None,
+        "username": "testuser",
+        "email": "test@example.com",
+        "password": "testpass123",
+    }
 
 @pytest.fixture
-def sample_data():
-    """
-    Generic sample data fixture.
-    """
-    return {"foo": "bar", "num": 123, "none": None}
+def mock_request():
+    """Generic request stub - use real requests when possible."""
+    req = _permissive_stub(data={}, headers={}, user=_permissive_stub())
+    return req
 '''

@@ -63,7 +63,7 @@ E2E_ENHANCED = (
 "- Test rate limiting and security features\n"
 )
 
-MAX_TEST_FILES = {"unit": 4, "integ": 4, "e2e": 2}  # Increased for better coverage
+MAX_TEST_FILES = {"unit": 4, "integ": 4, "e2e": 2}  
 
 # Enhanced scaffold with comprehensive testing utilities
 ENHANCED_SCAFFOLD = '''
@@ -417,18 +417,20 @@ def targets_count(compact: Dict[str, Any], kind: str) -> int:
     return max(len(functions) + len(classes), len(routes))
 
 def files_per_kind(compact: Dict[str, Any], kind: str) -> int:
+    """Distribute ALL targets across appropriate number of files."""
+    
     total_targets = targets_count(compact, kind)
     if total_targets == 0:
         return 0
     
-    max_files = MAX_TEST_FILES[kind]
+    targets_per_file = 50
     
-    # More aggressive file distribution for better coverage
     if kind == "unit":
-        return min(max_files, max(2, (total_targets + 3) // 4))  # More unit test files
-    if kind == "e2e":
-        return min(max_files, max(1, (total_targets + 2) // 3))
-    return min(max_files, max(2, (total_targets + 4) // 5))
+        return max(1, (total_targets + targets_per_file - 1) // targets_per_file)
+    elif kind == "e2e":
+        return max(1, (total_targets + 19) // 20)
+    else:
+        return max(1, (total_targets + 29) // 30)
 
 def create_strategic_groups(targets: List[Dict[str, Any]], num_groups: int) -> List[List[Dict[str, Any]]]:
     if not targets or num_groups <= 0:
@@ -437,7 +439,6 @@ def create_strategic_groups(targets: List[Dict[str, Any]], num_groups: int) -> L
     if len(targets) <= num_groups:
         return [[t] for t in targets]
     
-    # Enhanced grouping by file and functionality
     file_groups = {}
     for target in targets:
         file_path = target.get("file", "unknown")
@@ -448,7 +449,6 @@ def create_strategic_groups(targets: List[Dict[str, Any]], num_groups: int) -> L
     groups = [[] for _ in range(num_groups)]
     group_index = 0
     
-    # Distribute file groups across test files for better organization
     for file_targets in file_groups.values():
         for target in file_targets:
             groups[group_index].append(target)
@@ -490,10 +490,9 @@ def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, tot
     }
     dev_instructions = test_instructions.get(kind, UNIT_ENHANCED)
     
-    max_ctx = 60000  # Increased context size
+    max_ctx = 60000  
     trimmed_context = context[:max_ctx] if context else ""
     
-    # Enhanced coverage-focused prompt
     user_content = f"""
 MAXIMUM COVERAGE {kind.upper()} TEST GENERATION - FILE {shard + 1}/{total}
 

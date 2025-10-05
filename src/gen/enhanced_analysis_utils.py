@@ -1,9 +1,6 @@
-# src/gen/enhanced_analysis_utils.py - COMPLETE drop-in replacement
-# KEEPS ALL your original logic + adds coverage improvements
-
+# src/gen/enhanced_analysis_utils.py - ULTIMATE VERSION - NO PRIORITY SCORES
 import importlib.util
 import json
-import math
 import os
 import pathlib
 import random
@@ -14,58 +11,44 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .env import norm_rel
 
-# KEPT: All your original package aliases
 COMMON_PKG_ALIASES = {
     "bs4": "beautifulsoup4", "yaml": "PyYAML", "cv2": "opencv-python",
     "sklearn": "scikit-learn", "PIL": "Pillow", "Crypto": "pycryptodome",
-    "MySQLdb": "mysqlclient", "mysql": "mysqlclient",
-    "psycopg2": "psycopg2-binary", "pymongo": "pymongo",
-    "boto3": "boto3", "httpx": "httpx", "requests": "requests",
+    "MySQLdb": "mysqlclient", "mysql": "mysqlclient", "mysqlconnector": "mysql-connector-python",
+    "psycopg2": "psycopg2-binary", "pymongo": "pymongo", "redis": "redis",
+    "boto3": "boto3", "botocore": "botocore", "httpx": "httpx", "requests": "requests",
     "uvicorn": "uvicorn", "fastapi": "fastapi", "starlette": "starlette",
     "pydantic": "pydantic", "typing_extensions": "typing-extensions",
     "annotated_types": "annotated-types", "sqlalchemy": "SQLAlchemy",
     "flask": "flask", "django": "Django", "werkzeug": "werkzeug",
     "click": "click", "typer": "typer", "jinja2": "Jinja2",
-    "ujson": "ujson", "orjson": "orjson", "redis": "redis",
+    "ujson": "ujson", "orjson": "orjson", 
     "pytest": "pytest", "jwt": "PyJWT", "markupsafe": "MarkupSafe",
-    "rest_framework": "djangorestframework",
-    "django_filters": "django-filter",
+    "rest_framework": "djangorestframework", "drf": "djangorestframework",
+    "django_filters": "django-filter", "djangofilters": "django-filter",
     "rest_framework_simplejwt": "djangorestframework-simplejwt",
-    "drf_yasg": "drf-yasg", "channels": "channels",
-    "environs": "environs", "dotenv": "python-dotenv",
+    "drf_yasg": "drf-yasg", "channels": "channels", "celery": "celery",
+    "environs": "environs", "dotenv": "python-dotenv", "env": "python-dotenv",
     "pydotenv": "python-dotenv", "decouple": "python-decouple",
     "pandas": "pandas", "numpy": "numpy", "scipy": "scipy",
-    "matplotlib": "matplotlib", "seaborn": "seaborn",
+    "matplotlib": "matplotlib", "seaborn": "seaborn", "plotly": "plotly",
     "aiohttp": "aiohttp", "aiofiles": "aiofiles", "asyncpg": "asyncpg",
-    "marshmallow": "marshmallow", "cerberus": "cerberus",
+    "marshmallow": "marshmallow", "cerberus": "cerberus", "pydantic": "pydantic",
+    "alembic": "alembic", "gunicorn": "gunicorn", "uvloop": "uvloop",
+    "websockets": "websockets", "graphql": "graphene", "graphene": "graphene",
 }
 
-# KEPT: All your deny lists
+# REDUCED deny lists - only truly generic names
 DENY_GENERIC = {
-    "models", "views", "urls", "settings", "config", "tests", "schemas",
-    "forms", "admin", "migrations", "apps", "serializers", "permissions",
-    "filters", "routers", "services", "repository", "helpers", "utils",
-    "compat", "extensions", "renderers", "relations", "handlers", "middleware",
-    "exceptions", "constants", "enums", "validators", "decorators"
+    "tests", "migrations", "__pycache__"
 }
 
 DENY_TOPS = set(DENY_GENERIC) | {
     "__future__", "__main__", "builtins", "typing", "types", "dataclasses",
-    "importlib", "asyncio", "json", "re", "os", "sys", "pathlib", "logging",
-    "argparse", "functools", "itertools", "collections", "subprocess",
-    "datetime", "time", "math", "decimal", "fractions", "statistics",
-    "sqlite3", "http", "urllib", "hmac", "hashlib", "base64", "csv",
-    "glob", "shutil", "tempfile", "inspect", "traceback", "enum",
-    "textwrap", "pprint", "string", "threading", "multiprocessing",
-    "concurrent", "queue", "socket", "ssl", "email", "mimetypes",
-    "uuid", "pickle", "copy", "weakref", "gc", "operator", "keyword",
-    "heapq", "bisect", "array", "struct", "codecs", "unicodedata",
-    "locale", "calendar", "random", "secrets"
 }
 
-# KEPT: Your original _is_stdlib function
 def _is_stdlib(top: str) -> bool:
-    """Check if a module is part of Python standard library."""
+    """Check if a module is part of Python standard library - EXPANDED."""
     if hasattr(sys, "stdlib_module_names"):
         return top in sys.stdlib_module_names
     
@@ -81,98 +64,106 @@ def _is_stdlib(top: str) -> bool:
         "keyword", "heapq", "bisect", "array", "struct", "codecs",
         "unicodedata", "locale", "calendar", "secrets", "uuid",
         "mimetypes", "socket", "ssl", "concurrent", "queue",
-        "multiprocessing", "gc"
+        "multiprocessing", "gc", "contextlib", "abc", "io",
+        "selectors", "signal", "threading", "multiprocessing",
     }
     return top in stdlib_modules
 
-# KEPT: Your original _is_local function
 def _is_local(top: str) -> bool:
-    """Check if a module appears to be local to the project."""
+    """Check if a module appears to be local to the project - ENHANCED detection."""
     target_root = os.environ.get("TARGET_ROOT")
     if target_root:
         target_path = pathlib.Path(target_root)
-        if (target_path / f"{top}.py").exists() or (target_path / top).is_dir():
+        
+        # Check for direct Python file
+        if (target_path / f"{top}.py").exists():
             return True
+        
+        # Check for package directory
+        if (target_path / top).is_dir():
+            init_file = target_path / top / "__init__.py"
+            if init_file.exists():
+                return True
+        
+        # Check for nested modules
+        if "." in top:
+            module_path = target_path / top.replace(".", "/")
+            if module_path.exists():
+                return True
+            if (module_path.parent / f"{module_path.name}.py").exists():
+                return True
     
-    project_roots = [".", "src", "backend", "app", "target", "lib"]
+    # Check common project structures
+    project_roots = [".", "src", "backend", "app", "target", "lib", "project"]
     for root in project_roots:
         root_path = pathlib.Path(root)
         if not root_path.exists():
             continue
         
+        # Check for Python file
         if (root_path / f"{top}.py").exists():
             return True
         
+        # Check for package
         if (root_path / top).is_dir():
             if (root_path / top / "__init__.py").exists():
                 return True
     
-    if pathlib.Path(top).exists() or pathlib.Path(top.replace(".", "/")).exists():
+    # Check if path exists directly
+    if pathlib.Path(top).exists():
         return True
+    
+    # Check for dotted path
+    if "." in top:
+        dotted_path = top.replace(".", "/")
+        if pathlib.Path(dotted_path).exists():
+            return True
+        if pathlib.Path(f"{dotted_path}.py").exists():
+            return True
     
     return False
 
-# KEPT: Your original dedupe_keep function
-def dedupe_keep(items: List[Dict[str, str]], key: str, limit: int) -> List[Dict[str, str]]:
-    """Deduplicate items by key and keep essential information."""
-    seen = set()
-    result = []
-    
-    for item in items or []:
-        identifier = item.get(key)
-        if not identifier or identifier in seen:
-            continue
-        
-        seen.add(identifier)
-        
-        filtered_item = {}
-        essential_fields = ["name", "file", "handler", "method", "path", "lineno", "end_lineno", "class"]
-        for field in essential_fields:
-            if field in item:
-                filtered_item[field] = item[field]
-        
-        result.append(filtered_item)
-        if len(result) >= limit:
-            break
-    
-    return result
-
-# IMPROVED: Your compact_analysis with HIGHER limits for coverage
 def compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
-    """Create analysis with NO LIMITS - include ALL targets for maximum coverage."""
+    """Create analysis with ALL targets - NO LIMITS, NO PRIORITY SCORES."""
     
-    # REMOVED: All limit calculations
-    # CHANGED: No limits, no sorting by priority, include everything
-    
+    # Get ALL targets without any filtering
     functions = analysis.get("functions", [])
     classes = analysis.get("classes", [])
     methods = analysis.get("methods", [])
     routes = analysis.get("routes", [])
+    nested_functions = analysis.get("nested_functions", [])
+    fastapi_routes = analysis.get("fastapi_routes", [])
     
-    # Sort by file and line number ONLY (for logical organization)
-    functions = sorted(functions, key=lambda x: (x.get("file", ""), x.get("lineno", 0)))
+    # Include nested functions in functions list for testing
+    all_functions = functions + nested_functions
+    all_routes = routes + fastapi_routes
+    
+    # Sort by file and line number for logical organization
+    all_functions = sorted(all_functions, key=lambda x: (x.get("file", ""), x.get("lineno", 0)))
     classes = sorted(classes, key=lambda x: (x.get("file", ""), x.get("lineno", 0)))
     methods = sorted(methods, key=lambda x: (x.get("file", ""), x.get("lineno", 0)))
-    routes = sorted(routes, key=lambda x: (x.get("file", ""), x.get("lineno", 0)))
+    all_routes = sorted(all_routes, key=lambda x: (x.get("file", ""), x.get("lineno", 0)))
     
-    print(f"Including ALL targets without limits:")
-    print(f"  Functions: {len(functions)}")
-    print(f"  Classes: {len(classes)}")
-    print(f"  Methods: {len(methods)}")
-    print(f"  Routes: {len(routes)}")
+    print(f"🎯 INCLUDING ALL TARGETS WITHOUT LIMITS:")
+    print(f"   📊 Functions: {len(all_functions)} (including {len(nested_functions)} nested)")
+    print(f"   🏗️  Classes: {len(classes)}")
+    print(f"   🔧 Methods: {len(methods)}")
+    print(f"   🌐 Routes: {len(all_routes)}")
+    print(f"   ⚡ FastAPI Routes: {len(fastapi_routes)}")
+    print(f"   📈 Total testable targets: {len(all_functions) + len(classes) + len(methods) + len(all_routes)}")
     
     return {
-        "functions": functions,  # ALL functions, no dedupe_keep
-        "classes": classes,      # ALL classes
-        "methods": methods,       # ALL methods
-        "routes": routes,         # ALL routes
+        "functions": all_functions,  # ALL functions including nested
+        "classes": classes,          # ALL classes
+        "methods": methods,          # ALL methods
+        "routes": all_routes,        # ALL routes
         "modules": sorted(set(analysis.get("modules", []))),
         "django_patterns": analysis.get("django_patterns", {}),
+        "imports": analysis.get("imports", []),  # Include import analysis
     }
 
-# KEPT: Your original filter_by_files function
 def filter_by_files(analysis: Dict[str, Any], focus_files: Optional[Set[str]]) -> Tuple[Dict[str, Any], bool]:
-    """Filter analysis to focus on specific files."""
+    """Filter analysis to focus on specific files - ENHANCED with import tracking."""
     if not focus_files:
         return analysis, False
     
@@ -186,25 +177,31 @@ def filter_by_files(analysis: Dict[str, Any], focus_files: Optional[Set[str]]) -
                 file_basename in focus_basenames or
                 any(focus in file_path for focus in focus_normalized))
     
+    # Also track imports from focus files
+    focus_imports = []
+    for imp in analysis.get("imports", []):
+        if should_keep(imp):
+            focus_imports.append(imp)
+    
     filtered = {
         "functions": [item for item in analysis.get("functions", []) if should_keep(item)],
         "classes": [item for item in analysis.get("classes", []) if should_keep(item)],
-        "methods": [item for item in analysis.get("methods", []) if should_keep(item)],  # NEW
+        "methods": [item for item in analysis.get("methods", []) if should_keep(item)],
         "routes": [item for item in analysis.get("routes", []) if should_keep(item)],
         "modules": analysis.get("modules", []),
-        "django_patterns": analysis.get("django_patterns", {}),  # NEW
+        "django_patterns": analysis.get("django_patterns", {}),
+        "imports": focus_imports,
     }
     
     has_targets = any(filtered[key] for key in ["functions", "classes", "methods", "routes"])
     return (filtered, not has_targets)
 
-# KEPT: Your original enhance_coverage_targeting function with your exact patterns
 def enhance_coverage_targeting(compact: Dict[str, Any]) -> Dict[str, Any]:
-    """Keep all targets in natural file order - NO priority scoring."""
-    print("Keeping all targets in file order without priority scoring")
+    """NO PRIORITY SCORING - Return targets as-is for maximum coverage."""
+    print("🎯 Using ALL targets without priority scoring for 100% coverage")
     return compact
 
-# KEPT: Your original HEAVY_DEPENDENCIES dict (exact copy)
+# EXPANDED heavy dependencies list
 HEAVY_DEPENDENCIES = {
     "PyQt5": ("import PyQt5", "from PyQt5"),
     "PyQt6": ("import PyQt6", "from PyQt6"),
@@ -226,17 +223,18 @@ HEAVY_DEPENDENCIES = {
     "pyglet": ("import pyglet", "from pyglet"),
     "mayavi": ("import mayavi", "from mayavi"),
     "vtk": ("import vtk", "from vtk"),
+    "pyspark": ("import pyspark", "from pyspark"),
+    "dask": ("import dask", "from dask"),
+    "jax": ("import jax", "from jax"),
 }
 
-# KEPT: Your original _is_dependency_available function
 def _is_dependency_available(module_name: str) -> bool:
-    """Check if a module is available for import."""
+    """Check if a module is available for import - ENHANCED detection."""
     try:
         return importlib.util.find_spec(module_name) is not None
     except (ImportError, ModuleNotFoundError, ValueError):
         return False
 
-# KEPT: Your original _file_contains_patterns function
 def _file_contains_patterns(file_path: str, patterns: Tuple[str, ...]) -> bool:
     """Check if a file contains any of the specified import patterns."""
     try:
@@ -246,7 +244,6 @@ def _file_contains_patterns(file_path: str, patterns: Tuple[str, ...]) -> bool:
     except (OSError, IOError):
         return False
 
-# KEPT: Your original prune_unavailable_targets function, ADDED methods support
 def prune_unavailable_targets(compact: Dict[str, Any]) -> Dict[str, Any]:
     """Remove targets that depend on unavailable heavy dependencies."""
     if os.getenv("TESTGEN_ENABLE_GUI_SHIMS", "0").lower() in ("1", "true", "yes"):
@@ -265,7 +262,7 @@ def prune_unavailable_targets(compact: Dict[str, Any]) -> Dict[str, Any]:
     if not problematic_files:
         return compact
     
-    print(f"Pruning {len(problematic_files)} files with unavailable dependencies")
+    print(f"⚠️ Pruning {len(problematic_files)} files with unavailable dependencies")
     
     def is_file_usable(item):
         return item.get("file") not in problematic_files
@@ -273,23 +270,35 @@ def prune_unavailable_targets(compact: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "functions": [item for item in compact.get("functions", []) if is_file_usable(item)],
         "classes": [item for item in compact.get("classes", []) if is_file_usable(item)],
-        "methods": [item for item in compact.get("methods", []) if is_file_usable(item)],  # NEW
+        "methods": [item for item in compact.get("methods", []) if is_file_usable(item)],
         "routes": [item for item in compact.get("routes", []) if is_file_usable(item)],
         "modules": compact.get("modules", []),
-        "django_patterns": compact.get("django_patterns", {}),  # NEW
+        "django_patterns": compact.get("django_patterns", {}),
+        "imports": compact.get("imports", []),
     }
 
-# KEPT: Your original infer_required_packages function
 def infer_required_packages(compact: Dict[str, Any]) -> List[str]:
-    """Infer required third-party packages from module analysis."""
+    """Infer required third-party packages from module analysis - ENHANCED detection."""
     modules = compact.get("modules", [])
+    imports = compact.get("imports", [])
     required_packages = set()
     
-    for module_name in modules:
+    # Analyze both modules and individual imports
+    all_imports = set(modules)
+    for imp in imports:
+        if imp.get("type") == "import":
+            all_imports.update(imp.get("modules", []))
+        elif imp.get("type") == "import_from":
+            if imp.get("module"):
+                all_imports.add(imp["module"])
+    
+    for module_name in all_imports:
+        if not module_name or module_name.startswith('_'):
+            continue
+            
         top_module = module_name.split(".")[0].strip()
         
         if (not top_module or
-            top_module.startswith("_") or
             top_module in DENY_TOPS or
             any(char.isupper() for char in top_module)):
             continue
@@ -303,54 +312,66 @@ def infer_required_packages(compact: Dict[str, Any]) -> List[str]:
     packages_list = sorted(required_packages, key=str.lower)
     enhanced_packages = enhance_framework_dependencies(packages_list)
     
+    print(f"📦 Inferred {len(enhanced_packages)} required packages: {', '.join(enhanced_packages)}")
     return enhanced_packages
 
-# KEPT: Your original enhance_framework_dependencies function
 def enhance_framework_dependencies(packages: List[str]) -> List[str]:
-    """Add additional packages needed for specific frameworks."""
+    """Add additional packages needed for specific frameworks - ENHANCED."""
     enhanced = packages.copy()
     packages_lower = {pkg.lower() for pkg in packages}
     
+    # FastAPI ecosystem
     if "fastapi" in packages_lower:
-        fastapi_deps = ["starlette", "pydantic", "uvicorn"]
+        fastapi_deps = ["starlette", "pydantic", "uvicorn", "httpx"]
         for dep in fastapi_deps:
             if dep not in packages_lower:
                 enhanced.append(dep)
     
+    # Django ecosystem
     if "django" in packages_lower:
-        django_deps = ["djangorestframework"]
+        django_deps = ["djangorestframework", "django-filter", "django-cors-headers"]
         for dep in django_deps:
             if dep not in packages_lower and f"django{dep}" not in packages_lower:
                 enhanced.append(dep)
     
+    # SQLAlchemy database drivers
     if "sqlalchemy" in packages_lower:
         db_drivers = []
         if any("postgres" in pkg.lower() or "psycopg" in pkg.lower() for pkg in packages):
             db_drivers.append("psycopg2-binary")
         if any("mysql" in pkg.lower() for pkg in packages):
             db_drivers.append("mysqlclient")
+        if any("sqlite" in pkg.lower() for pkg in packages):
+            pass  # Built-in
         enhanced.extend(db_drivers)
     
+    # Testing ecosystem
     if "pytest" in packages_lower:
         test_deps = ["pytest-asyncio", "pytest-mock", "pytest-django", "pytest-cov"]
         for dep in test_deps:
             if dep not in packages_lower:
                 enhanced.append(dep)
     
+    # Web framework common dependencies
+    if any(fw in packages_lower for fw in ["flask", "fastapi", "django"]):
+        web_deps = ["requests", "httpx"]
+        for dep in web_deps:
+            if dep not in packages_lower:
+                enhanced.append(dep)
+    
     return sorted(set(enhanced), key=str.lower)
 
-# KEPT: Your original pip_install function
 def pip_install(packages: List[str]) -> None:
-    """Install packages with robust error handling and constraints support."""
+    """Install packages with robust error handling - ENHANCED with better reporting."""
     if not packages:
-        print("No third-party packages to install.")
+        print("ℹ️ No third-party packages to install.")
         return
     
     constraints_file = (os.getenv("TESTGEN_PIP_CONSTRAINTS") or
                        os.getenv("PIP_CONSTRAINT") or
                        os.getenv("CONSTRAINTS"))
     
-    print(f"Installing packages (if needed): {', '.join(packages)}")
+    print(f"📦 Installing packages for real code execution: {', '.join(packages)}")
     
     successful_installs = []
     failed_installs = []
@@ -377,59 +398,63 @@ def pip_install(packages: List[str]) -> None:
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.PIPE)
             successful_installs.append(package)
-            print(f" ✓ {package}")
+            print(f"   ✅ {package}")
         except subprocess.CalledProcessError as e:
             error_output = e.stderr.decode() if e.stderr else "Unknown error"
             failed_installs.append((package, error_output))
-            print(f" ✗ {package}: {error_output.split(chr(10))[0]}")
+            print(f"   ❌ {package}: {error_output.split(chr(10))[0]}")
         except Exception as e:
             failed_installs.append((package, str(e)))
-            print(f" ✗ {package}: {e}")
+            print(f"   ❌ {package}: {e}")
     
     if successful_installs:
-        print(f"Successfully installed {len(successful_installs)} packages.")
+        print(f"✅ Successfully installed {len(successful_installs)} packages.")
     if failed_installs:
-        print(f"Failed to install {len(failed_installs)} packages:")
+        print(f"⚠️ Failed to install {len(failed_installs)} packages (tests will use available packages):")
         for package, error in failed_installs:
-            print(f" - {package}: {error[:100]}...")
-        print("Tests will continue with available packages and intelligent mocking.")
+            print(f"   - {package}: {error[:100]}...")
 
-# KEPT: Your original validate_analysis_quality function
 def validate_analysis_quality(analysis: Dict[str, Any]) -> Tuple[bool, str]:
-    """Validate that analysis contains sufficient data for test generation."""
+    """Validate that analysis contains sufficient data for test generation - ENHANCED."""
     functions = analysis.get("functions", [])
     classes = analysis.get("classes", [])
+    methods = analysis.get("methods", [])
     routes = analysis.get("routes", [])
     modules = analysis.get("modules", [])
     
-    total_targets = len(functions) + len(classes) + len(routes)
+    total_targets = len(functions) + len(classes) + len(methods) + len(routes)
     
     if total_targets == 0:
-        return False, "No testable targets found (functions, classes, or routes)"
+        return False, "❌ No testable targets found (functions, classes, methods, or routes)"
     
     if len(modules) == 0:
-        return False, "No modules detected in analysis"
+        return False, "❌ No modules detected in analysis"
     
     files_with_targets = set()
-    for item in functions + classes + routes:
+    for item in functions + classes + methods + routes:
         if item.get("file"):
             files_with_targets.add(item["file"])
     
     if len(files_with_targets) == 0:
-        return False, "No files contain identifiable targets"
+        return False, "❌ No files contain identifiable targets"
     
     warnings = []
-    if total_targets < 5:
-        warnings.append(f"Low target count ({total_targets}) - tests may be limited")
+    if total_targets < 10:
+        warnings.append(f"Low target count ({total_targets}) - ensure comprehensive code analysis")
     
     if len(files_with_targets) == 1:
-        warnings.append("All targets in single file - consider project structure")
+        warnings.append("All targets in single file - verify project structure analysis")
     
-    if len(routes) == 0 and any("fastapi" in str(m).lower() or "flask" in str(m).lower()
-                               for m in modules):
-        warnings.append("Web framework detected but no routes found")
+    # Enhanced framework detection warnings
+    has_web_framework = any(fw in str(modules).lower() for fw in ["flask", "fastapi", "django", "starlette"])
+    if has_web_framework and len(routes) == 0:
+        warnings.append("Web framework detected but no routes found - check route detection")
     
-    status_msg = f"Analysis valid: {total_targets} targets across {len(files_with_targets)} files"
+    has_django = any("django" in str(m).lower() for m in modules)
+    if has_django and len(analysis.get("django_patterns", {}).get("models", [])) == 0:
+        warnings.append("Django detected but no models found - check model detection")
+    
+    status_msg = f"✅ Analysis valid: {total_targets} targets across {len(files_with_targets)} files"
     if warnings:
         status_msg += f". Warnings: {'; '.join(warnings)}"
     

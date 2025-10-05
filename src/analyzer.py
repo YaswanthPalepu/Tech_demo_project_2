@@ -69,13 +69,14 @@ def _extract_route_info(dec) -> Dict[str, Any]:
     return info
 
 def _analyze_class_methods(cls_node: ast.ClassDef, file_path: str) -> List[Dict[str, Any]]:
-    """Extract all methods from a class including properties and special methods."""
+    """Extract ALL methods from a class including private, properties, and special methods."""
     methods = []
     
     for item in cls_node.body:
         if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-            
+        
+        # Include ALL methods (public, private, special)
         method_info = {
             "name": item.name,
             "class": cls_node.name,
@@ -86,7 +87,9 @@ def _analyze_class_methods(cls_node: ast.ClassDef, file_path: str) -> List[Dict[
             "is_property": False,
             "is_classmethod": False,
             "is_staticmethod": False,
+            "is_private": item.name.startswith("_") and not item.name.startswith("__"),
             "is_special": item.name.startswith("__") and item.name.endswith("__"),
+            "args_count": len(item.args.args) if hasattr(item, 'args') else 0,
         }
         
         # Check decorators
@@ -233,23 +236,29 @@ def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
         for pattern_type, items in django_patterns.items():
             out["django_patterns"][pattern_type].extend(items)
         
+        # Track top-level vs nested functions
+        top_level_names = {node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+        
         # Walk AST for all nodes
         for node in ast.walk(tree):
-            # Functions and async functions
+            # Functions and async functions (top-level only to avoid duplicates with methods)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                func_rec = {
-                    "name": node.name,
-                    "file": rel_path,
-                    "lineno": getattr(node, "lineno", 1),
-                    "end_lineno": getattr(node, "end_lineno", getattr(node, "lineno", 1)),
-                    "is_async": isinstance(node, ast.AsyncFunctionDef),
-                }
-                
-                out["functions"].append(func_rec)
-                
-                # Track async functions separately
-                if isinstance(node, ast.AsyncFunctionDef):
-                    out["async_functions"].append(func_rec.copy())
+                # Only add if it's a top-level function
+                if node.name in top_level_names:
+                    func_rec = {
+                        "name": node.name,
+                        "file": rel_path,
+                        "lineno": getattr(node, "lineno", 1),
+                        "end_lineno": getattr(node, "end_lineno", getattr(node, "lineno", 1)),
+                        "is_async": isinstance(node, ast.AsyncFunctionDef),
+                        "args_count": len(node.args.args) if hasattr(node, 'args') else 0,
+                    }
+                    
+                    out["functions"].append(func_rec)
+                    
+                    # Track async functions separately
+                    if isinstance(node, ast.AsyncFunctionDef):
+                        out["async_functions"].append(func_rec.copy())
                 
                 # Check for route decorators
                 for d in getattr(node, "decorator_list", []):
@@ -264,12 +273,12 @@ def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
                             "end_lineno": func_rec["end_lineno"],
                         })
                     
-                    # Check for property decorator
-                    if isinstance(d, ast.Name) and d.id == "property":
-                        out["properties"].append(func_rec.copy())
+                        # Check for property decorator
+                        if isinstance(d, ast.Name) and d.id == "property":
+                            out["properties"].append(func_rec.copy())
             
-            # Classes
-            elif isinstance(node, ast.ClassDef):
+            # Classes (only top-level to avoid nested classes)
+            elif isinstance(node, ast.ClassDef) and node.name in top_level_names:
                 class_rec = {
                     "name": node.name,
                     "file": rel_path,
@@ -280,10 +289,11 @@ def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
                         getattr(b, 'attr', str(b)) 
                         for b in node.bases
                     ],
+                    "method_count": len([n for n in node.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]),
                 }
                 out["classes"].append(class_rec)
                 
-                # Extract all methods from the class
+                # Extract ALL methods from the class
                 methods = _analyze_class_methods(node, rel_path)
                 out["methods"].extend(methods)
             

@@ -408,13 +408,14 @@ def test_all_view_methods(view_class, request):
 def targets_count(compact: Dict[str, Any], kind: str) -> int:
     functions = compact.get("functions", [])
     classes = compact.get("classes", [])
+    methods = compact.get("methods", [])
     routes = compact.get("routes", [])
     
     if kind == "unit":
-        return len(functions) + len(classes)
+        return len(functions) + len(classes) + len(methods)
     if kind == "e2e":
         return len(routes)
-    return max(len(functions) + len(classes), len(routes))
+    return max(len(functions) + len(classes) + len(methods), len(routes))
 
 def files_per_kind(compact: Dict[str, Any], kind: str) -> int:
     """Distribute ALL targets across appropriate number of files."""
@@ -459,14 +460,15 @@ def create_strategic_groups(targets: List[Dict[str, Any]], num_groups: int) -> L
 def focus_for(compact: Dict[str, Any], kind: str, shard_idx: int, total_shards: int) -> Tuple[str, List[str], List[Dict[str, Any]]]:
     functions = compact.get("functions", [])
     classes = compact.get("classes", [])
+    methods = compact.get("methods", [])
     routes = compact.get("routes", [])
     
     if kind == "unit":
-        target_list = functions + classes
+        target_list = functions + classes + methods
     elif kind == "e2e":
         target_list = routes
     else:
-        target_list = routes if routes else (functions + classes)
+        target_list = routes if routes else (functions + classes + methods)
     
     groups = create_strategic_groups(target_list, total_shards)
     shard_targets = groups[shard_idx] if 0 <= shard_idx < len(groups) else []
@@ -507,14 +509,13 @@ COVERAGE MAXIMIZATION STRATEGY:
 6. Include boundary value testing
 7. Test exception handling and error recovery
 
-CRITICAL REQUIREMENTS:
-- Import real modules when possible: try direct imports first, fallback to stubs
-- Generate at least 5-8 test methods per target for comprehensive coverage
-- Test model CRUD operations: create, read, update, delete, validation
-- Test serializer validation, data transformation, error handling
-- Test API views with different HTTP methods and authentication states
-- Use real database operations when available
-- Include both positive and negative test cases
+CRITICAL IMPORT SAFETY (MANDATORY TO PREVENT ERRORS):
+- NEVER import at module level - ALWAYS inside test functions
+- ALWAYS wrap imports: try/except (ImportError, Exception)
+- ALWAYS use pytest.skip() when imports fail
+- Generate 5-10 test methods per target
+- Test success, failure, edge cases, exceptions
+- Skip gracefully if dependencies incompatible
 
 TARGET COVERAGE GOALS:
 - Unit tests: 80%+ line coverage per file
@@ -611,7 +612,17 @@ ADDITIONAL CONTEXT: {trimmed_context}
 
 ENHANCED SCAFFOLD: {ENHANCED_SCAFFOLD}
 
-Generate comprehensive tests that maximize code coverage while maintaining reliability.
+EXAMPLE SAFE TEST:
+```python
+def test_function():
+    try:
+        from module import Class
+    except (ImportError, Exception) as e:
+        pytest.skip(f"Import failed: {{e}}")
+    # test code here
+```
+
+Generate tests with safe imports to prevent collection errors.
 """.strip()
     
     return [

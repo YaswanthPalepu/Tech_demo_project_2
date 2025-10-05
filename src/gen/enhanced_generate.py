@@ -443,8 +443,8 @@ def _optimize_for_coverage(code: str) -> str:
     return '\n'.join(optimized_lines)
 
 def _gather_enhanced_context(target_root: pathlib.Path, analysis: Dict[str, Any],
-                           focus_names: List[str], max_bytes: int = 75000) -> str:
-    """Gather enhanced code context optimized for maximum coverage."""
+                           focus_names: List[str], max_bytes: int = 100000) -> str:
+    """Gather COMPLETE code context for maximum coverage - includes full files."""
     
     def read_file_safe(path: pathlib.Path) -> str:
         try:
@@ -452,25 +452,11 @@ def _gather_enhanced_context(target_root: pathlib.Path, analysis: Dict[str, Any]
         except Exception:
             return ""
     
-    def extract_comprehensive_segment(file_path: pathlib.Path, start_line: int, 
-                                    end_line: int, padding: int = 30) -> str:
-        content = read_file_safe(file_path)
-        if not content:
-            return ""
-        
-        lines = content.splitlines()
-        start_idx = max(0, start_line - padding - 1)
-        end_idx = min(len(lines), end_line + padding)
-        
-        segment = "\n".join(lines[start_idx:end_idx])
-        return f"# COVERAGE TARGET: {file_path}\n# LINES: {start_idx + 1}-{end_idx}\n{segment}\n\n"
-    
     def build_enhanced_index(items: List[Dict], name_key: str) -> Dict[str, Tuple[str, int, int]]:
         index = {}
         for item in items or []:
             name = item.get(name_key)
             if name:
-                # FIXED: Handle methods with class prefix
                 class_name = item.get("class")
                 if class_name:
                     name = f"{class_name}.{name}"
@@ -481,55 +467,53 @@ def _gather_enhanced_context(target_root: pathlib.Path, analysis: Dict[str, Any]
                 index[name] = (file_path, start_line, end_line)
         return index
     
-    # FIXED: Build indexes including METHODS
     function_index = build_enhanced_index(analysis.get("functions", []), "name")
     class_index = build_enhanced_index(analysis.get("classes", []), "name")
-    method_index = build_enhanced_index(analysis.get("methods", []), "name")  # NEW
+    method_index = build_enhanced_index(analysis.get("methods", []), "name")
     route_index = build_enhanced_index(analysis.get("routes", []), "handler")
     
+    # Collect all relevant files
+    relevant_files = set()
+    for target_name in focus_names:
+        for index in [function_index, class_index, method_index, route_index]:
+            if target_name in index:
+                file_rel, _, _ = index[target_name]
+                if file_rel:
+                    relevant_files.add(file_rel)
+                break
+    
+    # Include FULL file content for better context
     context_parts = []
     current_size = 0
-    processed_files = set()
     
-    # FIXED: Include methods in the search
-    for target_name in focus_names:
-        for index_name, index in [
-            ("function", function_index), 
-            ("class", class_index),
-            ("method", method_index),  # NEW
-            ("route", route_index)
-        ]:
-            if target_name in index:
-                file_rel, start_line, end_line = index[target_name]
-                if file_rel:
-                    file_path = target_root / file_rel
-                    if file_path.exists():
-                        segment = extract_comprehensive_segment(file_path, start_line, end_line, padding=50)
-                        context_parts.append(f"# COVERAGE PRIORITY: {index_name.upper()} - {target_name}\n{segment}")
-                        processed_files.add(str(file_path))
-                        current_size += len(segment)
-                break
-        
-        if current_size >= max_bytes * 0.6:
-            break
-    
-    # ... rest of function remains the same ...
+    for file_rel in sorted(relevant_files):
+        file_path = target_root / file_rel
+        if file_path.exists():
+            content = read_file_safe(file_path)
+            if content:
+                file_context = f"# FILE: {file_rel}\n# FULL CONTENT FOR MAXIMUM COVERAGE\n{content}\n\n{'='*80}\n\n"
+                
+                if current_size + len(file_context) > max_bytes:
+                    break
+                
+                context_parts.append(file_context)
+                current_size += len(file_context)
     
     full_context = "".join(context_parts)
     
     coverage_header = f"""
-# ENHANCED COVERAGE CONTEXT
-# Target: Maximum code coverage for {len(focus_names)} focus targets
-# Files processed: {len(processed_files)}
-# Context size: {len(full_context)} characters
-# Coverage strategy: Comprehensive testing of all public methods, edge cases, and error conditions
+# COMPLETE CODE CONTEXT FOR MAXIMUM COVERAGE
+# Targets: {len(focus_names)} functions/classes/methods
+# Files: {len(relevant_files)} source files
+# Strategy: Test ALL code paths, methods, and edge cases
+# Goal: 80%+ line and branch coverage
 
 """
     
     full_context = coverage_header + full_context
     
     if len(full_context) > max_bytes:
-        full_context = full_context[:max_bytes] + "\n# ... (truncated for length)"
+        full_context = full_context[:max_bytes] + "\n# ... (truncated)"
     
     return full_context
 
@@ -581,7 +565,6 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     if required_packages:
         pip_install(required_packages)
     
-    # FIXED: Include methods in target count
     total_targets = sum(len(compact.get(key, [])) 
                        for key in ["functions", "classes", "methods", "routes"])
     
@@ -591,7 +574,7 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     print(f"🎯 COVERAGE TARGETS IDENTIFIED:")
     print(f"   📋 Functions: {len(compact.get('functions', []))}")
     print(f"   🏗️  Classes: {len(compact.get('classes', []))}")
-    print(f"   🔧 Methods: {len(compact.get('methods', []))}")  # NEW
+    print(f"   🔧 Methods: {len(compact.get('methods', []))}")
     print(f"   🌐 Routes: {len(compact.get('routes', []))}")
     print(f"   📊 Total Coverage Targets: {total_targets}")
     
@@ -620,7 +603,6 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
                 
                 print(f"🎯 Generating {test_kind} test {file_index + 1}/{num_files}")
                 
-                # FIXED: Pass filtered_analysis which includes methods
                 context = _gather_enhanced_context(target_root, filtered_analysis, focus_names)
                 
                 prompt_messages = build_prompt(test_kind, compact_json, focus_label, 

@@ -200,62 +200,8 @@ def filter_by_files(analysis: Dict[str, Any], focus_files: Optional[Set[str]]) -
 
 # KEPT: Your original enhance_coverage_targeting function with your exact patterns
 def enhance_coverage_targeting(compact: Dict[str, Any]) -> Dict[str, Any]:
-    """No priority scoring - keep natural file order for coverage."""
-    
-    # REMOVED: All coverage_score logic
-    # CHANGED: Keep items in file order (already sorted by file+line in compact_analysis)
-    
-    # Just return as-is, no re-sorting
+    """Keep all targets in natural file order - NO priority scoring."""
     print("Keeping all targets in file order without priority scoring")
-    return compact
-    # KEPT: Your exact coverage_score function with your exact scoring
-    def coverage_score(item):
-        file_path = item.get("file", "").lower()
-        name = item.get("name", "").lower()
-        score = 0
-        
-        for pattern_name, patterns in critical_patterns.items():
-            if any(pattern in file_path for pattern in patterns):
-                if "django" in pattern_name:
-                    score += 40
-                elif "fastapi" in pattern_name or "flask" in pattern_name:
-                    score += 50
-                elif "business" in pattern_name:
-                    score += 30
-                elif "authentication" in pattern_name:
-                    score += 35
-                elif "validation" in pattern_name:
-                    score += 25
-                elif "utilities" in pattern_name:
-                    score += 20
-                elif "exceptions" in pattern_name:
-                    score += 30
-        
-        if not name.startswith("_"):
-            score += 20
-        
-        if any(crud in name for crud in ["create", "read", "update", "delete", "get", "post", "put", "patch", "save"]):
-            score += 25
-        
-        if any(auth in name for auth in ["login", "auth", "permission", "token", "logout", "register"]):
-            score += 30
-        
-        if any(pattern in name for pattern in ["validate", "clean", "serialize", "deserialize"]):
-            score += 20
-            
-        if any(pattern in name for pattern in ["__str__", "__repr__", "__eq__", "to_dict", "to_json"]):
-            score += 15
-            
-        if any(pattern in name for pattern in ["handle", "process", "execute", "run"]):
-            score += 18
-        
-        return score
-    
-    # KEPT: Your original re-sorting logic, ADDED methods support
-    for key in ["functions", "classes", "methods", "routes"]:
-        if key in compact and compact[key]:
-            compact[key].sort(key=coverage_score, reverse=True)
-    
     return compact
 
 # KEPT: Your original HEAVY_DEPENDENCIES dict (exact copy)

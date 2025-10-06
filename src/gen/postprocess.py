@@ -31,6 +31,33 @@ def extract_python_only(text: str) -> str:
     # Fallback: remove markdown backticks
     return text.replace("```", "")
 
+def fix_parameter_mismatches(code: str) -> str:
+    """Fix function parameter mismatches in generated tests."""
+    
+    # Pattern to find test functions with parameters that aren't used
+    patterns = [
+        # Remove unused expected_template parameter
+        (r'def test_\w+\(.*?, expected_template\):', 
+         lambda m: m.group(0).replace(', expected_template', '')),
+        
+        # Remove unused expected_template from middle of parameters
+        (r'def test_\w+\(.*?, expected_template,.*?\):', 
+         lambda m: m.group(0).replace(', expected_template', '')),
+        
+        # Remove unused self parameter in non-class methods
+        (r'def test_\w+\(self\):\s*(?=\n\s*(?!(?:self\.|@)))', 
+         lambda m: m.group(0).replace('(self)', '()')),
+        
+        # Fix various unused parameters
+        (r'def test_\w+\(.*?, unused_param\):', 
+         lambda m: m.group(0).replace(', unused_param', '')),
+    ]
+    
+    for pattern, replacement in patterns:
+        code = re.sub(pattern, replacement, code)
+    
+    return code
+
 def fix_variable_scoping_errors(code: str) -> str:
     """Fix UnboundLocalError issues in generated tests."""
     
@@ -304,22 +331,25 @@ def massage(code: str) -> str:
     code = _normalize_indentation(code)
     code = extract_python_only(code)
     
-    # Step 2: Fix common issues first
+    # Step 2: Fix parameter mismatches
+    code = fix_parameter_mismatches(code)
+    
+    # Step 3: Fix common issues first
     code = fix_common_test_issues(code)
     
-    # Step 3: Add defensive patterns
+    # Step 4: Add defensive patterns
     code = add_defensive_patterns(code)
     
-    # Step 4: Fix renderer issues
+    # Step 5: Fix renderer issues
     code = fix_renderer_issues(code)
     
-    # Step 5: Enhance framework compatibility
+    # Step 6: Enhance framework compatibility
     code = enhance_framework_compatibility(code)
     
-    # Step 6: Simplify complex mocks
+    # Step 7: Simplify complex mocks
     code = simplify_complex_mocks(code)
     
-    # Step 7: Ensure all functions have bodies
+    # Step 8: Ensure all functions have bodies
     code = re.sub(
         r'^([ \t]*)def[^\n]*:\n([ \t]*)(?=\n|def |class |@|\Z)',
         lambda m: f"{m.group(0)}{m.group(1)}    pass\n",
@@ -327,13 +357,13 @@ def massage(code: str) -> str:
         flags=re.MULTILINE
     )
     
-    # Step 8: Clean up whitespace
+    # Step 9: Clean up whitespace
     code = re.sub(r'\n{4,}', '\n\n\n', code)
     code = re.sub(r'\n(class |def |@pytest)', r'\n\n\1', code)
     code = '\n'.join(line.rstrip() for line in code.split('\n'))
     code = code.strip() + '\n'
     
-    # Step 9: Final validation and fallback
+    # Step 10: Final validation and fallback
     is_valid, error = validate_code(code)
     if not is_valid and "Syntax error" in error:
         # Try dedenting as last resort

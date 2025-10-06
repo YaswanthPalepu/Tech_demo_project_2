@@ -200,7 +200,7 @@ def ultimate_sample_data():
             'zero': 0,
             'negative': -1,
             'large_number': 999999999999,
-            'special_chars': '!@#$%^&*()_+-=[]{}|;:,.<>?/\\~`',
+            'special_chars': r'!@#$%^&*()_+-=[]{}|;:,.<>?/\~`',
             'unicode': '测试数据 🚀 émojis ñoños café ☕',
             'long_string': 'x' * 5000,
             'whitespace': '   ',

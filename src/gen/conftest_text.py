@@ -100,9 +100,10 @@ def _deterministic_setup():
             pass
 
 # ---------------- EnhancedRenderer Definition ----------------
-# Define EnhancedRenderer to prevent NameError in generated tests
+# Define EnhancedRenderer as a simple standalone class to prevent any circular inheritance
 class EnhancedRenderer:
-    """Enhanced renderer that always returns bytes."""
+    """Enhanced renderer that always returns bytes - standalone implementation."""
+    
     def __init__(self, *args, **kwargs):
         self.args = args
         self.kwargs = kwargs

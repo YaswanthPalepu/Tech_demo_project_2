@@ -1,25 +1,25 @@
 name: Generate AI Tests for External Repo (Granular)
 
 
-on:
- push:
-   branches: [prasad,local]
- workflow_dispatch:
-   inputs:
-     target_repo:
-       description: "target repo"
-       required: true
-       default: "https://github.com/DeviPrasad372002/flask-test-repo"
-     target_branch:
-       description: "Branch in the target repo to write to"
-       default: "main"
-     python_version:
-       description: "Python version"
-       default: "3.12"
-     force_regeneration:
-       description: "Force complete test regeneration"
-       type: boolean
-       default: false
+# on:
+#  push:
+#    branches: [prasad,local]
+#  workflow_dispatch:
+#    inputs:
+    #  target_repo:
+    #    description: "target repo"
+    #    required: true
+    #    default: "https://github.com/DeviPrasad372002/flask-test-repo"
+    #  target_branch:
+    #    description: "Branch in the target repo to write to"
+    #    default: "main"
+    #  python_version:
+    #    description: "Python version"
+    #    default: "3.12"
+    #  force_regeneration:
+    #    description: "Force complete test regeneration"
+    #    type: boolean
+    #    default: false
 
 
 permissions:

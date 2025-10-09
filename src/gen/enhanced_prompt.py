@@ -1,4 +1,4 @@
-# src/gen/enhanced_prompt.py - Drop-in replacement for prompt.py
+# src/gen/enhanced_prompt.py - UNIVERSAL AGNOSTIC TEST GENERATION
 
 import json
 import os
@@ -6,389 +6,174 @@ import random
 from typing import Any, Dict, List, Optional, Tuple
 
 SYSTEM_MIN = (
-"Generate comprehensive pytest test code with maximum coverage strategy.\n"
-"COVERAGE OPTIMIZATION REQUIREMENTS:\n"
-" - Target ALL public methods, properties, and class attributes\n"
-" - Test both success paths AND error conditions\n"
-" - Include edge cases: empty inputs, None values, invalid data\n"
-" - Test model CRUD operations, validations, and relationships\n"
-" - Test serializer validation, transformation, and error handling\n"
-" - Test API endpoints with various HTTP methods and status codes\n"
-" - Use real imports when possible, fallback to stubs only when necessary\n"
-" - Generate multiple test methods per class/function to increase coverage\n"
-" - Return ONLY Python code, no markdown\n"
+    "Generate comprehensive pytest test code that works with ANY Python project structure.\n"
+    "UNIVERSAL TESTING REQUIREMENTS:\n"
+    " - Use REAL imports and REAL code execution whenever possible\n"
+    " - Test both success paths AND error conditions\n"
+    " - Include edge cases: empty inputs, None values, invalid data\n"
+    " - Test ALL public methods, properties, and class attributes\n"
+    " - Generate multiple test methods per class/function for maximum coverage\n"
+    " - Return ONLY Python code, no markdown\n"
+    " - Be completely framework-agnostic and project-structure-agnostic\n"
 )
 
-# Enhanced test templates for maximum coverage
+# Universal test templates for any project
 UNIT_ENHANCED = (
-"Generate COMPREHENSIVE UNIT tests for maximum coverage:\n"
-"- Test EVERY public method in the class/function\n"
-"- Test constructor/initialization with various parameters\n"
-"- Test property getters and setters\n"
-"- Test validation methods with valid AND invalid inputs\n"
-"- Test string representations (__str__, __repr__)\n"
-"- Test equality operations (__eq__, __hash__ if present)\n"
-"- For Django models: Test save(), delete(), clean(), and custom methods\n"
-"- For API views: Test all HTTP methods (GET, POST, PUT, DELETE, PATCH)\n"
-"- For serializers: Test validation, create(), update(), to_representation()\n"
-"- Test exception handling and error conditions\n"
-"- Use parametrized tests for multiple input scenarios\n"
-"- Target minimum 80% line coverage per file\n"
+    "Generate COMPREHENSIVE UNIT tests for ANY Python code:\n"
+    "- Test EVERY public method in classes/functions\n"
+    "- Test constructor/initialization with various parameters\n"
+    "- Test property getters and setters\n"
+    "- Test validation methods with valid AND invalid inputs\n"
+    "- Test string representations (__str__, __repr__)\n"
+    "- Test equality operations (__eq__, __hash__ if present)\n"
+    "- Test exception handling and error conditions\n"
+    "- Use parametrized tests for multiple input scenarios\n"
+    "- Target minimum 80% line coverage per file\n"
+    "- Use REAL imports, avoid mocking unless absolutely necessary\n"
 )
 
 INTEG_ENHANCED = (
-"Generate COMPREHENSIVE INTEGRATION tests for component interactions:\n"
-"- Test complete request-response cycles\n"
-"- Test database interactions (create, read, update, delete)\n"
-"- Test authentication and permission flows\n"
-"- Test serializer-model-view integration chains\n"
-"- Test middleware and signal handlers\n"
-"- Test file upload/download operations\n"
-"- Test caching mechanisms\n"
-"- Test email and notification systems\n"
-"- Test API pagination and filtering\n"
-"- Use real database transactions where possible\n"
+    "Generate COMPREHENSIVE INTEGRATION tests for ANY project:\n"
+    "- Test component interactions with REAL implementations\n"
+    "- Test complete workflows between modules\n"
+    "- Test data flow between different parts of the system\n"
+    "- Use real imports and actual code execution\n"
+    "- Test both happy paths and error scenarios\n"
+    "- Verify integration points work correctly\n"
+    "- Avoid mocking internal project components\n"
 )
 
 E2E_ENHANCED = (
-"Generate COMPREHENSIVE END-TO-END tests for full user workflows:\n"
-"- Test complete user registration and login flows\n"
-"- Test CRUD operations through API endpoints\n"
-"- Test file upload and media handling\n"
-"- Test search and filtering functionality\n"
-"- Test user permission and access control\n"
-"- Test multi-step business processes\n"
-"- Include both success and failure scenarios\n"
-"- Test response formats, headers, and status codes\n"
-"- Test rate limiting and security features\n"
+    "Generate COMPREHENSIVE END-TO-END tests for ANY application:\n"
+    "- Test complete user workflows\n"
+    "- Test API endpoints with real request/response cycles\n"
+    "- Test file operations with temporary files\n"
+    "- Test database interactions with test databases\n"
+    "- Include both success and failure scenarios\n"
+    "- Test response formats, headers, and status codes\n"
+    "- Use real application setup and teardown\n"
 )
 
 MAX_TEST_FILES = {"unit": 4, "integ": 4, "e2e": 2}  
 
-# Enhanced scaffold with comprehensive testing utilities
-ENHANCED_SCAFFOLD = '''
+# Universal scaffold for any Python project
+UNIVERSAL_SCAFFOLD = '''
 """
-Comprehensive test suite optimized for maximum code coverage.
+Universal test suite - works with ANY Python project structure.
+REAL IMPORTS ONLY - Minimal mocking for maximum coverage.
 """
+
 import pytest
-import json
+import sys
 import os
-from unittest.mock import MagicMock, patch, Mock, PropertyMock
-from typing import Any, Dict, List, Optional, Union
-from datetime import datetime, date
-from decimal import Decimal
+from unittest.mock import patch, Mock, MagicMock
+from typing import Any, Dict, List, Optional
 
-# Enhanced defensive utilities
-def safe_import(module_name):
+# UNIVERSAL IMPORT SETUP - Works with any project structure
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+# Universal test utilities
+def safe_import(module_path):
+    """Safely import any module with comprehensive error handling."""
     try:
-        return __import__(module_name)
-    except Exception:
-        import types
-        return types.ModuleType(module_name)
+        import importlib
+        return importlib.import_module(module_path)
+    except ImportError as e:
+        pytest.skip(f"Module {module_path} not available: {e}")
+    except Exception as e:
+        pytest.skip(f"Could not import {module_path}: {e}")
 
-def safe_getattr(obj, attr, default=None):
-    if obj is None:
-        return default
+def dynamic_import(module_name, class_name=None):
+    """Dynamically import modules/classes from ANY project structure."""
     try:
-        return getattr(obj, attr, default)
-    except Exception:
-        return default
+        module = safe_import(module_name)
+        if class_name:
+            return getattr(module, class_name)
+        return module
+    except AttributeError:
+        pytest.skip(f"Class {class_name} not found in {module_name}")
 
-def is_available(obj):
-    return obj is not None and not isinstance(obj, MagicMock)
+def create_minimal_stub(**attrs):
+    """Create minimal stub only when absolutely necessary."""
+    stub = Mock()
+    for key, value in attrs.items():
+        setattr(stub, key, value)
+    return stub
 
-def create_comprehensive_stub(attrs=None, methods=None):
-    """Create a comprehensive stub with methods and attributes."""
-    class ComprehensiveStub:
-        def __init__(self):
-            self._attributes = attrs or {}
-            self._methods = methods or {}
-            
-        def get(self, key, default=None):
-            return self._attributes.get(key, default)
-            
-        def __getattr__(self, name):
-            if name in self._attributes:
-                return self._attributes[name]
-            if name in self._methods:
-                return self._methods[name]
-            return None
-            
-        def __setattr__(self, name, value):
-            if name.startswith('_'):
-                super().__setattr__(name, value)
-            else:
-                if not hasattr(self, '_attributes'):
-                    super().__setattr__('_attributes', {})
-                self._attributes[name] = value
-                
-        def __getitem__(self, key):
-            return self._attributes.get(key)
-            
-        def __setitem__(self, key, value):
-            self._attributes[key] = value
-            
-        def save(self):
-            return True
-            
-        def delete(self):
-            return True
-            
-        def clean(self):
-            return None
-            
-        def full_clean(self):
-            return None
-    
-    return ComprehensiveStub()
-
-# Enhanced model testing utilities
-class ModelTestMixin:
-    """Mixin for comprehensive model testing."""
-    
-    @staticmethod
-    def get_model_fields(model_class):
-        """Get all fields from a Django model."""
-        try:
-            return [field.name for field in model_class._meta.fields]
-        except:
-            return ['id', 'created_at', 'updated_at']  # Common fields
-    
-    @staticmethod
-    def create_model_instance(model_class, **kwargs):
-        """Create model instance with test data."""
-        try:
-            return model_class(**kwargs)
-        except:
-            return create_comprehensive_stub(kwargs)
-
-# Enhanced serializer testing utilities  
-class SerializerTestMixin:
-    """Mixin for comprehensive serializer testing."""
-    
-    @staticmethod
-    def get_valid_serializer_data():
-        """Get valid data for serializer testing."""
-        return {
-            'name': 'Test Name',
-            'email': 'test@example.com',
-            'username': 'testuser',
-            'password': 'testpass123',
-            'title': 'Test Title',
-            'body': 'Test content',
-            'slug': 'test-slug',
-            'description': 'Test description',
-        }
-    
-    @staticmethod
-    def get_invalid_serializer_data():
-        """Get invalid data for serializer testing."""
-        return [
-            {},  # Empty data
-            {'email': 'invalid-email'},  # Invalid email
-            {'username': ''},  # Empty required field
-            {'password': '123'},  # Too short password
-        ]
-
-# Enhanced API view testing utilities
-class APIViewTestMixin:
-    """Mixin for comprehensive API view testing."""
-    
-    @staticmethod
-    def create_mock_request(method='GET', data=None, user=None):
-        """Create comprehensive mock request."""
-        request = create_comprehensive_stub()
-        request.method = method
-        request.data = data or {}
-        request.user = user or APIViewTestMixin.create_mock_user()
-        request.GET = {}
-        request.POST = data or {}
-        request.FILES = {}
-        request.META = {'HTTP_AUTHORIZATION': 'Token test-token'}
-        return request
-    
-    @staticmethod
-    def create_mock_user(authenticated=True):
-        """Create comprehensive mock user."""
-        user = create_comprehensive_stub()
-        user.id = 1
-        user.username = 'testuser'
-        user.email = 'test@example.com'
-        user.is_authenticated = authenticated
-        user.is_active = True
-        user.is_staff = False
-        user.is_superuser = False
-        
-        # Enhanced profile
-        profile = create_comprehensive_stub()
-        profile.user = user
-        profile.bio = 'Test bio'
-        profile.image = 'test-image.jpg'
-        profile.following = create_comprehensive_stub()
-        profile.followers = create_comprehensive_stub()
-        
-        # Social methods
-        profile.favorite = lambda article: True
-        profile.unfavorite = lambda article: True
-        profile.follow = lambda other: True
-        profile.unfollow = lambda other: True
-        profile.is_following = lambda other: False
-        
-        user.profile = profile
-        return user
-
-# Enhanced fixtures for comprehensive testing
+# Universal fixtures for any project
 @pytest.fixture
-def comprehensive_sample_data():
-    """Comprehensive sample data for various test scenarios."""
+def universal_sample_data():
+    """Universal sample data for any Python project."""
     return {
-        'user': {
-            'username': 'testuser',
-            'email': 'test@example.com',
-            'password': 'testpass123',
-            'bio': 'Test bio',
-            'image': 'test-image.jpg'
-        },
-        'article': {
-            'title': 'Test Article',
-            'slug': 'test-article',
-            'description': 'Test description',
-            'body': 'Test article body content',
-            'tag_list': ['test', 'article']
-        },
-        'comment': {
-            'body': 'Test comment body'
-        },
-        'profile': {
-            'username': 'testuser',
-            'bio': 'Updated bio',
-            'image': 'updated-image.jpg'
-        }
+        "string_data": "test value",
+        "number_data": 42,
+        "list_data": [1, 2, 3],
+        "dict_data": {"key": "value"},
+        "none_data": None,
+        "empty_string": "",
+        "empty_list": [],
+        "empty_dict": {},
+        "boolean_true": True,
+        "boolean_false": False,
     }
 
 @pytest.fixture
-def mock_database():
-    """Mock database operations for testing."""
-    class MockDB:
-        def __init__(self):
-            self.data = {}
-            
-        def create(self, model, **kwargs):
-            obj_id = len(self.data) + 1
-            obj = create_comprehensive_stub(kwargs)
-            obj.id = obj_id
-            obj.pk = obj_id
-            self.data[obj_id] = obj
-            return obj
-            
-        def get(self, model, **kwargs):
-            for obj in self.data.values():
-                if all(getattr(obj, k, None) == v for k, v in kwargs.items()):
-                    return obj
-            raise Exception('DoesNotExist')
-            
-        def filter(self, model, **kwargs):
-            results = []
-            for obj in self.data.values():
-                if all(getattr(obj, k, None) == v for k, v in kwargs.items()):
-                    results.append(obj)
-            return results
-            
-        def delete(self, obj_id):
-            if obj_id in self.data:
-                del self.data[obj_id]
-                return True
-            return False
-    
-    return MockDB()
-
-@pytest.fixture
-def enhanced_mock_request():
-    """Enhanced mock request with comprehensive setup."""
-    return APIViewTestMixin.create_mock_request()
-
-@pytest.fixture
-def mock_authenticated_user():
-    """Mock authenticated user."""
-    return APIViewTestMixin.create_mock_user(authenticated=True)
-
-@pytest.fixture
-def mock_unauthenticated_user():
-    """Mock unauthenticated user."""
-    return APIViewTestMixin.create_mock_user(authenticated=False)
-
-# Coverage optimization utilities
-def test_all_model_methods(model_instance):
-    """Test all available methods on a model instance."""
-    methods_tested = 0
-    
-    # Test common Django model methods
-    common_methods = ['save', 'delete', 'clean', 'full_clean', '__str__', '__repr__']
-    for method_name in common_methods:
-        if hasattr(model_instance, method_name):
-            try:
-                method = getattr(model_instance, method_name)
-                if callable(method):
-                    if method_name in ['__str__', '__repr__']:
-                        result = method()
-                        assert isinstance(result, str)
-                    else:
-                        method()
-                    methods_tested += 1
-            except Exception:
-                pass  # Method exists but may require specific setup
-                
-    return methods_tested
-
-def test_all_serializer_methods(serializer_class, valid_data):
-    """Test all available methods on a serializer."""
-    methods_tested = 0
-    
+def temp_file_fixture():
+    """Universal temporary file fixture."""
+    import tempfile
+    with tempfile.NamedTemporaryFile(delete=False, mode='w') as f:
+        f.write('test content')
+        temp_path = f.name
+    yield temp_path
+    # Cleanup
     try:
-        serializer = serializer_class(data=valid_data)
-        
-        # Test validation
-        if hasattr(serializer, 'is_valid'):
-            serializer.is_valid()
-            methods_tested += 1
-            
-        # Test creation if valid
-        if hasattr(serializer, 'save') and serializer.is_valid():
-            serializer.save()
-            methods_tested += 1
-            
-        # Test representation
-        if hasattr(serializer, 'to_representation'):
-            serializer.to_representation(valid_data)
-            methods_tested += 1
-            
-    except Exception:
+        os.unlink(temp_path)
+    except:
         pass
-        
-    return methods_tested
 
-def test_all_view_methods(view_class, request):
-    """Test all HTTP methods on a view."""
-    methods_tested = 0
-    
-    try:
-        view = view_class()
-        
-        # Test common HTTP methods
-        http_methods = ['get', 'post', 'put', 'patch', 'delete']
-        for method_name in http_methods:
-            if hasattr(view, method_name):
-                try:
-                    method = getattr(view, method_name)
-                    method(request)
-                    methods_tested += 1
-                except Exception:
-                    pass  # Method exists but may require specific setup
-                    
-    except Exception:
-        pass
-        
-    return methods_tested
+@pytest.fixture
+def mock_external_apis():
+    """ONLY mock external APIs, never internal project code."""
+    with patch('requests.get') as mock_get, \\
+         patch('requests.post') as mock_post:
+        # Setup default responses for external APIs
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {'status': 'ok'}
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {'result': 'success'}
+        yield {'get': mock_get, 'post': mock_post}
+
+# Async support for any project
+@pytest.fixture
+def event_loop():
+    """Universal event loop for async tests."""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    yield loop
+    loop.close()
+
+# Universal test patterns
+def test_with_real_imports(test_function):
+    """Decorator to ensure tests use real imports."""
+    def wrapper(*args, **kwargs):
+        try:
+            return test_function(*args, **kwargs)
+        except ImportError as e:
+            pytest.skip(f"Required import not available: {e}")
+    return wrapper
+
+def parametrized_test_cases():
+    """Universal parametrized test cases for any project."""
+    return [
+        ("normal_case", "test_value", True),
+        ("empty_case", "", False),
+        ("none_case", None, False),
+        ("numeric_case", 123, True),
+        ("list_case", [1, 2, 3], True),
+    ]
 '''
 
 def targets_count(compact: Dict[str, Any], kind: str) -> int:
@@ -469,7 +254,7 @@ def focus_for(compact: Dict[str, Any], kind: str, shard_idx: int, total_shards: 
     return focus_label, target_names, shard_targets
 
 def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int,
-                compact: Dict[str, Any], context: str = "") -> List[Dict[str, str]]:
+                 compact: Dict[str, Any], context: str = "") -> List[Dict[str, str]]:
     
     test_instructions = {
         "unit": UNIT_ENHANCED, 
@@ -482,136 +267,157 @@ def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, tot
     trimmed_context = context[:max_ctx] if context else ""
     
     user_content = f"""
-MAXIMUM COVERAGE {kind.upper()} TEST GENERATION - FILE {shard + 1}/{total}
+UNIVERSAL {kind.upper()} TEST GENERATION - FILE {shard + 1}/{total}
+WORKS WITH ANY PYTHON PROJECT STRUCTURE
 
 {dev_instructions}
 
-COVERAGE MAXIMIZATION STRATEGY:
-1. Generate multiple test methods per class/function to increase line coverage
-2. Test both success paths and error conditions
-3. Use parametrized tests for different input scenarios
-4. Test edge cases: None values, empty strings, invalid data
-5. Test all public methods and properties
-6. Include boundary value testing
-7. Test exception handling and error recovery
+CRITICAL UNIVERSAL REQUIREMENTS:
+1. USE REAL IMPORTS AND REAL CODE EXECUTION
+2. Be completely agnostic to project structure and frameworks
+3. Only mock EXTERNAL dependencies (APIs, databases, network calls)
+4. NEVER mock internal project code or Python built-ins
+5. Use dynamic import discovery for any project structure
+6. Test ACTUAL behavior, not assumed behavior
 
-CRITICAL IMPORT SAFETY (MANDATORY TO PREVENT ERRORS):
-- NEVER import at module level - ALWAYS inside test functions
-- ALWAYS wrap imports: try/except (ImportError, Exception)
-- ALWAYS use pytest.skip() when imports fail
-- Generate 5-10 test methods per target
-- Test success, failure, edge cases, exceptions
-- Skip gracefully if dependencies incompatible
+CRITICAL CODE STRUCTURE REQUIREMENTS:
+1. ALWAYS indent code blocks properly after colons
+2. Use 4 spaces for indentation, never mix tabs and spaces
+3. Ensure every 'if', 'for', 'while', 'def', 'class', 'with', 'try' block has properly indented content
+4. Never put unindented code immediately after a colon
 
-TARGET COVERAGE GOALS:
-- Unit tests: 80%+ line coverage per file
-- Integration tests: 70%+ component interaction coverage
-- E2E tests: 60%+ workflow coverage
+REAL CODE EXECUTION STRATEGY:
+- Import and use whatever modules/functions actually exist in the project
+- Test with real data and real execution paths
+- Use sys.path modification to handle any project structure
+- Skip tests gracefully when dependencies aren't available
+- Verify actual system behavior, not mocked fantasies
 
-ENHANCED VARIABLE SCOPING (CRITICAL):
+PROPER INDENTATION EXAMPLES:
 ```python
-def test_comprehensive_model():
-    # Always declare variables first
-    Model = None
-    instance = None
-    
+# CORRECT: Properly indented after if statement
+if condition:
     try:
-        # Try real import first
-        from your_app.models import YourModel as Model
-    except ImportError:
-        # Fallback to enhanced stub
-        Model = lambda **kwargs: create_comprehensive_stub(kwargs)
-    
-    # Test creation with various data
-    valid_data = {{'name': 'Test', 'email': 'test@example.com'}}
-    instance = Model(**valid_data)
-    
-    # Test all methods comprehensively
-    assert hasattr(instance, 'save')
-    if callable(getattr(instance, 'save', None)):
-        instance.save()
-        
-    # Test string representation
-    str_repr = str(instance)
-    assert isinstance(str_repr, str)
-    
-    # Test validation (if exists)
-    if hasattr(instance, 'clean'):
-        instance.clean()
-```
+        # code here
+    except:
+        pass
 
-COMPREHENSIVE API TESTING PATTERN:
-```python
-def test_api_view_comprehensive(enhanced_mock_request):
-    View = None
-    
-    try:
-        from your_app.views import YourAPIView as View
-    except ImportError:
-        class View(APIViewTestMixin):
-            def get(self, request): return {{'status': 'ok'}}
-            def post(self, request): return {{'created': True}}
-    
-    view = View()
-    
-    # Test multiple HTTP methods
-    for method in ['get', 'post', 'put', 'delete']:
-        if hasattr(view, method):
-            enhanced_mock_request.method = method.upper()
-            response = getattr(view, method)(enhanced_mock_request)
-            assert response is not None
-```
+# INCORRECT: Unindented after if statement  
+if condition:
+try:  # THIS WILL CAUSE SYNTAX ERROR
+    # code here
 
-SERIALIZER COMPREHENSIVE TESTING:
-```python  
-def test_serializer_comprehensive(comprehensive_sample_data):
-    Serializer = None
+# CORRECT: All blocks properly indented
+def test_function():
+    if some_condition:
+        for item in items:
+            try:
+                result = process(item)
+            except Exception:
+                handle_error()
+DYNAMIC IMPORT PATTERNS FOR ANY PROJECT:
+
+
+
+def test_with_real_imports():
+    \"\"\"Universal test pattern that works with any project.\"\"\"
+    # Try to import whatever actually exists
+    target_module = None
+    target_class = None
     
-    try:
-        from your_app.serializers import YourSerializer as Serializer
-    except ImportError:
-        Serializer = SerializerTestMixin
-    
-    # Test with valid data
-    valid_data = comprehensive_sample_data['user']
-    serializer = Serializer(data=valid_data)
-    
-    # Test validation
-    is_valid = getattr(serializer, 'is_valid', lambda: True)()
-    assert is_valid or not is_valid  # Either result is acceptable
-    
-    # Test multiple invalid data scenarios
-    for invalid_data in SerializerTestMixin.get_invalid_serializer_data():
-        invalid_serializer = Serializer(data=invalid_data)
-        # Test that validation catches errors
+    # Try common module patterns
+    for module_name in ['app', 'main', 'application', 'models', 'services']:
         try:
-            invalid_serializer.is_valid(raise_exception=True)
+            target_module = safe_import(module_name)
+            break
         except:
-            pass  # Expected to fail
-```
+            continue
+    
+    if target_module is None:
+        pytest.skip("No importable modules found in project")
+    
+    # Use the actual imported module for testing
+    # Test real behavior with real data
+MINIMAL MOCKING GUIDELINES:
+
+
+# ONLY mock external dependencies:
+with patch('requests.get') as mock_api:
+    mock_api.return_value.status_code = 200
+    # test code that uses external API
+
+# NEVER mock internal code or Python built-ins:
+# with patch('time.time'):  # DON'T DO THIS!
+# with patch('os.path.exists'):  # DON'T DO THIS!
+
+# Use real internal implementations:
+result = actual_function_under_test(real_parameters)
+UNIVERSAL TEST PATTERNS:
+
+
+# Pattern 1: Real imports with graceful fallbacks
+def test_real_implementation():
+    try:
+        from actual_project_module import RealClass
+        instance = RealClass()
+        result = instance.actual_method('test_input')
+        assert result is not None
+    except ImportError:
+        pytest.skip("Required project module not available")
+
+# Pattern 2: Test actual API behavior
+def test_api_behavior():
+    \"\"\"Test what the API actually does, not what we think it should do.\"\"\"
+    response = client.get('/actual/endpoint')
+    # Accept whatever status code is returned and test accordingly
+    if response.status_code == 200:
+        assert 'data' in response.json()
+    elif response.status_code == 400:
+        assert 'error' in response.json()
+    # Don't assert specific status codes - test the actual behavior
+
+# Pattern 3: Use real data flows
+def test_data_processing():
+    \"\"\"Test with real data through real processing pipelines.\"\"\"
+    input_data = universal_sample_data['string_data']
+    try:
+        processor = dynamic_import('processing', 'DataProcessor')
+        result = processor.process(input_data)
+        # Test the actual result, not a mocked one
+        assert isinstance(result, (str, dict, list))
+    except:
+        pytest.skip("Data processing components not available")
+AGNOSTIC PROJECT STRUCTURE HANDLING:
+
+No assumptions about package names ('myapp', 'app', etc.)
+
+No hardcoded import paths
+
+Works with flat structures, nested packages, or any layout
+
+Dynamically discovers what's actually available
+
+Uses sys.path to make project modules importable
 
 FOCUS TARGETS: {focus_label}
-
-CODEBASE ANALYSIS: {compact_json}
-
+PROJECT ANALYSIS: {compact_json}
 ADDITIONAL CONTEXT: {trimmed_context}
+UNIVERSAL SCAFFOLD: {UNIVERSAL_SCAFFOLD}
 
-ENHANCED SCAFFOLD: {ENHANCED_SCAFFOLD}
+GENERATE TESTS THAT:
 
-EXAMPLE SAFE TEST:
-```python
-def test_function():
-    try:
-        from module import Class
-    except (ImportError, Exception) as e:
-        pytest.skip(f"Import failed: {{e}}")
-    # test code here
-```
+Work with ANY Python project structure
 
-Generate tests with safe imports to prevent collection errors.
+Use REAL imports and REAL execution
+
+Test ACTUAL system behavior
+
+Are completely framework-agnostic
+
+Have minimal mocking (external dependencies only)
 """.strip()
-    
+
     return [
-        {"role": "system", "content": SYSTEM_MIN},
-        {"role": "user", "content": user_content},
+    {"role": "system", "content": SYSTEM_MIN},
+    {"role": "user", "content": user_content},
     ]

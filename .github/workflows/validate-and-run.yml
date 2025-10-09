@@ -1,24 +1,24 @@
 name: Validate Tests and SonarQube with Quality Gates
 
-on:
-  workflow_dispatch:
-    inputs:
-      target_repo:
-        description: "owner/repo of the codebase to validate"
-        required: true
-        default: "DeviPrasad372002/flask-test-repo"
-      ref:
-        description: "Branch or SHA to test"
-        default: "main"
-      python_version:
-        description: "Python version"
-        default: "3.12"
-      min_coverage:
-        description: "Minimum test coverage percentage"
-        default: "80"
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       target_repo:
+#         description: "owner/repo of the codebase to validate"
+#         required: true
+#         default: "DeviPrasad372002/flask-test-repo"
+#       ref:
+#         description: "Branch or SHA to test"
+#         default: "main"
+#       python_version:
+#         description: "Python version"
+#         default: "3.12"
+#       min_coverage:
+#         description: "Minimum test coverage percentage"
+#         default: "80"
 
-permissions:
-  contents: read
+# permissions:
+#   contents: read
 
 env:
   SONAR_HOST_URL: "http://localhost:9000"

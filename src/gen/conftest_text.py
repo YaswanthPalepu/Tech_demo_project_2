@@ -1,5 +1,4 @@
-# src/gen/conftest_text.py - COMPLETE drop-in replacement
-
+# src/gen/conftest_text.py - UPDATED with async support
 def conftest_text() -> str:
     """Repo-agnostic conftest that FORCES REAL IMPORTS for maximum coverage."""
     return '''"""
@@ -17,6 +16,7 @@ import types
 import importlib
 import inspect
 import pytest
+import asyncio
 from unittest.mock import patch
 
 # ---------------- General test env ----------------
@@ -76,31 +76,22 @@ try:
 except ImportError:
     pass
 
-@pytest.fixture(autouse=True)
-def _deterministic_setup():
-    """Auto-setup test environment based on detected framework."""
-    random.seed(42)
-    
-    # Auto-detect and setup database URLs
-    if not os.getenv('DATABASE_URL'):
-        os.environ['DATABASE_URL'] = 'sqlite:///./test.db'
-    
-    # Setup test mode flags
-    os.environ['TESTING'] = 'true'
-    os.environ['ENV'] = 'test'
-    os.environ['ENVIRONMENT'] = 'test'
-    
-    yield
-    
-    # Cleanup
-    if os.path.exists('test.db'):
-        try:
-            os.remove('test.db')
-        except:
-            pass
+# ---------------- Async Test Support ----------------
+try:
+    import pytest_asyncio
+    ASYNC_SUPPORT = True
+except ImportError:
+    ASYNC_SUPPORT = False
+    print("⚠️ pytest-asyncio not installed - async tests will be skipped")
+
+@pytest.fixture
+def event_loop():
+    """Create an instance of the default event loop for each test case."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
 
 # ---------------- EnhancedRenderer Definition ----------------
-# Define EnhancedRenderer as a simple standalone class to prevent any circular inheritance
 class EnhancedRenderer:
     """Enhanced renderer that always returns bytes - standalone implementation."""
     
@@ -119,6 +110,34 @@ class EnhancedRenderer:
             return str(data).encode("utf-8")
         except Exception:
             return b'{"error": "serialization_failed"}'
+
+# ---------------- Database Test Isolation ----------------
+@pytest.fixture(autouse=True)
+def _database_isolation():
+    """Auto-setup test environment with database isolation."""
+    random.seed(42)
+    
+    # Use in-memory SQLite for tests to prevent real DB access
+    os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
+    os.environ['TEST_DATABASE_URL'] = 'sqlite:///:memory:'
+    
+    # Setup test mode flags
+    os.environ['TESTING'] = 'true'
+    os.environ['ENV'] = 'test'
+    os.environ['ENVIRONMENT'] = 'test'
+    
+    # Mock database operations to prevent real DB access
+    with patch('sqlite3.connect'), \
+         patch('sqlalchemy.create_engine'), \
+         patch('django.db.connections'):
+        yield
+    
+    # Cleanup
+    if os.path.exists('test.db'):
+        try:
+            os.remove('test.db')
+        except:
+            pass
 
 # ---------------- REAL IMPORTS ONLY - NO STUBS ----------------
 # Stubs disabled to force real code execution for coverage
@@ -376,4 +395,19 @@ def authenticated_user():
     user.is_staff = False
     user.is_superuser = False
     return user
+
+# ---------------- Async Function Support ----------------
+def run_async(coro):
+    """Run async coroutine in sync context."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+@pytest.fixture
+def async_run():
+    """Fixture to run async functions in tests."""
+    return run_async
 '''

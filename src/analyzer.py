@@ -1,4 +1,4 @@
-# src/analyzer.py
+# src/analyzer.py - UNIVERSAL VERSION for any project structure
 import argparse
 import ast
 import json
@@ -6,9 +6,10 @@ import os
 import pathlib
 from typing import Any, Dict, List, Set, Tuple
 
+# Minimal skipping - only truly problematic directories
 SKIP_DIR_NAMES = {
     ".git", ".github", ".venv", "venv", "env", "node_modules", 
-    "__pycache__", ".mypy_cache", ".pytest_cache"
+    "__pycache__", ".mypy_cache", ".pytest_cache", "tests/generated"
 }
 
 def read_text(p: pathlib.Path) -> str:
@@ -20,22 +21,22 @@ def read_text(p: pathlib.Path) -> str:
         return ""
 
 def _should_skip(p: pathlib.Path, root: pathlib.Path) -> bool:
-    """Check if path should be skipped - MINIMAL skipping for max coverage."""
+    """Check if path should be skipped - UNIVERSAL skipping logic."""
     try:
         rel = p.relative_to(root)
     except Exception:
         return False
     
-    # Only skip generated test directory to avoid circular analysis
+    # Skip generated test directory to avoid circular analysis
     if "tests/generated" in str(rel):
         return True
     
-    # Check each part of the path - be VERY permissive
+    # Check each part of the path
     for part in rel.parts:
         if part in SKIP_DIR_NAMES:
             return True
-        # Skip only truly hidden directories (not .env, .config etc that might contain code)
-        if part.startswith('.') and part not in {'.', '..', '.env', '.config'}:
+        # Skip only truly hidden directories
+        if part.startswith('.') and part not in {'.', '..'}:
             return True
     
     return False
@@ -241,16 +242,17 @@ def _detect_fastapi_patterns(tree: ast.AST, file_path: str) -> List[Dict[str, An
 
 def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
     """
-    ULTIMATE analysis of Python codebase for 100% test coverage.
+    UNIVERSAL analysis of Python codebase for any project structure.
     
     Returns detailed information about ALL code elements.
     """
+    # UNIVERSAL: Find ALL Python files recursively
     files: List[pathlib.Path] = [
         p for p in root.rglob("*.py") 
         if p.is_file() and not _should_skip(p, root)
     ]
     
-    print(f"🔍 Analyzing {len(files)} Python files for MAXIMUM coverage...")
+    print(f"🔍 Analyzing {len(files)} Python files in project...")
     
     out = {
         "functions": [],
@@ -268,12 +270,17 @@ def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
             "urls": [],
             "middleware": [],
         },
-        "fastapi_routes": [],   # NEW: FastAPI specific routes
+        "fastapi_routes": [],
         "properties": [],       
         "async_functions": [],  
         "files_analyzed": [],   
-        "imports": [],          # NEW: Track all imports
-        "nested_functions": [], # NEW: Track nested functions
+        "imports": [],
+        "nested_functions": [],
+        "project_structure": {  # NEW: Track project structure for universal handling
+            "root": str(root),
+            "package_names": set(),
+            "module_paths": {}
+        }
     }
     
     for f in files:
@@ -286,6 +293,18 @@ def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
         except Exception as e:
             print(f"⚠️ Warning: Failed to parse {rel_path}: {e}")
             continue
+        
+        # Track project structure
+        dir_parts = pathlib.Path(rel_path).parts
+        if len(dir_parts) > 0:
+            # Track potential package names
+            first_dir = dir_parts[0]
+            if first_dir and not first_dir.startswith('.'):
+                out["project_structure"]["package_names"].add(first_dir)
+            
+            # Track module paths
+            module_path = rel_path.replace('/', '.').replace('.py', '')
+            out["project_structure"]["module_paths"][module_path] = rel_path
         
         # Track ALL top-level vs nested elements
         top_level_names = {
@@ -393,8 +412,11 @@ def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
     # Deduplicate and sort modules
     out["modules"] = sorted(set(out["modules"]))
     
+    # Convert set to list for JSON serialization
+    out["project_structure"]["package_names"] = list(out["project_structure"]["package_names"])
+    
     # Print comprehensive summary
-    print(f"\n🎯 ULTIMATE ANALYSIS COMPLETE:")
+    print(f"\n🎯 UNIVERSAL ANALYSIS COMPLETE:")
     print(f"   📁 Files analyzed: {len(out['files_analyzed'])}")
     print(f"   📊 Functions: {len(out['functions'])} (top-level)")
     print(f"   📊 Nested Functions: {len(out['nested_functions'])}")
@@ -410,12 +432,13 @@ def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
     print(f"   👀 Views/ViewSets: {len(out['django_patterns']['views']) + len(out['django_patterns']['viewsets'])}")
     print(f"   📋 Forms: {len(out['django_patterns']['forms'])}")
     print(f"   ⚙️  Admin: {len(out['django_patterns']['admin'])}")
+    print(f"   🏗️  Project packages: {len(out['project_structure']['package_names'])}")
     
     return out
 
 def main():
     ap = argparse.ArgumentParser(
-        description="ULTIMATE Python code analyzer for 100% test coverage generation"
+        description="UNIVERSAL Python code analyzer for any project structure"
     )
     ap.add_argument(
         "--root", 

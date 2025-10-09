@@ -1,5 +1,6 @@
 .venv
 myvenev/
+.myvenv
 .pytest_cache/
 __pycache__/
 .ipynb_checkpoints/
@@ -10,3 +11,6 @@ htmlcov/
 cov_html/
 ci/
 .venv
+myvenv/
+.coverage
+coverage.xml

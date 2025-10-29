@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Set, Tuple
 # Minimal skipping - only truly problematic directories
 SKIP_DIR_NAMES = {
     ".git", ".github", ".venv", "venv", "env", "node_modules", 
-    "__pycache__", ".mypy_cache", ".pytest_cache", "tests/generated"
+    "__pycache__", ".mypy_cache", ".pytest_cache", "tests/generated", "tests","test"
 }
 
 def read_text(p: pathlib.Path) -> str:
@@ -20,6 +20,7 @@ def read_text(p: pathlib.Path) -> str:
         print(f"Warning: Could not read {p}: {e}")
         return ""
 
+
 def _should_skip(p: pathlib.Path, root: pathlib.Path) -> bool:
     """Check if path should be skipped - UNIVERSAL skipping logic."""
     try:
@@ -27,9 +28,15 @@ def _should_skip(p: pathlib.Path, root: pathlib.Path) -> bool:
     except Exception:
         return False
     
+    # Enhanced test directory skipping - ANY directory containing 'test'
+    rel_parts = str(rel).lower().split('/')
+    if any('test' in part for part in rel_parts):
+        return True
+    
     # Skip generated test directory to avoid circular analysis
     if "tests/generated" in str(rel):
         return True
+    
     
     # Check each part of the path
     for part in rel.parts:
@@ -40,6 +47,11 @@ def _should_skip(p: pathlib.Path, root: pathlib.Path) -> bool:
             return True
     
     return False
+
+def _should_skip_file(file_path: pathlib.Path) -> bool:
+    """Check if specific file should be skipped."""
+    filename = file_path.name.lower()
+    return filename in {'wsgi.py', 'asgi.py', 'manage.py'}
 
 def _extract_route_info(dec) -> Dict[str, Any]:
     """Extract route information from ALL web framework decorators."""
@@ -248,10 +260,10 @@ def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
     """
     # UNIVERSAL: Find ALL Python files recursively
     files: List[pathlib.Path] = [
-        p for p in root.rglob("*.py") 
-        if p.is_file() and not _should_skip(p, root)
+    p for p in root.rglob("*.py") 
+    if p.is_file() and not _should_skip(p, root) and not _should_skip_file(p)
     ]
-    
+        
     print(f"🔍 Analyzing {len(files)} Python files in project...")
     
     out = {

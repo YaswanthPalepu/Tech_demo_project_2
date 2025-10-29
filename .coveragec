@@ -2,13 +2,17 @@
 source = conduit
 omit = 
     */tests/*
+    */test*
     */test_*
+    */testing/*
     */__pycache__/*
     */venv/*
     */env/*
     */site-packages/*
     */settings/*
-  
+    */wsgi.py
+    */asgi.py
+    */conftest.py
 
 [report]
 exclude_lines =

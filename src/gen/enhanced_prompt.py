@@ -69,6 +69,8 @@ import os
 from unittest.mock import patch, Mock, MagicMock
 from typing import Any, Dict, List, Optional
 
+os.environ['COVERAGE_OMIT_PATTERNS'] = 'tests/*,*/wsgi.py,*/asgi.py'
+
 # UNIVERSAL IMPORT SETUP - Works with any project structure
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:

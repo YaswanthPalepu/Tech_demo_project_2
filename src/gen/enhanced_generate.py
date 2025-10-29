@@ -367,45 +367,21 @@ def _fix_imports_for_universal_compatibility(code: str, target_root: pathlib.Pat
     
     return '\n'.join(fixed_lines)
 
+# In _gather_universal_context function, add test file filtering:
 def _gather_universal_context(target_root: pathlib.Path, analysis: Dict[str, Any],
                             focus_names: List[str], max_bytes: int = 120000) -> str:
     """Gather COMPLETE code context for universal project compatibility."""
     
-    def read_file_safe(path: pathlib.Path) -> str:
-        try:
-            return path.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            return ""
-    
-    def build_universal_index(items: List[Dict], name_key: str) -> Dict[str, Tuple[str, int, int]]:
-        index = {}
-        for item in items or []:
-            name = item.get(name_key)
-            if name:
-                class_name = item.get("class")
-                if class_name:
-                    name = f"{class_name}.{name}"
-                
-                file_path = item.get("file", "")
-                start_line = item.get("lineno", 1)
-                end_line = item.get("end_lineno", start_line)
-                index[name] = (file_path, start_line, end_line)
-        return index
-    
-    function_index = build_universal_index(analysis.get("functions", []), "name")
-    class_index = build_universal_index(analysis.get("classes", []), "name")
-    method_index = build_universal_index(analysis.get("methods", []), "name")
-    route_index = build_universal_index(analysis.get("routes", []), "handler")
-    
-    # Collect ALL relevant files
+    # Add test file filtering
     relevant_files = set()
     for target_name in focus_names:
         for index in [function_index, class_index, method_index, route_index]:
             if target_name in index:
                 file_rel, _, _ = index[target_name]
-                if file_rel:
+                if file_rel and not any(skip in file_rel.lower() for skip in ['test', 'wsgi.py', 'asgi.py']):
                     relevant_files.add(file_rel)
                 break
+
     
     # Also include files that import the target files
     imports_analysis = analysis.get("imports", [])

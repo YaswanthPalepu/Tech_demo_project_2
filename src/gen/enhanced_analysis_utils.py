@@ -22,8 +22,14 @@ COMMON_PKG_ALIASES = {
     "sklearn": "scikit-learn", "pandas": "pandas", "numpy": "numpy",
 }
 
-# Universal deny lists
-DENY_GENERIC = {"tests", "migrations", "__pycache__"}
+
+DENY_GENERIC = {"tests", "test", "migrations", "__pycache__", "testing", "test_"}
+
+def _is_local_module(top: str, analysis: Dict[str, Any]) -> bool:
+    """UNIVERSAL: Check if a module is local to the project."""
+    if 'test' in top.lower():
+        return True
+    
 
 DENY_TOPS = set(DENY_GENERIC) | {
     "__future__", "__main__", "builtins", "typing", "types", "dataclasses",

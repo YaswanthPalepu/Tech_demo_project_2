@@ -6,6 +6,9 @@ import os
 import pathlib
 from typing import Any, Dict, List, Set, Tuple
 
+# Import framework handlers
+from .framework_handlers.manager import FrameworkManager
+
 # Minimal skipping - only truly problematic directories
 SKIP_DIR_NAMES = {
     ".git", ".github", ".venv", "venv", "env", "node_modules", 
@@ -138,120 +141,6 @@ def _analyze_class_methods(cls_node: ast.ClassDef, file_path: str) -> List[Dict[
     
     return methods
 
-def _detect_django_patterns(tree: ast.AST, file_path: str) -> Dict[str, List[Dict[str, Any]]]:
-    """Detect Django-specific patterns and other framework patterns."""
-    patterns = {
-        "models": [],
-        "serializers": [],
-        "views": [],
-        "viewsets": [],
-        "forms": [],
-        "admin": [],
-        "urls": [],
-        "middleware": [],
-    }
-    
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-            
-        # Extract base class names
-        bases = []
-        for b in node.bases:
-            if isinstance(b, ast.Name):
-                bases.append(b.id)
-            elif isinstance(b, ast.Attribute):
-                bases.append(getattr(b, 'attr', ''))
-        
-        base_str = ' '.join(bases).lower()
-        
-        # Django Models
-        if (any("model" in b.lower() for b in bases) or 
-            node.name.lower().endswith('model')):
-            patterns["models"].append({
-                "name": node.name,
-                "file": file_path,
-                "lineno": getattr(node, "lineno", 1),
-                "type": "django_model",
-                "bases": bases
-            })
-        
-        # DRF Serializers
-        if (any("serializer" in b.lower() for b in bases) or
-            node.name.lower().endswith('serializer')):
-            patterns["serializers"].append({
-                "name": node.name,
-                "file": file_path,
-                "lineno": getattr(node, "lineno", 1),
-                "type": "serializer",
-                "bases": bases
-            })
-        
-        # DRF ViewSets
-        if (any("viewset" in b.lower() for b in bases) or
-            node.name.lower().endswith('viewset')):
-            patterns["viewsets"].append({
-                "name": node.name,
-                "file": file_path,
-                "lineno": getattr(node, "lineno", 1),
-                "type": "viewset",
-                "bases": bases
-            })
-        
-        # Django/DRF Views
-        if (any("view" in b.lower() or "apiview" in b.lower() for b in bases) or
-            node.name.lower().endswith('view')):
-            patterns["views"].append({
-                "name": node.name,
-                "file": file_path,
-                "lineno": getattr(node, "lineno", 1),
-                "type": "view",
-                "bases": bases
-            })
-        
-        # Django Forms
-        if (any("form" in b.lower() for b in bases) or
-            node.name.lower().endswith('form')):
-            patterns["forms"].append({
-                "name": node.name,
-                "file": file_path,
-                "lineno": getattr(node, "lineno", 1),
-                "type": "form",
-                "bases": bases
-            })
-        
-        # Django Admin
-        if (any("admin" in b.lower() for b in bases) or
-            node.name.lower().endswith('admin')):
-            patterns["admin"].append({
-                "name": node.name,
-                "file": file_path,
-                "lineno": getattr(node, "lineno", 1),
-                "type": "admin",
-                "bases": bases
-            })
-    
-    return patterns
-
-def _detect_fastapi_patterns(tree: ast.AST, file_path: str) -> List[Dict[str, Any]]:
-    """Detect FastAPI-specific patterns."""
-    fastapi_routes = []
-    
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for decorator in node.decorator_list:
-                route_info = _extract_route_info(decorator)
-                if route_info and route_info.get("path"):
-                    route_info.update({
-                        "handler": node.name,
-                        "file": file_path,
-                        "lineno": getattr(node, "lineno", 1),
-                        "end_lineno": getattr(node, "end_lineno", getattr(node, "lineno", 1)),
-                    })
-                    fastapi_routes.append(route_info)
-    
-    return fastapi_routes
-
 def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
     """
     UNIVERSAL analysis of Python codebase for any project structure.
@@ -264,7 +153,7 @@ def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
     if p.is_file() and not _should_skip(p, root) and not _should_skip_file(p)
     ]
         
-    print(f"🔍 Analyzing {len(files)} Python files in project...")
+    print(f"Analyzing {len(files)} Python files in project...")
     
     out = {
         "functions": [],
@@ -295,6 +184,9 @@ def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
         }
     }
     
+    # Initialize framework manager
+    framework_manager = FrameworkManager()
+    
     for f in files:
         rel_path = str(f.relative_to(root))
         out["files_analyzed"].append(rel_path)
@@ -303,7 +195,7 @@ def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
             code = read_text(f)
             tree = ast.parse(code)
         except Exception as e:
-            print(f"⚠️ Warning: Failed to parse {rel_path}: {e}")
+            print(f"Warning: Failed to parse {rel_path}: {e}")
             continue
         
         # Track project structure
@@ -324,13 +216,16 @@ def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
         }
         
-        # Detect ALL patterns first
-        django_patterns = _detect_django_patterns(tree, rel_path)
-        for pattern_type, items in django_patterns.items():
-            out["django_patterns"][pattern_type].extend(items)
-        
-        fastapi_routes = _detect_fastapi_patterns(tree, rel_path)
-        out["fastapi_routes"].extend(fastapi_routes)
+        # Use framework handlers for framework-specific analysis
+        for handler in framework_manager.get_all_handlers():
+            framework_specifics = handler.analyze_framework_specifics(tree, rel_path)
+            for key, value in framework_specifics.items():
+                if key in out and isinstance(out[key], list):
+                    out[key].extend(value)
+                elif key in out and isinstance(out[key], dict):
+                    for subkey, subvalue in value.items():
+                        if subkey in out[key] and isinstance(out[key][subkey], list):
+                            out[key][subkey].extend(subvalue)
         
         # Walk AST for ALL nodes
         for node in ast.walk(tree):
@@ -427,24 +322,30 @@ def analyze_python_tree(root: pathlib.Path) -> Dict[str, Any]:
     # Convert set to list for JSON serialization
     out["project_structure"]["package_names"] = list(out["project_structure"]["package_names"])
     
+    # Detect framework and add framework info
+    framework = framework_manager.detect_framework(out)
+    framework_info = framework_manager.get_framework_analysis(out)
+    out["framework_info"] = framework_info
+    
     # Print comprehensive summary
-    print(f"\n🎯 UNIVERSAL ANALYSIS COMPLETE:")
-    print(f"   📁 Files analyzed: {len(out['files_analyzed'])}")
-    print(f"   📊 Functions: {len(out['functions'])} (top-level)")
-    print(f"   📊 Nested Functions: {len(out['nested_functions'])}")
-    print(f"   🏗️  Classes: {len(out['classes'])}")
-    print(f"   🔧 Methods: {len(out['methods'])}")
-    print(f"   🌐 Routes: {len(out['routes'])}")
-    print(f"   ⚡ FastAPI Routes: {len(out['fastapi_routes'])}")
-    print(f"   📦 Properties: {len(out['properties'])}")
-    print(f"   🌀 Async functions: {len(out['async_functions'])}")
-    print(f"   🗃️  Imports tracked: {len(out['imports'])}")
-    print(f"   📈 Django models: {len(out['django_patterns']['models'])}")
-    print(f"   📝 Serializers: {len(out['django_patterns']['serializers'])}")
-    print(f"   👀 Views/ViewSets: {len(out['django_patterns']['views']) + len(out['django_patterns']['viewsets'])}")
-    print(f"   📋 Forms: {len(out['django_patterns']['forms'])}")
-    print(f"   ⚙️  Admin: {len(out['django_patterns']['admin'])}")
-    print(f"   🏗️  Project packages: {len(out['project_structure']['package_names'])}")
+    print(f"UNIVERSAL ANALYSIS COMPLETE:")
+    print(f"   Files analyzed: {len(out['files_analyzed'])}")
+    print(f"   Functions: {len(out['functions'])} (top-level)")
+    print(f"   Nested Functions: {len(out['nested_functions'])}")
+    print(f"   Classes: {len(out['classes'])}")
+    print(f"   Methods: {len(out['methods'])}")
+    print(f"   Routes: {len(out['routes'])}")
+    print(f"   FastAPI Routes: {len(out['fastapi_routes'])}")
+    print(f"   Properties: {len(out['properties'])}")
+    print(f"   Async functions: {len(out['async_functions'])}")
+    print(f"   Imports tracked: {len(out['imports'])}")
+    print(f"   Django models: {len(out['django_patterns']['models'])}")
+    print(f"   Serializers: {len(out['django_patterns']['serializers'])}")
+    print(f"   Views/ViewSets: {len(out['django_patterns']['views']) + len(out['django_patterns']['viewsets'])}")
+    print(f"   Forms: {len(out['django_patterns']['forms'])}")
+    print(f"   Admin: {len(out['django_patterns']['admin'])}")
+    print(f"   Project packages: {len(out['project_structure']['package_names'])}")
+    print(f"   Detected Framework: {framework}")
     
     return out
 
@@ -471,7 +372,7 @@ def main():
     root = pathlib.Path(args.root)
     
     if not root.exists():
-        print(f"❌ Error: Directory does not exist: {root}")
+        print(f"Error: Directory does not exist: {root}")
         return 1
     
     analysis = analyze_python_tree(root)
@@ -482,7 +383,7 @@ def main():
     if args.output:
         with open(args.output, 'w') as f:
             json.dump(analysis, f, indent=2)
-        print(f"\n💾 Analysis saved to: {args.output}")
+        print(f"Analysis saved to: {args.output}")
     else:
         print(json.dumps(analysis, indent=2))
     

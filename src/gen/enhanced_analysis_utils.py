@@ -11,6 +11,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .env import norm_rel
 
+# Import framework manager
+from ..framework_handlers.manager import FrameworkManager
+
 # Universal package mappings
 COMMON_PKG_ALIASES = {
     "pptx": "python-pptx", "flask": "flask", "flask_bcrypt": "flask-bcrypt",
@@ -92,12 +95,12 @@ def compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
     methods = sorted(methods, key=lambda x: (x.get("file", ""), x.get("lineno", 0)))
     all_routes = sorted(all_routes, key=lambda x: (x.get("file", ""), x.get("lineno", 0)))
     
-    print(f"🎯 UNIVERSAL TARGET INCLUSION:")
-    print(f"   📊 Functions: {len(all_functions)} (including {len(nested_functions)} nested)")
-    print(f"   🏗️  Classes: {len(classes)}")
-    print(f"   🔧 Methods: {len(methods)}")
-    print(f"   🌐 Routes: {len(all_routes)}")
-    print(f"   🏗️  Project Packages: {len(analysis.get('project_structure', {}).get('package_names', []))}")
+    print(f"UNIVERSAL TARGET INCLUSION:")
+    print(f"   Functions: {len(all_functions)} (including {len(nested_functions)} nested)")
+    print(f"   Classes: {len(classes)}")
+    print(f"   Methods: {len(methods)}")
+    print(f"   Routes: {len(all_routes)}")
+    print(f"   Project Packages: {len(analysis.get('project_structure', {}).get('package_names', []))}")
     
     return {
         "functions": all_functions,
@@ -147,7 +150,7 @@ def filter_by_files(analysis: Dict[str, Any], focus_files: Optional[Set[str]]) -
 
 def enhance_coverage_targeting(compact: Dict[str, Any]) -> Dict[str, Any]:
     """UNIVERSAL: Return targets as-is for maximum coverage."""
-    print("🎯 Using universal targeting - all targets included")
+    print("Using universal targeting - all targets included")
     return compact
 
 def infer_required_packages(compact: Dict[str, Any]) -> List[str]:
@@ -182,7 +185,7 @@ def infer_required_packages(compact: Dict[str, Any]) -> List[str]:
         
         # UNIVERSAL: Skip local modules using project structure detection
         if _is_local_module(top_module, compact):
-            print(f"   🔧 {top_module}: Local module (skipped pip install)")
+            print(f"   {top_module}: Local module (skipped pip install)")
             continue
         
         package_name = COMMON_PKG_ALIASES.get(top_module, top_module)
@@ -190,16 +193,16 @@ def infer_required_packages(compact: Dict[str, Any]) -> List[str]:
     
     packages_list = sorted(required_packages, key=str.lower)
     
-    print(f"📦 Inferred {len(packages_list)} external packages: {', '.join(packages_list)}")
+    print(f"Inferred {len(packages_list)} external packages: {', '.join(packages_list)}")
     return packages_list
 
 def pip_install(packages: List[str]) -> None:
     """Install packages with robust error handling - UNIVERSAL approach."""
     if not packages:
-        print("ℹ️ No external packages to install.")
+        print("No external packages to install.")
         return
     
-    print(f"📦 Installing packages: {', '.join(packages)}")
+    print(f"Installing packages: {', '.join(packages)}")
     
     successful_installs = []
     failed_installs = []
@@ -221,18 +224,18 @@ def pip_install(packages: List[str]) -> None:
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL)
             successful_installs.append(package)
-            print(f"   ✅ {package}")
+            print(f"   {package}")
         except subprocess.CalledProcessError:
             failed_installs.append(package)
-            print(f"   ❌ {package}: Installation failed")
+            print(f"   {package}: Installation failed")
         except Exception as e:
             failed_installs.append(package)
-            print(f"   ❌ {package}: {e}")
+            print(f"   {package}: {e}")
     
     if successful_installs:
-        print(f"✅ Successfully installed {len(successful_installs)} packages.")
+        print(f"Successfully installed {len(successful_installs)} packages.")
     if failed_installs:
-        print(f"⚠️ Failed to install {len(failed_installs)} packages (tests will use available packages)")
+        print(f"Failed to install {len(failed_installs)} packages (tests will use available packages)")
 
 # Keep other functions the same as they're already universal
 def prune_unavailable_targets(compact: Dict[str, Any]) -> Dict[str, Any]:
@@ -249,7 +252,7 @@ def validate_analysis_quality(analysis: Dict[str, Any]) -> Tuple[bool, str]:
     total_targets = len(functions) + len(classes) + len(methods) + len(routes)
     
     if total_targets == 0:
-        return False, "❌ No testable targets found"
+        return False, "No testable targets found"
     
     files_with_targets = set()
     for item in functions + classes + methods + routes:
@@ -257,8 +260,8 @@ def validate_analysis_quality(analysis: Dict[str, Any]) -> Tuple[bool, str]:
             files_with_targets.add(item["file"])
     
     if len(files_with_targets) == 0:
-        return False, "❌ No files contain identifiable targets"
+        return False, "No files contain identifiable targets"
     
-    status_msg = f"✅ Analysis valid: {total_targets} targets across {len(files_with_targets)} files"
+    status_msg = f"Analysis valid: {total_targets} targets across {len(files_with_targets)} files"
     
     return True, status_msg

@@ -17,6 +17,10 @@ from .smart_change import (
     prepare_for_generation, 
     finalize_generation)
 
+# Import framework handlers and orchestrator
+from ..framework_handlers.manager import FrameworkManager
+from ..test_generation.orchestrator import TestGenerationOrchestrator
+
 __all__ = ["generate_all", "main"]
 
 try:
@@ -95,7 +99,7 @@ def _setup_detected_frameworks():
     for module_name in project_modules:
         try:
             __import__(module_name)
-            print(f"✅ Detected and imported: {{module_name}}")
+            print(f"Detected and imported: {{module_name}}")
         except ImportError:
             continue
 
@@ -143,7 +147,7 @@ class UniversalTestUtils:
     @staticmethod
     def setup_universal_imports():
         """Setup universal imports for any project structure."""
-        print("🔍 UNIVERSAL: Setting up imports for any project structure")
+        print("UNIVERSAL: Setting up imports for any project structure")
     
     @staticmethod
     def generate_comprehensive_test_cases(target_name, target_type):
@@ -191,14 +195,14 @@ def _generate_with_universal_retry(messages: List[Dict], max_attempts: int = 5) 
         try:
             # Apply backoff delay
             if backoff_delays[attempt] > 0:
-                print(f"🔄 Retrying generation in {backoff_delays[attempt]} seconds...")
+                print(f"Retrying generation in {backoff_delays[attempt]} seconds...")
                 time.sleep(backoff_delays[attempt])
             
             # UNIVERSAL prompt enhancement for coverage on retry
             if attempt > 0:
                 coverage_reminder = {
                     "role": "user",
-                    "content": f"🚀 UNIVERSAL RETRY {attempt + 1}/{max_attempts}: Previous attempt failed. "
+                    "content": f"UNIVERSAL RETRY {attempt + 1}/{max_attempts}: Previous attempt failed. "
                                "CRITICAL: Generate tests for maximum COVERAGE that work with ANY PROJECT STRUCTURE. "
                                "Requirements:\n"
                                "1. Use absolute imports or proper relative imports\n"
@@ -269,30 +273,30 @@ def _generate_with_universal_retry(messages: List[Dict], max_attempts: int = 5) 
                 if final_valid:
                     return processed_code
                 else:
-                    print(f"⚠️ Post-processing validation failed: {final_error}, using original")
+                    print(f"Post-processing validation failed: {final_error}, using original")
                     return extracted_code
                     
             except Exception as process_error:
-                print(f"⚠️ Post-processing error: {process_error}, using original code")
+                print(f"Post-processing error: {process_error}, using original code")
                 return extracted_code
                 
         except RateLimitError as e:
             last_error = f"Rate limit exceeded: {e}"
-            print(f"⏳ Rate limit hit on attempt {attempt + 1}, backing off...")
+            print(f"Rate limit hit on attempt {attempt + 1}, backing off...")
             
         except APIError as e:
             last_error = f"API error: {e}"
             if hasattr(e, 'status_code') and e.status_code in [400, 401, 403]:
-                print(f"❌ Non-retryable API error: {e}")
+                print(f"Non-retryable API error: {e}")
                 break
-            print(f"🔄 API error on attempt {attempt + 1}, retrying...")
+            print(f"API error on attempt {attempt + 1}, retrying...")
             
         except Exception as e:
             last_error = f"API call failed: {e}"
-            print(f"🔄 Generation attempt {attempt + 1} failed: {e}")
+            print(f"Generation attempt {attempt + 1} failed: {e}")
     
     # If all attempts failed, raise with detailed error
-    raise RuntimeError(f"❌ UNIVERSAL test generation failed after {max_attempts} attempts. Last error: {last_error}")
+    raise RuntimeError(f"UNIVERSAL test generation failed after {max_attempts} attempts. Last error: {last_error}")
 
 def _optimize_for_universal_coverage(code: str) -> str:
     """Optimize generated code for universal project compatibility."""
@@ -367,21 +371,45 @@ def _fix_imports_for_universal_compatibility(code: str, target_root: pathlib.Pat
     
     return '\n'.join(fixed_lines)
 
-# In _gather_universal_context function, add test file filtering:
 def _gather_universal_context(target_root: pathlib.Path, analysis: Dict[str, Any],
                             focus_names: List[str], max_bytes: int = 120000) -> str:
     """Gather COMPLETE code context for universal project compatibility."""
     
-    # Add test file filtering
+    def read_file_safe(path: pathlib.Path) -> str:
+        try:
+            return path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            return ""
+    
+    def build_universal_index(items: List[Dict], name_key: str) -> Dict[str, Tuple[str, int, int]]:
+        index = {}
+        for item in items or []:
+            name = item.get(name_key)
+            if name:
+                class_name = item.get("class")
+                if class_name:
+                    name = f"{class_name}.{name}"
+                
+                file_path = item.get("file", "")
+                start_line = item.get("lineno", 1)
+                end_line = item.get("end_lineno", start_line)
+                index[name] = (file_path, start_line, end_line)
+        return index
+    
+    function_index = build_universal_index(analysis.get("functions", []), "name")
+    class_index = build_universal_index(analysis.get("classes", []), "name")
+    method_index = build_universal_index(analysis.get("methods", []), "name")
+    route_index = build_universal_index(analysis.get("routes", []), "handler")
+    
+    # Collect ALL relevant files
     relevant_files = set()
     for target_name in focus_names:
         for index in [function_index, class_index, method_index, route_index]:
             if target_name in index:
                 file_rel, _, _ = index[target_name]
-                if file_rel and not any(skip in file_rel.lower() for skip in ['test', 'wsgi.py', 'asgi.py']):
+                if file_rel:
                     relevant_files.add(file_rel)
                 break
-
     
     # Also include files that import the target files
     imports_analysis = analysis.get("imports", [])
@@ -449,26 +477,26 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     from .enhanced_prompt import build_prompt, files_per_kind, focus_for
     from .writer import update_manifest, write_text
     
-    print("🚀 UNIVERSAL test generation for ANY PROJECT STRUCTURE...")
+    print("UNIVERSAL test generation for ANY PROJECT STRUCTURE...")
     
     output_dir = pathlib.Path(outdir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
     target_root = pathlib.Path(os.environ.get("TARGET_ROOT", "target"))
     if not target_root.exists():
-        raise RuntimeError(f"❌ Target directory not found: {target_root}")
+        raise RuntimeError(f"Target directory not found: {target_root}")
     
     # UNIVERSAL: Ensure target root is in Python path
     if str(target_root) not in sys.path:
         sys.path.insert(0, str(target_root))
     
     conftest_path = _create_universal_conftest(output_dir, target_root)
-    print(f"✅ Created universal conftest: {conftest_path}")
+    print(f"Created universal conftest: {conftest_path}")
     
     should_generate, changed_files, deleted_files = should_generate_tests(str(target_root))
     
     if not should_generate:
-        print("ℹ️ No changes detected")
+        print("No changes detected")
         return []
     
     prepare_for_generation(str(target_root), changed_files, deleted_files)
@@ -487,29 +515,29 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     compact = enhance_coverage_targeting(compact)
     
     # Install ONLY external packages for real imports
-    print("🔍 Analyzing required packages...")
+    print("Analyzing required packages...")
     required_packages = infer_required_packages(compact)
     
     if required_packages:
-        print(f"📦 Installing {len(required_packages)} external packages...")
+        print(f"Installing {len(required_packages)} external packages...")
         pip_install(required_packages)
     else:
-        print("✅ No external packages need installation")
+        print("No external packages need installation")
     
     total_targets = sum(len(compact.get(key, [])) 
                        for key in ["functions", "classes", "methods", "routes"])
     
     if total_targets == 0:
-        raise RuntimeError("❌ No testable targets found")
+        raise RuntimeError("No testable targets found")
     
-    print(f"🎯 UNIVERSAL COVERAGE TARGETS:")
-    print(f"   📊 Functions: {len(compact.get('functions', []))}")
-    print(f"   🏗️  Classes: {len(compact.get('classes', []))}")
-    print(f"   🔧 Methods: {len(compact.get('methods', []))}")
-    print(f"   🌐 Routes: {len(compact.get('routes', []))}")
-    print(f"   📈 Total Targets: {total_targets}")
-    print(f"   🎯 Expected Coverage: Maximum")
-    print(f"   🏗️  Project Structure: Universal compatibility")
+    print(f"UNIVERSAL COVERAGE TARGETS:")
+    print(f"   Functions: {len(compact.get('functions', []))}")
+    print(f"   Classes: {len(compact.get('classes', []))}")
+    print(f"   Methods: {len(compact.get('methods', []))}")
+    print(f"   Routes: {len(compact.get('routes', []))}")
+    print(f"   Total Targets: {total_targets}")
+    print(f"   Expected Coverage: Maximum")
+    print(f"   Project Structure: Universal compatibility")
     
     has_routes = bool(compact.get("routes"))
     test_kinds = ["unit", "integ"]
@@ -525,7 +553,7 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
         if num_files <= 0:
             continue
         
-        print(f"🔥 Generating {num_files} {test_kind.upper()} test files for universal compatibility...")
+        print(f"Generating {num_files} {test_kind.upper()} test files for universal compatibility...")
         
         for file_index in range(num_files):
             try:
@@ -534,7 +562,7 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
                 if not focus_names:
                     continue
                 
-                print(f"🎯 Generating {test_kind} test {file_index + 1}/{num_files} for {len(focus_names)} targets")
+                print(f"Generating {test_kind} test {file_index + 1}/{num_files} for {len(focus_names)} targets")
                 
                 context = _gather_universal_context(target_root, filtered_analysis, focus_names)
                 
@@ -551,10 +579,10 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
                 
                 write_text(file_path, test_code)
                 generated_files.append(str(file_path))
-                print(f"  ✅ {filename} - {len(focus_names)} targets")
+                print(f"  {filename} - {len(focus_names)} targets")
                 
             except Exception as e:
-                print(f"  ❌ Error generating {test_kind} test {file_index + 1}: {e}")
+                print(f"  Error generating {test_kind} test {file_index + 1}: {e}")
                 traceback.print_exc()
     
     if generated_files and changed_files:
@@ -571,11 +599,11 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     update_manifest(output_dir, generated_files, change_summary)
     
     if generated_files:
-        print(f"\n🎉 UNIVERSAL GENERATION COMPLETE: {len(generated_files)} test files")
-        print(f"📈 Expected Coverage: Maximum with REAL IMPORTS")
-        print(f"🔧 Universal Compatibility: ✅ ENABLED")
-        print(f"🎯 Targets Covered: {total_targets}")
-        print(f"🏗️  Project Structure: {len(analysis.get('project_structure', {}).get('package_names', []))} packages detected")
+        print(f"UNIVERSAL GENERATION COMPLETE: {len(generated_files)} test files")
+        print(f"Expected Coverage: Maximum with REAL IMPORTS")
+        print(f"Universal Compatibility: ENABLED")
+        print(f"Targets Covered: {total_targets}")
+        print(f"Project Structure: {len(analysis.get('project_structure', {}).get('package_names', []))} packages detected")
     
     return generated_files
 
@@ -591,9 +619,9 @@ def _validate_and_fix_test_code(code: str, filename: str) -> str:
         if is_valid:
             return processed_code
         else:
-            print(f"⚠️ Massaged code still invalid for {filename}: {error}")
+            print(f"Massaged code still invalid for {filename}: {error}")
     except Exception as e:
-        print(f"⚠️ Error during massage for {filename}: {e}")
+        print(f"Error during massage for {filename}: {e}")
     
     # If massage failed, try basic fixes
     try:
@@ -616,12 +644,12 @@ def _validate_and_fix_test_code(code: str, filename: str) -> str:
         if is_valid:
             return fixed_code
         else:
-            print(f"⚠️ Basic fixes failed for {filename}: {error}")
+            print(f"Basic fixes failed for {filename}: {error}")
     except Exception as e:
-        print(f"⚠️ Error during basic fixes for {filename}: {e}")
+        print(f"Error during basic fixes for {filename}: {e}")
     
     # Last resort: return original code with warning
-    print(f"❌ All fixes failed for {filename}, using original code (may have syntax errors)")
+    print(f"All fixes failed for {filename}, using original code (may have syntax errors)")
     return f"# WARNING: This file may contain syntax errors\n# Generation system could not fix all issues\n\n{code}"
 
 def main():
@@ -682,6 +710,12 @@ FEATURES:
         help="Analyze code but don't generate tests"
     )
     
+    parser.add_argument(
+        "--use-orchestrator",
+        action="store_true",
+        help="Use the new orchestrator for test generation"
+    )
+    
     args = parser.parse_args()
     
     # Set UNIVERSAL environment variables
@@ -694,70 +728,87 @@ FEATURES:
     # Validate target
     target_path = pathlib.Path(args.target)
     if not target_path.exists():
-        print(f"❌ Target directory not found: {target_path}")
+        print(f"Target directory not found: {target_path}")
         return 1
     
     # UNIVERSAL: Find Python files recursively
     python_files = list(target_path.rglob("*.py"))
     if not python_files:
-        print(f"❌ No Python files found in: {target_path} (searched recursively)")
+        print(f"No Python files found in: {target_path} (searched recursively)")
         return 1
     
-    print(f"✅ Found {len(python_files)} Python files in target directory")
-    print(f"🏗️  Project structure: Universal compatibility enabled")
+    print(f"Found {len(python_files)} Python files in target directory")
+    print(f"Project structure: Universal compatibility enabled")
     
     try:
-        # Import UNIVERSAL analyzer
+        if args.use_orchestrator:
+            # Use the new orchestrator
+            print("Using new test generation orchestrator...")
+            orchestrator = TestGenerationOrchestrator(
+                target_root=target_path,
+                output_dir=pathlib.Path(args.outdir)
+            )
+            
+            result = orchestrator.orchestrate_generation(force_regeneration=args.force)
+            
+            if result["success"]:
+                print("Test generation completed successfully using orchestrator!")
+                return 0
+            else:
+                print(f"Test generation failed: {result['error']}")
+                return 1
+        
+        # Legacy path using original enhanced_generate
         try:
             from src.analyzer import analyze_python_tree
         except ImportError:
             try:
                 from analyzer import analyze_python_tree  
             except ImportError:
-                print("❌ Could not import analyzer module")
+                print("Could not import analyzer module")
                 return 1
         
-        print(f"🔍 UNIVERSAL analysis for ANY PROJECT STRUCTURE in: {target_path}")
+        print(f"UNIVERSAL analysis for ANY PROJECT STRUCTURE in: {target_path}")
         analysis_result = analyze_python_tree(target_path)
         
         if args.dry_run:
-            print("🔍 UNIVERSAL DRY RUN - Project analysis complete")
-            print(f"📊 UNIVERSAL Analysis Summary:")
-            print(f"   📊 Functions: {len(analysis_result.get('functions', []))}")
-            print(f"   🏗️  Classes: {len(analysis_result.get('classes', []))}")
-            print(f"   🔧 Methods: {len(analysis_result.get('methods', []))}")
-            print(f"   🌐 Routes: {len(analysis_result.get('routes', []))}")
-            print(f"   📦 Modules: {len(analysis_result.get('modules', []))}")
-            print(f"   🏗️  Packages: {len(analysis_result.get('project_structure', {}).get('package_names', []))}")
-            print(f"   🎯 Coverage Mode: {args.coverage_mode}")
-            print(f"   🔧 Universal Compatibility: ✅ ENABLED")
+            print("UNIVERSAL DRY RUN - Project analysis complete")
+            print(f"UNIVERSAL Analysis Summary:")
+            print(f"   Functions: {len(analysis_result.get('functions', []))}")
+            print(f"   Classes: {len(analysis_result.get('classes', []))}")
+            print(f"   Methods: {len(analysis_result.get('methods', []))}")
+            print(f"   Routes: {len(analysis_result.get('routes', []))}")
+            print(f"   Modules: {len(analysis_result.get('modules', []))}")
+            print(f"   Packages: {len(analysis_result.get('project_structure', {}).get('package_names', []))}")
+            print(f"   Coverage Mode: {args.coverage_mode}")
+            print(f"   Universal Compatibility: ENABLED")
             return 0
         
         # Generate UNIVERSAL tests
-        print(f"🚀 Starting UNIVERSAL test generation with {args.coverage_mode} coverage mode...")
+        print(f"Starting UNIVERSAL test generation with {args.coverage_mode} coverage mode...")
         generated_files = generate_all(analysis_result, outdir=args.outdir)
         
         if generated_files:
-            print(f"\n🎉 UNIVERSAL TEST GENERATION SUCCESSFUL!")
-            print(f"📊 UNIVERSAL Results:")
-            print(f"   📁 Generated: {len(generated_files)} test files")
-            print(f"   🎯 Coverage Mode: {args.coverage_mode}")
-            print(f"   🔧 Universal Compatibility: ✅ ENABLED")
-            print(f"   🎯 Targets Covered: {sum(len(analysis_result.get(key, [])) for key in ['functions', 'classes', 'methods', 'routes'])}")
-            print(f"   🏗️  Project Structure: Universal handling enabled")
+            print(f"UNIVERSAL TEST GENERATION SUCCESSFUL!")
+            print(f"UNIVERSAL Results:")
+            print(f"   Generated: {len(generated_files)} test files")
+            print(f"   Coverage Mode: {args.coverage_mode}")
+            print(f"   Universal Compatibility: ENABLED")
+            print(f"   Targets Covered: {sum(len(analysis_result.get(key, [])) for key in ['functions', 'classes', 'methods', 'routes'])}")
+            print(f"   Project Structure: Universal handling enabled")
             
-            print(f"\n🚀 Run UNIVERSAL Tests:")
+            print(f"Run UNIVERSAL Tests:")
             print(f"   Basic: python -m pytest {args.outdir} -v")
             print(f"   Coverage: python -m pytest {args.outdir} --cov=. --cov-report=html")
             print(f"   Universal: PYTHONPATH={args.target} python -m pytest {args.outdir}")
             
             return 0
         else:
-            print("\n⚠️  No tests generated")
+            print("No tests generated")
             return 1
             
     except Exception as e:
-        print(f"❌ UNIVERSAL test generation failed: {e}")
+        print(f"UNIVERSAL test generation failed: {e}")
         if os.getenv("TESTGEN_DEBUG", "0").lower() in ("1", "true"):
             traceback.print_exc()
         return 1

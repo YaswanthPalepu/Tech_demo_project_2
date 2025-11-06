@@ -131,7 +131,11 @@ def filter_by_files(analysis: Dict[str, Any], focus_files: Optional[Set[str]]) -
     # Also track imports from focus files
     focus_imports = []
     for imp in analysis.get("imports", []):
-        if should_keep(imp):
+        if isinstance(imp, dict):
+            if should_keep(imp):
+                focus_imports.append(imp)
+        else:
+            # keep string imports as-is
             focus_imports.append(imp)
     
     filtered = {
@@ -265,3 +269,97 @@ def validate_analysis_quality(analysis: Dict[str, Any]) -> Tuple[bool, str]:
     status_msg = f"Analysis valid: {total_targets} targets across {len(files_with_targets)} files"
     
     return True, status_msg
+
+
+def _normalize_imports_list(imports: List[Any]) -> List[Any]:
+    """
+    Accepts a heterogeneous list (strings OR dicts) and returns the same list,
+    but guarantees entries are either str or dict with the expected keys.
+    """
+    norm: List[Any] = []
+    for imp in imports or []:
+        if isinstance(imp, (str, bytes)):
+            # keep simple module strings as str
+            norm.append(imp if isinstance(imp, str) else imp.decode("utf-8", "ignore"))
+        elif isinstance(imp, dict):
+            norm.append(imp)
+        else:
+            # Unknown shape; stringify to keep things moving without crashing
+            norm.append(str(imp))
+    return norm
+
+def infer_required_packages(compact: Dict[str, Any]) -> List[str]:  # type: ignore[override]
+    """
+    SAFER override:
+    - Handles imports as strings *or* dicts.
+    - Ignores stdlib and clearly-local modules.
+    - Maps common aliases (e.g., PIL -> Pillow).
+    """
+    modules = compact.get("modules", []) or []
+    imports_raw = compact.get("imports", []) or []
+    imports = _normalize_imports_list(imports_raw)
+
+    required_packages: Set[str] = set()
+
+    # Collect all imported module names
+    all_imports: Set[str] = set()
+    # 1) simple modules list
+    for m in modules:
+        if isinstance(m, str) and m.strip():
+            all_imports.add(m.strip())
+
+    # 2) analyzer "imports" (strings or dicts)
+    for imp in imports:
+        if isinstance(imp, str):
+            if imp.strip():
+                all_imports.add(imp.strip())
+            continue
+        if not isinstance(imp, dict):
+            # fall back to string form
+            all_imports.add(str(imp))
+            continue
+
+        typ = imp.get("type")
+        if typ == "import":
+            mods = imp.get("modules", [])
+            for m in mods or []:
+                if isinstance(m, str) and m.strip():
+                    all_imports.add(m.strip())
+        elif typ == "import_from":
+            mod = imp.get("module")
+            if isinstance(mod, str) and mod.strip():
+                all_imports.add(mod.strip())
+        else:
+            # unknown shape; try best-effort keys
+            for k in ("module", "modules"):
+                v = imp.get(k)
+                if isinstance(v, str) and v.strip():
+                    all_imports.add(v.strip())
+                elif isinstance(v, list):
+                    for s in v:
+                        if isinstance(s, str) and s.strip():
+                            all_imports.add(s.strip())
+
+    # Decide which need pip installs
+    for module_name in sorted(all_imports):
+        if not module_name or module_name.startswith("_"):
+            continue
+
+        top = module_name.split(".", 1)[0].strip()
+        if (not top) or (top in DENY_TOPS) or any(ch.isupper() for ch in top):
+            continue
+        if _is_stdlib(top):
+            continue
+        if _is_local_module(top, compact):
+            print(f"   {top}: Local module (skipped pip install)")
+            continue
+
+        pkg = COMMON_PKG_ALIASES.get(top, top)
+        required_packages.add(pkg)
+
+    packages_list = sorted(required_packages, key=str.lower)
+    if packages_list:
+        print(f"Inferred {len(packages_list)} external packages: {', '.join(packages_list)}")
+    else:
+        print("Inferred 0 external packages.")
+    return packages_list

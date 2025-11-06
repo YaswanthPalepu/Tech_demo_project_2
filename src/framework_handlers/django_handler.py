@@ -1006,6 +1006,11 @@ def test_admin_module_import_smoke():
             })
         
         return django_tests
+    
+    def can_handle(self, analysis: Dict[str, Any]) -> bool:
+        # Guard: analysis might not be a dict
+        if not isinstance(analysis, dict):
+            return False
 
     # New: helper to recommend pytest markers for Django async views/DB usage
     def recommended_pytest_markers(self, analysis: Dict[str, Any]) -> List[str]:

@@ -138,7 +138,7 @@ def temp_file_fixture():
 @pytest.fixture
 def mock_external_apis():
     """ONLY mock external APIs, never internal project code."""
-    with patch('requests.get') as mock_get, \\
+    with patch('requests.get') as mock_get, \
          patch('requests.post') as mock_post:
         # Setup default responses for external APIs
         mock_get.return_value.status_code = 200
@@ -257,169 +257,200 @@ def focus_for(compact: Dict[str, Any], kind: str, shard_idx: int, total_shards: 
 
 def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int,
                  compact: Dict[str, Any], context: str = "") -> List[Dict[str, str]]:
-    
+    """
+    Override build_prompt with defensive clarification to prevent pytest
+    collection errors like:
+      "function uses no argument 'expected_redirect_name'"
+    """
     test_instructions = {
-        "unit": UNIT_ENHANCED, 
-        "integ": INTEG_ENHANCED, 
+        "unit": UNIT_ENHANCED,
+        "integ": INTEG_ENHANCED,
         "e2e": E2E_ENHANCED
     }
     dev_instructions = test_instructions.get(kind, UNIT_ENHANCED)
-    
-    max_ctx = 60000  
+    max_ctx = 60000
     trimmed_context = context[:max_ctx] if context else ""
-    
+
     user_content = f"""
 UNIVERSAL {kind.upper()} TEST GENERATION - FILE {shard + 1}/{total}
-WORKS WITH ANY PYTHON PROJECT STRUCTURE
 
 {dev_instructions}
 
-CRITICAL UNIVERSAL REQUIREMENTS:
-1. USE REAL IMPORTS AND REAL CODE EXECUTION
-2. Be completely agnostic to project structure and frameworks
-3. Only mock EXTERNAL dependencies (APIs, databases, network calls)
-4. NEVER mock internal project code or Python built-ins
-5. Use dynamic import discovery for any project structure
-6. Test ACTUAL behavior, not assumed behavior
+CRITICAL PARAMETRIZATION REQUIREMENTS:
+- If you use @pytest.mark.parametrize, ensure **EVERY parameter listed there**
+  appears in the test function's signature. (Avoid pytest collection errors.)
+- Do NOT parametrize unused names.
+- When in doubt, rename or drop unused parameters.
 
-CRITICAL CODE STRUCTURE REQUIREMENTS:
-1. ALWAYS indent code blocks properly after colons
-2. Use 4 spaces for indentation, never mix tabs and spaces
-3. Ensure every 'if', 'for', 'while', 'def', 'class', 'with', 'try' block has properly indented content
-4. Never put unindented code immediately after a colon
-
-REAL CODE EXECUTION STRATEGY:
-- Import and use whatever modules/functions actually exist in the project
-- Test with real data and real execution paths
-- Use sys.path modification to handle any project structure
-- Skip tests gracefully when dependencies aren't available
-- Verify actual system behavior, not mocked fantasies
-
-PROPER INDENTATION EXAMPLES:
-```python
-# CORRECT: Properly indented after if statement
-if condition:
-    try:
-        # code here
-    except:
-        pass
-
-# INCORRECT: Unindented after if statement  
-if condition:
-try:  # THIS WILL CAUSE SYNTAX ERROR
-    # code here
-
-# CORRECT: All blocks properly indented
-def test_function():
-    if some_condition:
-        for item in items:
-            try:
-                result = process(item)
-            except Exception:
-                handle_error()
-DYNAMIC IMPORT PATTERNS FOR ANY PROJECT:
-
-
-
-def test_with_real_imports():
-    \"\"\"Universal test pattern that works with any project.\"\"\"
-    # Try to import whatever actually exists
-    target_module = None
-    target_class = None
-    
-    # Try common module patterns
-    for module_name in ['app', 'main', 'application', 'models', 'services']:
-        try:
-            target_module = safe_import(module_name)
-            break
-        except:
-            continue
-    
-    if target_module is None:
-        pytest.skip("No importable modules found in project")
-    
-    # Use the actual imported module for testing
-    # Test real behavior with real data
-MINIMAL MOCKING GUIDELINES:
-
-
-# ONLY mock external dependencies:
-with patch('requests.get') as mock_api:
-    mock_api.return_value.status_code = 200
-    # test code that uses external API
-
-# NEVER mock internal code or Python built-ins:
-# with patch('time.time'):  # DON'T DO THIS!
-# with patch('os.path.exists'):  # DON'T DO THIS!
-
-# Use real internal implementations:
-result = actual_function_under_test(real_parameters)
-UNIVERSAL TEST PATTERNS:
-
-
-# Pattern 1: Real imports with graceful fallbacks
-def test_real_implementation():
-    try:
-        from actual_project_module import RealClass
-        instance = RealClass()
-        result = instance.actual_method('test_input')
-        assert result is not None
-    except ImportError:
-        pytest.skip("Required project module not available")
-
-# Pattern 2: Test actual API behavior
-def test_api_behavior():
-    \"\"\"Test what the API actually does, not what we think it should do.\"\"\"
-    response = client.get('/actual/endpoint')
-    # Accept whatever status code is returned and test accordingly
-    if response.status_code == 200:
-        assert 'data' in response.json()
-    elif response.status_code == 400:
-        assert 'error' in response.json()
-    # Don't assert specific status codes - test the actual behavior
-
-# Pattern 3: Use real data flows
-def test_data_processing():
-    \"\"\"Test with real data through real processing pipelines.\"\"\"
-    input_data = universal_sample_data['string_data']
-    try:
-        processor = dynamic_import('processing', 'DataProcessor')
-        result = processor.process(input_data)
-        # Test the actual result, not a mocked one
-        assert isinstance(result, (str, dict, list))
-    except:
-        pytest.skip("Data processing components not available")
-AGNOSTIC PROJECT STRUCTURE HANDLING:
-
-No assumptions about package names ('myapp', 'app', etc.)
-
-No hardcoded import paths
-
-Works with flat structures, nested packages, or any layout
-
-Dynamically discovers what's actually available
-
-Uses sys.path to make project modules importable
+OTHER UNIVERSAL REQUIREMENTS:
+1. Use REAL imports and execution.
+2. Framework-agnostic (works with Django, Flask, FastAPI, etc.).
+3. Test real code paths and edge cases.
+4. Never generate stubs or placeholder asserts.
+5. Ensure syntactically valid, runnable pytest code.
 
 FOCUS TARGETS: {focus_label}
 PROJECT ANALYSIS: {compact_json}
 ADDITIONAL CONTEXT: {trimmed_context}
 UNIVERSAL SCAFFOLD: {UNIVERSAL_SCAFFOLD}
-
-GENERATE TESTS THAT:
-
-Work with ANY Python project structure
-
-Use REAL imports and REAL execution
-
-Test ACTUAL system behavior
-
-Are completely framework-agnostic
-
-Have minimal mocking (external dependencies only)
 """.strip()
 
     return [
-    {"role": "system", "content": SYSTEM_MIN},
-    {"role": "user", "content": user_content},
+        {"role": "system", "content": SYSTEM_MIN},
+        {"role": "user", "content": user_content},
+    ]
+
+def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int,
+                 compact: Dict[str, Any], context: str = "") -> List[Dict[str, str]]:
+    """
+    Append-only override: reinforce rules that avoid invalid function calls and
+    pytest collection errors. Keeps all earlier behavior but adds stronger
+    guidance to the LLM.
+    """
+    SYSTEM_MIN_LOCAL = SYSTEM_MIN  # reuse existing
+    test_instructions = {
+        "unit": UNIT_ENHANCED,
+        "integ": INTEG_ENHANCED,
+        "e2e": E2E_ENHANCED
+    }
+    dev_instructions = test_instructions.get(kind, UNIT_ENHANCED)
+    max_ctx = 60000
+    trimmed_context = context[:max_ctx] if context else ""
+
+    user_content = f"""
+UNIVERSAL {kind.upper()} TEST GENERATION - FILE {shard + 1}/{total}
+
+{dev_instructions}
+
+CRITICAL PARAMETRIZATION REQUIREMENTS:
+- If you use @pytest.mark.parametrize, every parameter listed there MUST also
+  appear in the test function's signature. Do NOT parametrize unused names.
+
+CRITICAL CALL-SAFETY REQUIREMENTS:
+- Do NOT repeat the same keyword argument in a single call
+  (e.g., use Mock(name="x") only once; never Mock(name="x", name="y")).
+- Ensure all function calls are syntactically valid Python.
+
+OTHER UNIVERSAL REQUIREMENTS:
+1. Use REAL imports and execution (no stubs).
+2. Framework-agnostic (Django/Flask/FastAPI/vanilla Python).
+3. Cover success paths, failures, and edge cases.
+4. Avoid placeholder asserts.
+5. Only output runnable Python code (no markdown).
+
+FOCUS TARGETS: {focus_label}
+PROJECT ANALYSIS: {compact_json}
+ADDITIONAL CONTEXT (TRIMMED): {trimmed_context}
+
+{UNIVERSAL_SCAFFOLD}
+""".strip()
+
+    return [
+        {"role": "system", "content": SYSTEM_MIN_LOCAL},
+        {"role": "user", "content": user_content},
+    ]
+
+
+
+def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int,
+                 compact: Dict[str, Any], context: str = "") -> List[Dict[str, str]]:
+    """
+    Final override (append-only): steer generation toward Django-correct patterns.
+    """
+    SYSTEM_MIN_LOCAL = SYSTEM_MIN
+    test_instructions = {"unit": UNIT_ENHANCED, "integ": INTEG_ENHANCED, "e2e": E2E_ENHANCED}
+    dev_instructions = test_instructions.get(kind, UNIT_ENHANCED)
+    max_ctx = 60000
+    trimmed_context = context[:max_ctx] if context else ""
+
+    user_content = f"""
+UNIVERSAL {kind.upper()} TEST GENERATION - FILE {shard + 1}/{total}
+
+{dev_instructions}
+
+DJANGO-SPECIFIC RULES (when Django is detected):
+- Use RequestFactory (not SimpleNamespace/DummyRequest) to build HttpRequest.
+- When setting request.POST/GET, use QueryDict (or helper) so .getlist works.
+- If tests touch models/querysets, mark tests with pytest.mark.django_db.
+- Prefer asserting substrings in response.content/HttpResponse, avoid strict equality to full HTML.
+- Do NOT set arbitrary .object_list lists unless you wrap them in a queryset-like with .order_by/.all.
+
+CRITICAL PARAMETRIZATION REQUIREMENTS:
+- Every name in @pytest.mark.parametrize MUST appear in the function signature.
+
+CRITICAL CALL-SAFETY REQUIREMENTS:
+- Never repeat the same keyword in a call (e.g., Mock(name=...) only once).
+- Generate syntactically valid Python.
+
+FOCUS TARGETS: {focus_label}
+PROJECT ANALYSIS: {compact_json}
+ADDITIONAL CONTEXT (TRIMMED): {trimmed_context}
+
+{UNIVERSAL_SCAFFOLD}
+""".strip()
+
+    return [
+        {"role": "system", "content": SYSTEM_MIN_LOCAL},
+        {"role": "user", "content": user_content},
+    ]
+
+
+
+def _merge_universal_text():
+    # combines the strongest parts of the prior variants
+    return (
+        "UNIVERSAL REQUIREMENTS:\n"
+        "1) Use REAL imports and execution; no stubs.\n"
+        "2) Test success, failure, and edge cases (None/empty/invalid).\n"
+        "3) Multiple test methods per target; aim high coverage.\n"
+        "4) Only output runnable Python (no markdown).\n"
+        "5) @pytest.mark.parametrize: EVERY name listed MUST appear in the test "
+        "   function signature. Do NOT parametrize unused names.\n"
+        "6) Call-safety: Never repeat the same keyword in a single call "
+        "   (e.g., Mock(name=...) only once). Ensure all calls are valid Python.\n"
+        "\n"
+        "DJANGO RULES (when Django is present):\n"
+        "- Build requests with RequestFactory (not SimpleNamespace/DummyRequest).\n"
+        "- Use QueryDict (or helper) for request.POST/GET so .getlist works.\n"
+        "- If touching models/querysets, mark with pytest.mark.django_db.\n"
+        "- Prefer substring assertions (response/content), avoid strict HTML equality.\n"
+        "- Don’t fabricate .object_list as raw lists; use queryset-like objects "
+        "  (supporting .order_by/.all) when needed.\n"
+    )
+
+def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int,
+                 compact: Dict[str, Any], context: str = "") -> List[Dict[str, str]]:
+    """
+    Final, unified override (append-only).
+    This merges: (a) parametrize-safety, (b) call-safety, and (c) Django-aware guidance.
+    The LAST definition in the file is the one Python will use.
+    """
+    SYSTEM_MIN_LOCAL = SYSTEM_MIN
+    test_instructions = {
+        "unit": UNIT_ENHANCED,
+        "integ": INTEG_ENHANCED,
+        "e2e": E2E_ENHANCED
+    }
+    dev_instructions = test_instructions.get(kind, UNIT_ENHANCED)
+    max_ctx = 60000
+    trimmed_context = context[:max_ctx] if context else ""
+    merged_rules = _merge_universal_text()
+
+    user_content = f"""
+UNIVERSAL {kind.upper()} TEST GENERATION - FILE {shard + 1}/{total}
+
+{dev_instructions}
+
+{merged_rules}
+
+FOCUS TARGETS: {focus_label}
+PROJECT ANALYSIS: {compact_json}
+ADDITIONAL CONTEXT (TRIMMED): {trimmed_context}
+
+{UNIVERSAL_SCAFFOLD}
+""".strip()
+
+    return [
+        {"role": "system", "content": SYSTEM_MIN_LOCAL},
+        {"role": "user", "content": user_content},
     ]

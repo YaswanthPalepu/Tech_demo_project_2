@@ -58,6 +58,7 @@ def _create_universal_conftest(outdir: pathlib.Path, target_root: pathlib.Path) 
 # UNIVERSAL fixtures for any project structure
 import sys
 import os
+import pathlib  # needed for _setup_detected_frameworks()
 
 # Add project root to Python path for universal imports
 PROJECT_ROOT = r"{target_root}"
@@ -338,135 +339,220 @@ def _fix_imports_for_universal_compatibility(code: str, target_root: pathlib.Pat
     fixed_lines.append(f'sys.path.insert(0, r"{target_root}")')
     fixed_lines.append('')
     
-    # Get project structure info
-    project_structure = analysis.get("project_structure", {})
-    package_names = project_structure.get("package_names", [])
-    module_paths = project_structure.get("module_paths", {})
-    
-    # Common import patterns to fix
-    import_fixes = []
-    
+    # Get project structure info (currently not altering imports further)
     for line in lines:
-        # Skip existing import setup
         if any(keyword in line for keyword in ['sys.path.insert', 'UNIVERSAL IMPORT SETUP']):
             continue
-            
-        # Fix relative imports for detected packages
-        modified = False
-        for package in package_names:
-            # Fix: from utils import x → from myapp.utils import x
-            if f'from {package}.' in line and not any(pkg in line for pkg in package_names if pkg != package):
-                # This is already correct
-                fixed_lines.append(line)
-                modified = True
-                break
-            # Fix: import utils → import myapp.utils as utils
-            elif f'import {package}' in line and package in package_names:
-                fixed_lines.append(line)
-                modified = True
-                break
-        
-        if not modified:
-            fixed_lines.append(line)
+        fixed_lines.append(line)
     
     return '\n'.join(fixed_lines)
 
+# ------------------------ RESILIENT CONTEXT GATHERING ------------------------
+def _gen__normalize_imports(imports: List[Any]) -> List[Dict[str, Any]]:
+    """
+    Accept heterogeneous imports (str OR dict) and return a list of dicts:
+    - str  -> {"type":"import","modules":[str], "file":""}
+    - dict -> kept as-is (ensuring type/file keys)
+    - other -> coerced to str in the same wrapper
+    """
+    norm: List[Dict[str, Any]] = []
+    for imp in imports or []:
+        if isinstance(imp, dict):
+            if "type" not in imp and ("module" in imp or "modules" in imp):
+                imp = {"type": "import" if "modules" in imp else "import_from", **imp}
+            if "file" not in imp:
+                imp["file"] = ""
+            norm.append(imp)
+        elif isinstance(imp, str):
+            norm.append({"type": "import", "modules": [imp], "file": ""})
+        else:
+            norm.append({"type": "import", "modules": [str(imp)], "file": ""})
+    return norm
+
+def _gen__read_text_safe(path: pathlib.Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return ""
+
+def _gen__maybe_under_root(target_root: pathlib.Path, rel_or_abs: str) -> pathlib.Path:
+    p = pathlib.Path(rel_or_abs)
+    if p.is_file():
+        return p
+    q = (target_root / rel_or_abs).resolve()
+    return q if q.is_file() else p
+
+def _gen__index(items: List[Dict[str, Any]], name_key: str) -> Dict[str, Tuple[str, int, int]]:
+    idx: Dict[str, Tuple[str, int, int]] = {}
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        name = it.get(name_key)
+        if not name:
+            continue
+        cls = it.get("class")
+        if cls:
+            name = f"{cls}.{name}"
+        file_path = it.get("file", "") or ""
+        start = int(it.get("lineno", 1) or 1)
+        end = int(it.get("end_lineno", start) or start)
+        idx[name] = (file_path, start, end)
+    return idx
+
 def _gather_universal_context(target_root: pathlib.Path, analysis: Dict[str, Any],
-                            focus_names: List[str], max_bytes: int = 120000) -> str:
-    """Gather COMPLETE code context for universal project compatibility."""
-    
-    def read_file_safe(path: pathlib.Path) -> str:
-        try:
-            return path.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            return ""
-    
-    def build_universal_index(items: List[Dict], name_key: str) -> Dict[str, Tuple[str, int, int]]:
-        index = {}
-        for item in items or []:
-            name = item.get(name_key)
-            if name:
-                class_name = item.get("class")
-                if class_name:
-                    name = f"{class_name}.{name}"
-                
-                file_path = item.get("file", "")
-                start_line = item.get("lineno", 1)
-                end_line = item.get("end_lineno", start_line)
-                index[name] = (file_path, start_line, end_line)
-        return index
-    
-    function_index = build_universal_index(analysis.get("functions", []), "name")
-    class_index = build_universal_index(analysis.get("classes", []), "name")
-    method_index = build_universal_index(analysis.get("methods", []), "name")
-    route_index = build_universal_index(analysis.get("routes", []), "handler")
-    
-    # Collect ALL relevant files
-    relevant_files = set()
-    for target_name in focus_names:
-        for index in [function_index, class_index, method_index, route_index]:
-            if target_name in index:
-                file_rel, _, _ = index[target_name]
+                              focus_names: List[str], max_bytes: int = 120000) -> str:
+    """Gather COMPLETE code context (resilient to string/dict imports)."""
+    imports_norm = _gen__normalize_imports(analysis.get("imports", []))
+
+    # Build indices
+    function_index = _gen__index(analysis.get("functions", []), "name")
+    class_index    = _gen__index(analysis.get("classes", []), "name")
+    method_index   = _gen__index(analysis.get("methods", []), "name")
+    route_index    = _gen__index(analysis.get("routes", []), "handler")
+
+    # Collect files containing requested targets
+    relevant_files: Set[str] = set()
+    for target_name in focus_names or []:
+        for idx in (function_index, class_index, method_index, route_index):
+            if target_name in idx:
+                file_rel, _, _ = idx[target_name]
                 if file_rel:
                     relevant_files.add(file_rel)
                 break
-    
-    # Also include files that import the target files
-    imports_analysis = analysis.get("imports", [])
-    for imp in imports_analysis:
-        imp_file = imp.get("file", "")
-        if imp_file and any(target_file in str(imp.get("modules", [])) for target_file in relevant_files):
+
+    # Also include files that import those targets
+    for imp in imports_norm:
+        imp_file = imp.get("file", "") or ""
+        modules = imp.get("modules", [])
+        if isinstance(modules, str):
+            modules_text = modules
+        else:
+            try:
+                modules_text = ", ".join(m for m in modules if isinstance(m, str))
+            except Exception:
+                modules_text = str(modules)
+        if imp_file and any(target_file in modules_text for target_file in relevant_files):
             relevant_files.add(imp_file)
-    
-    # Include FULL file content for universal context
-    context_parts = []
-    current_size = 0
-    
-    # Add project structure info
-    project_structure = analysis.get("project_structure", {})
-    structure_info = f"""
-# UNIVERSAL PROJECT STRUCTURE
-# Root: {project_structure.get('root', 'Unknown')}
-# Detected Packages: {', '.join(project_structure.get('package_names', []))}
-# Total Modules: {len(project_structure.get('module_paths', {}))}
-# Relevant Files: {len(relevant_files)}
 
-"""
-    context_parts.append(structure_info)
-    current_size += len(structure_info)
-    
+    # If nothing matched, fall back to all files present in analysis
+    if not relevant_files:
+        for coll in ("functions", "classes", "methods", "routes"):
+            for it in analysis.get(coll, []) or []:
+                if isinstance(it, dict):
+                    fp = it.get("file")
+                    if fp:
+                        relevant_files.add(fp)
+
+    # Assemble the context
+    context_parts: List[str] = []
+
+    # Header with structure info
+    structure = analysis.get("project_structure", {}) or {}
+    header = (
+        "# UNIVERSAL PROJECT STRUCTURE\n"
+        f"# Root: {structure.get('root', 'Unknown')}\n"
+        f"# Detected Packages: {', '.join(structure.get('package_names', []))}\n"
+        f"# Total Modules: {len(structure.get('module_paths', {}) or {})}\n"
+        f"# Relevant Files: {len(relevant_files)}\n\n"
+    )
+    context_parts.append(header)
+    current_size = len(header)
+
+    # Dump file contents until cap
     for file_rel in sorted(relevant_files):
-        file_path = target_root / file_rel
-        if file_path.exists():
-            content = read_file_safe(file_path)
-            if content:
-                file_context = f"# FILE: {file_rel}\n# FULL CONTENT FOR UNIVERSAL COMPATIBILITY\n{content}\n\n{'='*80}\n\n"
-                
-                if current_size + len(file_context) > max_bytes:
-                    # Include at least the beginning of each file
-                    file_context = f"# FILE: {file_rel}\n# FIRST 1000 CHARACTERS\n{content[:1000]}...\n\n{'='*80}\n\n"
-                
-                context_parts.append(file_context)
-                current_size += len(file_context)
-    
-    full_context = "".join(context_parts)
-    
-    coverage_header = f"""
-# UNIVERSAL CODE CONTEXT FOR ANY PROJECT STRUCTURE
-# Targets: {len(focus_names)} functions/classes/methods
-# Files: {len(relevant_files)} source files  
-# Strategy: Test ALL code paths with REAL IMPORTS
-# Goal: Maximum line coverage and branch coverage
-# UNIVERSAL COMPATIBILITY: Works with flat, nested, or package structures
+        path = _gen__maybe_under_root(target_root, file_rel)
+        content = _gen__read_text_safe(path)
+        if not content:
+            continue
+        snippet = (
+            f"# FILE: {file_rel}\n"
+            f"# FULL CONTENT FOR UNIVERSAL COMPATIBILITY\n"
+            f"{content}\n\n{'=' * 80}\n\n"
+        )
+        if current_size + len(snippet) > max_bytes:
+            head = content[:1000]
+            fallback = (
+                f"# FILE: {file_rel}\n"
+                f"# FIRST 1000 CHARACTERS\n{head}...\n\n{'=' * 80}\n\n"
+            )
+            if current_size + len(fallback) > max_bytes:
+                break
+            context_parts.append(fallback)
+            current_size += len(fallback)
+            break
+        context_parts.append(snippet)
+        current_size += len(snippet)
 
-"""
-    
+    full_context = "".join(context_parts)
+
+    coverage_header = (
+        "\n# UNIVERSAL CODE CONTEXT FOR ANY PROJECT STRUCTURE\n"
+        f"# Targets: {len(focus_names or [])} functions/classes/methods\n"
+        f"# Files: {len(relevant_files)} source files\n"
+        "# Strategy: Test ALL code paths with REAL IMPORTS\n"
+        "# Goal: Maximum line coverage and branch coverage\n"
+        "# UNIVERSAL COMPATIBILITY: Works with flat, nested, or package structures\n\n"
+    )
     full_context = coverage_header + full_context
-    
+
     if len(full_context) > max_bytes:
         full_context = full_context[:max_bytes] + "\n# ... (truncated for context limits)"
-    
     return full_context
+
+# -------------------- AUTO-SANITIZER FOR PARAMETRIZE MISMATCHES --------------------
+def _sanitize_parametrize_signature_mismatches(code: str) -> str:
+    """
+    Align any @pytest.mark.parametrize names with the test function signature
+    to prevent collection errors like:
+      'function uses no argument <name>'
+    """
+    deco_pattern = re.compile(
+        r'(@pytest\.mark\.parametrize\(\s*([rRuU]?[\'"].*?[\'"]|\[.*?\]|\(.*?\))\s*,.*?\))',
+        re.DOTALL
+    )
+    def_block = re.compile(r'(?:^\s*@.*\n)*^\s*def\s+(test_[A-Za-z0-9_]+)\s*\((.*?)\)\s*:', re.MULTILINE|re.DOTALL)
+
+    def extract_param_names(deco: str) -> List[str]:
+        m = re.search(r'@pytest\.mark\.parametrize\(\s*([rRuU]?[\'"].*?[\'"]|\[.*?\]|\(.*?\))\s*,', deco, re.DOTALL)
+        if not m:
+            return []
+        first = m.group(1).strip()
+        if first.startswith(("'", '"', "r'", 'r"', "u'", 'u"', "R'", 'R"', "U'", 'U"')):
+            return [n.strip() for n in first.strip('rRuU')[1:-1].split(",") if n.strip()]
+        return re.findall(r'[\'"]([^\'"]+)[\'"]', first)
+
+    out = code
+    search_pos = 0
+    while True:
+        mdef = def_block.search(out, search_pos)
+        if not mdef:
+            break
+        def_start = mdef.start()
+        # look back up to 20 lines to gather nearby decorators
+        lookback_start = out.rfind("\n", 0, def_start)
+        lookback_start = max(0, out.rfind("\n", 0, lookback_start) if lookback_start != -1 else 0)
+        window = out[lookback_start:def_start]
+        decos = deco_pattern.findall(window)
+        needed: List[str] = []
+        for full, _ in decos:
+            needed += extract_param_names(full)
+        needed = list(dict.fromkeys([n for n in needed if n]))  # dedupe
+
+        if needed:
+            full_def = mdef.group(0)
+            args_str = mdef.group(2).strip()
+            arg_list = [a.strip() for a in args_str.split(",")] if args_str else []
+            present = {a.split("=",1)[0].strip() for a in arg_list if a}
+            to_add = [n for n in needed if n not in present]
+            if to_add:
+                new_args = ", ".join([a for a in arg_list if a] + to_add)
+                replaced = full_def.replace(f"({args_str})", f"({new_args})")
+                out = out[:mdef.start()] + replaced + out[mdef.end():]
+                search_pos = mdef.start() + len(replaced)
+                continue
+        search_pos = mdef.end()
+    return out
+# ------------------------------------------------------------------------------------
 
 def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
                 focus_files: Optional[List[str]] = None):
@@ -573,6 +659,8 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
                 
                 # UNIVERSAL: Fix imports for any project structure
                 test_code = _fix_imports_for_universal_compatibility(test_code, target_root, analysis)
+                # NEW: sanitize parametrization mismatches automatically
+                test_code = _sanitize_parametrize_signature_mismatches(test_code)
                 
                 filename = f"test_{test_kind}_{timestamp}_{file_index + 1:02d}.py"
                 file_path = output_dir / filename
@@ -596,6 +684,7 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
         "universal_compatibility": True,
         "project_structure": analysis.get("project_structure", {}).get("package_names", [])
     }
+    from .writer import update_manifest  # re-import here to be safe
     update_manifest(output_dir, generated_files, change_summary)
     
     if generated_files:
@@ -815,3 +904,125 @@ FEATURES:
 
 if __name__ == "__main__":
     exit(main())
+
+import re as _eg_re
+from pathlib import Path as _eg_Path
+
+def _eg__sanitize_duplicate_keyword_args(_code: str) -> str:
+    """
+    Remove duplicate keyword arguments within common calls to avoid:
+      SyntaxError: keyword argument repeated
+    Targets Mock(...) / MagicMock(...) and dedupes common kwargs.
+    Append-only, safe for re-imports.
+    """
+    def _dedupe_kwargs_in_args(_args_src: str, kw: str) -> str:
+        # keep the first occurrence of "kw=..." and drop subsequent ones
+        pattern = _eg_re.compile(rf'(,?\s*{kw}\s*=\s*[^,)\n]+)')
+        matches = list(pattern.finditer(_args_src))
+        if len(matches) <= 1:
+            return _args_src
+        # remove later occurrences (including any leading comma)
+        out = _args_src
+        for i, m in enumerate(matches):
+            if i == 0:
+                continue
+            s, e = m.span()
+            seg = _args_src[s:e]
+            out = out.replace(seg, '', 1)
+        return out
+
+    def _process_calls(func_name: str, text: str) -> str:
+        # naive but robust enough for generator output
+        pattern = _eg_re.compile(rf'({func_name}\()\s*(.*?)\s*(\))', _eg_re.DOTALL)
+        def _repl(m):
+            head, args, tail = m.group(1), m.group(2), m.group(3)
+            for kw in ('name', 'spec', 'return_value', 'side_effect', 'content_type', 'status_code', 'headers'):
+                args = _dedupe_kwargs_in_args(args, kw)
+            return head + args + tail
+        # local rename to avoid shadowing
+        _dedupe_kwargs_in_args = _dedupe_kwargs_in_args
+        return pattern.sub(_repl, text)
+
+    _code = _process_calls('Mock', _code)
+    _code = _process_calls('MagicMock', _code)
+    return _code
+
+
+def _eg__postprocess_generated_files(_generated_files):
+    """
+    Append-only sanitation pass over generated test files:
+      * align @pytest.mark.parametrize names with function signature
+      * remove duplicate keyword args in common calls (Mock, MagicMock)
+    """
+    if not _generated_files:
+        return _generated_files
+
+    # lazy import to reuse your existing validators if available
+    try:
+        from .postprocess import validate_code as _eg_validate
+    except Exception:
+        def _eg_validate(code: str):
+            try:
+                import ast
+                ast.parse(code)
+                return True, ""
+            except SyntaxError as e:
+                return False, f"syntax error: {e}"
+
+    for _f in _generated_files:
+        try:
+            p = _eg_Path(_f)
+            if not p.exists():
+                continue
+            original = p.read_text(encoding="utf-8", errors="ignore")
+            updated = original
+
+            # fix parametrize/signature mismatches (uses function defined earlier in your file)
+            try:
+                updated = _sanitize_parametrize_signature_mismatches(updated)
+            except Exception:
+                # best effort; keep going
+                pass
+
+            # remove duplicate keyword args in Mock/MagicMock
+            try:
+                updated = _eg__sanitize_duplicate_keyword_args(updated)
+            except Exception:
+                pass
+
+            # only write if changed and still valid python
+            if updated != original:
+                ok, err = _eg_validate(updated)
+                if ok:
+                    p.write_text(updated, encoding="utf-8")
+                else:
+                    # fall back to original if our sanitation broke syntax
+                    # (extremely unlikely, but safe)
+                    p.write_text(original, encoding="utf-8")
+        except Exception:
+            # Never fail the run for sanitation; just continue
+            continue
+
+    return _generated_files
+
+
+# Wrap your existing generate_all with a post-write sanitizer WITHOUT deleting any lines.
+# We preserve the original and override the symbol by re-defining it here (append-only).
+try:
+    _eg__orig_generate_all = generate_all
+except NameError:
+    _eg__orig_generate_all = None
+
+def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
+                 focus_files: Optional[List[str]] = None):
+    """
+    Append-only wrapper that calls the original generate_all, then post-processes
+    the generated test files to prevent collection-time SyntaxErrors.
+    """
+    if _eg__orig_generate_all is None:
+        # If, for some reason, the original isn't present, bail gracefully.
+        return []
+
+    _files = _eg__orig_generate_all(analysis, outdir=outdir, focus_files=focus_files)
+    return _eg__postprocess_generated_files(_files)
+

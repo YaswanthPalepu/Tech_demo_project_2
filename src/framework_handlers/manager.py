@@ -160,3 +160,39 @@ class FrameworkManager(FrameworkManager):  # type: ignore[misc]
 
         # Default to first detected alphabetically to ensure determinism
         return sorted(detected)[0]
+
+class FrameworkManager(FrameworkManager):  # type: ignore[misc]
+    """
+    Safe wrapper to normalize 'analysis' into a dict so handlers never crash
+    when a string or other type is accidentally passed down.
+    """
+
+    def _normalize_analysis(self, analysis: Any) -> Dict[str, Any]:
+        if isinstance(analysis, dict):
+            return analysis
+        # Preserve the original value for debugging
+        return {"_raw_analysis": analysis}
+
+    def detect_framework(self, analysis: Any) -> str:  # type: ignore[override]
+        a = self._normalize_analysis(analysis)
+
+        detected = []
+        for handler in self.handlers:
+            try:
+                if handler.can_handle(a):
+                    detected.append(handler.framework_name)
+            except Exception as e:
+                print(f"[framework_manager] Detection error in {handler.framework_name}: {e}")
+
+        if not detected:
+            self.detected_framework = "universal"
+            self.active_handler = self._get_handler("universal")
+            print("[framework_manager] No specific framework detected, using universal handler.")
+            return "universal"
+
+        # Deterministic resolution: pick alphabetically among detected
+        chosen = sorted(detected)[0]
+        self.detected_framework = chosen
+        self.active_handler = self._get_handler(chosen)
+        print(f"[framework_manager] Framework(s) detected: {detected} -> selected: {chosen}")
+        return chosen

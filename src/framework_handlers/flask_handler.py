@@ -311,6 +311,11 @@ class FlaskHandler(FlaskHandler):  # type: ignore[misc]
             pass
         return info
 
+    def can_handle(self, analysis: Dict[str, Any]) -> bool:
+        # Guard: analysis might not be a dict
+        if not isinstance(analysis, dict):
+            return False
+
     # -------- Test generation -------------------------------------------------
     def generate_framework_specific_tests(self, analysis: Dict[str, Any]) -> List[Dict[str, Any]]:
         """

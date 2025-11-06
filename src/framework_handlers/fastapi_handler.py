@@ -332,6 +332,13 @@ class FastAPIHandler(FastAPIHandler):  # type: ignore[misc]
         extended by the caller to export env vars if needed.
         """
         _ = target_root  # intentionally unused; kept for parity with other handlers
+    
+    def can_handle(self, analysis: Dict[str, Any]) -> bool:
+        # Guard: analysis might not be a dict
+        if not isinstance(analysis, dict):
+            return False
+        
+
 
     # -- Test generation -------------------------------------------------------
     def generate_framework_specific_tests(self, analysis: Dict[str, Any]) -> List[Dict[str, Any]]:

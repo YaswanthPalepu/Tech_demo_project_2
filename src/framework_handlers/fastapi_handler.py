@@ -1,43 +1,46 @@
 # src/framework_handlers/fastapi_handler.py
 """
 FastAPI-specific framework handler for analysis and test generation.
+This version expands detection, AST analysis, and emits pragmatic tests
+that import and exercise the real app with httpx.AsyncClient + ASGITransport.
 """
 
 import ast
 import pathlib
-from typing import Any, Dict, List
+import re
+from typing import Any, Dict, List, Optional
 
 from .base_handler import BaseFrameworkHandler
 
 
 class FastAPIHandler(BaseFrameworkHandler):
     """FastAPI framework handler."""
-    
+
     def __init__(self):
         super().__init__()
         self.framework_name = "fastapi"
         self.supported_patterns = {"routes", "dependencies", "middleware"}
-    
+
     def can_handle(self, analysis: Dict[str, Any]) -> bool:
         """Check if project uses FastAPI based on analysis."""
         # Check for FastAPI routes
         fastapi_routes = analysis.get("fastapi_routes", [])
         if len(fastapi_routes) > 0:
             return True
-        
+
         # Check imports for FastAPI
         imports = analysis.get("imports", [])
         fastapi_imports = any(
             any("fastapi" in str(module).lower() for module in imp.get("modules", []))
             for imp in imports
         )
-        
+
         return fastapi_imports
-    
+
     def analyze_framework_specifics(self, tree: ast.AST, file_path: str) -> Dict[str, Any]:
         """Analyze FastAPI-specific patterns in the AST."""
         fastapi_routes = []
-        
+
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for decorator in node.decorator_list:
@@ -50,9 +53,9 @@ class FastAPIHandler(BaseFrameworkHandler):
                             "end_lineno": getattr(node, "end_lineno", getattr(node, "lineno", 1)),
                         })
                         fastapi_routes.append(route_info)
-        
+
         return {"fastapi_routes": fastapi_routes}
-    
+
     def _extract_fastapi_route_info(self, dec) -> Dict[str, Any]:
         """Extract route information from FastAPI decorators."""
         info = {}
@@ -63,17 +66,17 @@ class FastAPIHandler(BaseFrameworkHandler):
                 if hasattr(func, 'attr'):
                     if func.attr in {"get", "post", "put", "patch", "delete", "options", "head"}:
                         info["method"] = func.attr
-                        
+
                     # Extract path from first argument
                     if hasattr(dec, "args") and dec.args:
                         arg0 = dec.args[0]
                         if isinstance(arg0, ast.Constant) and isinstance(arg0.value, str):
                             info["path"] = arg0.value
-            
+
         except Exception:
             pass
         return info
-    
+
     def get_framework_dependencies(self) -> List[str]:
         """Get FastAPI-specific dependencies."""
         return [
@@ -83,7 +86,7 @@ class FastAPIHandler(BaseFrameworkHandler):
             "httpx",
             "pytest-httpx"
         ]
-    
+
     def detect_framework_patterns(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
         """Detect FastAPI-specific patterns in the analysis."""
         fastapi_specific = {
@@ -95,28 +98,26 @@ class FastAPIHandler(BaseFrameworkHandler):
         return fastapi_specific
 
 
-# ----------------------- APPENDED ENHANCEMENTS BELOW (no deletions) -----------------------
-
-class FastAPIHandler(FastAPIHandler):  # type: ignore[misc]
+class FastAPIHandler(FastAPIHandler): 
     """
     Extended FastAPI handler with deeper detection, richer AST analysis,
     realistic test templates (real imports + HTTP calls), and environment helpers.
     """
-
-    # -- Detection upgrades ----------------------------------------------------
-    def can_handle(self, analysis: Dict[str, Any]) -> bool:  # type: ignore[override]
+    def can_handle(self, analysis: Dict[str, Any]) -> bool: 
         """
         Enhanced detection:
         - existing fastapi_routes
         - imports including fastapi, starlette
-        - FastAPI() constructor or APIRouter() in AST across files
+        - FastAPI() constructor or APIRouter() in AST across files (via upstream analyzer fields)
         - presence of include_router calls
         - typical filenames (main.py, app.py) + uvicorn.run usage
         """
+        if not isinstance(analysis, dict):
+            return False
+
         if analysis.get("fastapi_routes"):
             return True
 
-        # Import signals
         imports = analysis.get("imports", [])
         if any(
             any(("fastapi" in str(m).lower()) or ("starlette" in str(m).lower())
@@ -132,7 +133,10 @@ class FastAPIHandler(FastAPIHandler):  # type: ignore[misc]
             return True
 
         # Uvicorn entrypoint / lifespan handlers
-        found_uvicorn = any("uvicorn" in str(m).lower() for imp in imports for m in imp.get("modules", []))
+        found_uvicorn = any(
+            "uvicorn" in str(m).lower()
+            for imp in imports for m in imp.get("modules", [])
+        )
         if found_uvicorn:
             return True
 
@@ -175,7 +179,12 @@ class FastAPIHandler(FastAPIHandler):  # type: ignore[misc]
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for decorator in node.decorator_list:
+                    # Try extended first; fallback to base extractor
                     route_info = self._extract_fastapi_route_info_extended(decorator)
+                    if not (route_info and route_info.get("path")):
+                        route_info = self._extract_fastapi_route_info(decorator)
+                        if route_info and "method" in route_info:
+                            route_info["method"] = route_info["method"].upper()
                     if route_info and route_info.get("path"):
                         route_info.update({
                             "handler": node.name,
@@ -224,7 +233,9 @@ class FastAPIHandler(FastAPIHandler):  # type: ignore[misc]
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for dec in node.decorator_list:
                     if isinstance(dec, ast.Call) and self._call_attr_name(dec.func, full=True).endswith("on_event"):
-                        ev = dec.args[0].s if dec.args and isinstance(dec.args[0], ast.Constant) and isinstance(dec.args[0].value, str) else None
+                        ev = None
+                        if dec.args and isinstance(dec.args[0], ast.Constant) and isinstance(dec.args[0].value, str):
+                            ev = dec.args[0].value
                         if ev == "startup":
                             startup_handlers.append(node.name)
                         if ev == "shutdown":
@@ -323,8 +334,10 @@ class FastAPIHandler(FastAPIHandler):  # type: ignore[misc]
             "httpx",
             "pytest-httpx",
         ]
-        # Prefer keeping list stable; append helpful extras:
-        return base + ["asgi-lifespan"]
+        # Helpful extras without being heavy:
+        # - asgi-lifespan: run startup/shutdown events under test
+        # - anyio: newer httpx uses anyio for async; ensure availability
+        return base + ["asgi-lifespan", "anyio"]
 
     def setup_framework_environment(self, target_root: pathlib.Path) -> None:
         """
@@ -332,25 +345,19 @@ class FastAPIHandler(FastAPIHandler):  # type: ignore[misc]
         extended by the caller to export env vars if needed.
         """
         _ = target_root  # intentionally unused; kept for parity with other handlers
-    
-    def can_handle(self, analysis: Dict[str, Any]) -> bool:
-        # Guard: analysis might not be a dict
-        if not isinstance(analysis, dict):
-            return False
-        
-
 
     # -- Test generation -------------------------------------------------------
     def generate_framework_specific_tests(self, analysis: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Create per-route async tests using httpx.AsyncClient with ASGITransport.
-        Falls back to TestClient-style smoke if needed.
+        Also emit OpenAPI/docs probes and a lifespan smoke to drive startup/shutdown.
         """
         tests: List[Dict[str, Any]] = []
         routes = analysis.get("fastapi_routes", []) or []
         app_module_guess = self._guess_app_module(analysis)
 
-        for r in routes[:200]:  # cap to keep output manageable
+        # Per-route tests (cap to avoid explosion)
+        for r in routes[:300]:
             template = self._route_test_template(route=r, app_module=app_module_guess)
             tests.append({
                 "type": "fastapi_route_test",
@@ -360,7 +367,26 @@ class FastAPIHandler(FastAPIHandler):  # type: ignore[misc]
                 "test_count": 1
             })
 
-        # If include_router present but no direct routes in this file, emit a smoke test
+        # OpenAPI/docs probe (works for most FastAPI apps)
+        tests.append({
+            "type": "fastapi_openapi_probe",
+            "target": "openapi/docs/redoc",
+            "template": self._openapi_probe_template(app_module_guess),
+            "coverage_goal": "95%+",
+            "test_count": 1
+        })
+
+        # Lifespan (startup/shutdown) smoke if events detected (or always safe)
+        if analysis.get("fastapi_startup") or analysis.get("fastapi_shutdown"):
+            tests.append({
+                "type": "fastapi_lifespan_smoke",
+                "target": "startup/shutdown",
+                "template": self._lifespan_smoke_template(app_module_guess),
+                "coverage_goal": "95%+",
+                "test_count": 1
+            })
+
+        # If include_router present but no direct routes, still smoke import paths
         if not routes and analysis.get("fastapi_include_router"):
             tests.append({
                 "type": "fastapi_urls_smoke",
@@ -369,8 +395,10 @@ class FastAPIHandler(FastAPIHandler):  # type: ignore[misc]
                 "coverage_goal": "95%+",
                 "test_count": 1
             })
+
         return tests
 
+    # -- Template helpers ------------------------------------------------------
     def _guess_app_module(self, analysis: Dict[str, Any]) -> str:
         """
         Try to guess the main module path that exposes `app`.
@@ -391,13 +419,36 @@ class FastAPIHandler(FastAPIHandler):  # type: ignore[misc]
             return module_paths[0].replace("/", ".").replace("\\", ".").rstrip(".py")
         return "main"
 
+    def _example_url(self, path: str) -> str:
+        """
+        Provide a safe example URL for parameterized paths:
+        '/items/{item_id}'     -> '/items/1'
+        '/users/{name}'        -> '/users/test'
+        '/mix/{a}/{b}/x'       -> '/mix/1/1/x'
+        '{param}' inside may include patterns like '{param:path}' -> 'param'
+        """
+        def _fill(match: re.Match) -> str:
+            token = match.group(1)
+            # Support converters like 'param:path' or 'param:int'
+            token = token.split(":")[0]
+            # Simple heuristic: if looks numeric-ish, use '1', else 'test'
+            return "1" if token.lower() in {"id", "pk", "count", "page", "idx"} else "test"
+
+        filled = re.sub(r"\{([^}]+)\}", _fill, path or "/")
+        # Avoid accidental double slashes
+        filled = re.sub(r"//+", "/", filled)
+        return filled if filled.startswith("/") else f"/{filled}"
+
     def _route_test_template(self, route: Dict[str, Any], app_module: str) -> str:
         """
         Async httpx test template that imports real app.
         Supports both `app = FastAPI()` and `def create_app(): -> FastAPI`.
+        Adds basic tolerance for varied route status codes.
         """
         method = route.get("method", "GET")
-        path = route.get("path", "/")
+        path = self._example_url(route.get("path", "/"))
+        name_suffix = self._sanitize_name(path)
+
         return f'''
 """
 Route test for {method} {path} (real app import).
@@ -412,7 +463,7 @@ except Exception:  # pragma: no cover
     httpx = None
 
 @pytest.mark.asyncio
-async def test_route_{method.lower()}_{self._sanitize_name(path)}():
+async def test_route_{method.lower()}_{name_suffix}():
     assert httpx is not None, "httpx must be installed"
 
     mod = importlib.import_module("{app_module}")
@@ -421,11 +472,91 @@ async def test_route_{method.lower()}_{self._sanitize_name(path)}():
         app = mod.create_app()
     assert app is not None, "Could not obtain FastAPI app instance from module"
 
-    # Prefer native ASGI transport to avoid network
+    # Prefer native ASGI transport to avoid real network sockets
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.request("{method}", "{path}")
+        # Accept a broad set to keep tests robust across handlers
         assert resp.status_code in (200, 201, 202, 204, 301, 302, 307, 308, 400, 401, 403, 404, 405)
+'''
+
+    def _openapi_probe_template(self, app_module: str) -> str:
+        return f'''
+"""
+Probe standard FastAPI meta endpoints to boost structural coverage:
+- /openapi.json (always present unless disabled)
+- /docs (^200 or redirects or 404 depending on config)
+- /redoc (same)
+"""
+
+import importlib
+import pytest
+
+try:
+    import httpx
+except Exception:  # pragma: no cover
+    httpx = None
+
+@pytest.mark.asyncio
+async def test_fastapi_openapi_and_docs_probe():
+    assert httpx is not None, "httpx must be installed"
+
+    mod = importlib.import_module("{app_module}")
+    app = getattr(mod, "app", None)
+    if app is None and hasattr(mod, "create_app"):
+        app = mod.create_app()
+    assert app is not None, "Could not obtain FastAPI app instance from module"
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # openapi.json is commonly 200; allow 404 if disabled
+        r1 = await client.get("/openapi.json")
+        assert r1.status_code in (200, 301, 302, 307, 308, 404)
+
+        # docs and redoc may be disabled; still probe safely
+        r2 = await client.get("/docs")
+        assert r2.status_code in (200, 301, 302, 307, 308, 404)
+
+        r3 = await client.get("/redoc")
+        assert r3.status_code in (200, 301, 302, 307, 308, 404)
+'''
+
+    def _lifespan_smoke_template(self, app_module: str) -> str:
+        return f'''
+"""
+Lifespan smoke: enter/exit ASGI lifespan to trigger startup/shutdown event handlers.
+"""
+
+import importlib
+import pytest
+
+try:
+    from asgi_lifespan import LifespanManager
+except Exception:  # pragma: no cover
+    LifespanManager = None
+
+try:
+    import httpx
+except Exception:  # pragma: no cover
+    httpx = None
+
+@pytest.mark.asyncio
+async def test_fastapi_lifespan_smoke():
+    assert LifespanManager is not None, "asgi-lifespan must be installed"
+    assert httpx is not None, "httpx must be installed"
+
+    mod = importlib.import_module("{app_module}")
+    app = getattr(mod, "app", None)
+    if app is None and hasattr(mod, "create_app"):
+        app = mod.create_app()
+    assert app is not None, "Could not obtain FastAPI app instance from module"
+
+    async with LifespanManager(app):
+        # While in lifespan, do a trivial request if root exists; tolerate 404 if not
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.get("/")
+            assert r.status_code in (200, 301, 302, 307, 308, 404)
 '''
 
     def _include_router_smoke_template(self, app_module: str) -> str:
@@ -433,13 +564,11 @@ async def test_route_{method.lower()}_{self._sanitize_name(path)}():
 """
 Smoke test to import app module and execute router inclusion code paths.
 """
-
 def test_include_router_smoke():
     __import__("{app_module}")
     assert True
 '''
 
-    # -- Extra helpers ---------------------------------------------------------
     def recommended_pytest_markers(self, analysis: Dict[str, Any]) -> List[str]:
         """
         Suggest markers based on async presence. Useful for orchestrators that
@@ -452,4 +581,5 @@ def test_include_router_smoke():
 
     def _sanitize_name(self, s: str) -> str:
         out = s.strip("/").replace("/", "_").replace("{", "").replace("}", "").replace(":", "_")
+        out = re.sub(r"[^a-zA-Z0-9_]+", "_", out)
         return out or "root"

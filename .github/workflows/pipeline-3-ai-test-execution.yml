@@ -1,38 +1,49 @@
-name: Validate Tests and SonarQube with Quality Gates
+name: Pipeline 3 - AI Test Execution and Quality Gates
 
-# on:
-#   workflow_dispatch:
-#     inputs:
-#       target_repo:
-#         description: "owner/repo of the codebase to validate"
-#         required: true
-#         default: "DeviPrasad372002/flask-test-repo"
-#       ref:
-#         description: "Branch or SHA to test"
-#         default: "main"
-#       python_version:
-#         description: "Python version"
-#         default: "3.12"
-#       min_coverage:
-#         description: "Minimum test coverage percentage"
-#         default: "80"
+on:
+  # workflow_run:
+  #   workflows: ["Pipeline 2 - AI Test Generation"]
+  #   types:
+  #     - completed
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: "Target repository"
+        required: true
+        default: "DeviPrasad372002/flask-test-repo"
+      ref:
+        description: "Branch or SHA to test"
+        default: "main"
+      python_version:
+        description: "Python version"
+        default: "3.12"
+      min_coverage:
+        description: "Minimum test coverage percentage"
+        default: "80"
 
-# permissions:
-#   contents: read
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+
+concurrency:
+  group: ai-test-execution-${{ github.event.repository.full_name }}-${{ github.ref_name }}
+  cancel-in-progress: true
 
 env:
   SONAR_HOST_URL: "http://localhost:9000"
   SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
 jobs:
-  validate:
+  execute-ai-tests:
+    #if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: self-hosted
     steps:
       - name: Checkout target repo
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.event.inputs.target_repo }}
-          ref: ${{ github.event.inputs.ref }}
+          repository: ${{ github.event.inputs.target_repo || 'DeviPrasad372002/flask-test-repo' }}
+          ref: ${{ github.event.inputs.ref || 'main' }}
           token: ${{ secrets.GH_PAT3 }}
           path: target
 

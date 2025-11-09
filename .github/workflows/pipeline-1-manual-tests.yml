@@ -1,0 +1,194 @@
+name: Pipeline 1 - Manual Test Detection and Execution
+
+on:
+  push:
+    branches: [main, master, develop]
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: "Target repository"
+        required: true
+        default: "DeviPrasad372002/flask-test-repo"
+      target_branch:
+        description: "Target branch"
+        default: "main"
+      python_version:
+        description: "Python version"
+        default: "3.12"
+      min_coverage:
+        description: "Minimum test coverage percentage"
+        default: "80"
+
+permissions:
+ contents: read
+ actions: read
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GH_PAT3 }}
+  SONAR_HOST_URL: "http://localhost:9000"
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+jobs:
+  detect-and-run-manual-tests:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    outputs:
+      manual_tests_found: ${{ steps.detect.outputs.manual_tests_found }}
+      manual_test_paths: ${{ steps.detect.outputs.manual_test_paths }}
+      target_dir: ${{ env.TARGET_DIR }}
+    steps:
+      # 1️⃣ Clone analyzer (this repo)
+      - name: Checkout analyzer repo
+        uses: actions/checkout@v4
+      
+      # 2️⃣ Clone target repo (like testgen.yml)
+      - name: Clone target repo → ./target
+        run: |
+          set -e
+          rm -rf target
+          BRANCH="${{ github.event.inputs.target_branch || 'main' }}"
+          AUTH_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.event.inputs.target_repo }}.git"
+          git clone --depth 10 --branch "$BRANCH" "$AUTH_URL" target
+          echo "TARGET_DIR=$PWD/target" >> $GITHUB_ENV
+
+      # 3️⃣ Setup Python environment
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ github.event.inputs.python_version}}
+
+      # 4️⃣ Detect manual test directories first
+      - name: Detect manual test directories
+        id: detect
+        env:
+          PYTHONPATH: ${{ env.TARGET_DIR }}
+        run: |
+          set -e
+          echo "🔍 Running detect_manual_tests.py on target repo..."
+          python src/detect_manual_tests.py "$TARGET_DIR"
+
+          FOUND=$(python -c "import json; print(json.load(open('manual_test_result.json'))['manual_tests_found'])")
+          PATHS=$(python -c "import json; print(' '.join(json.load(open('manual_test_result.json'))['manual_test_paths']))")
+          echo "manual_tests_found=$FOUND" >> $GITHUB_OUTPUT
+          echo "manual_test_paths=$PATHS" >> $GITHUB_OUTPUT
+
+      # ✅ 5️⃣ Install dependencies only if manual tests are found
+      - name: Install dependencies
+        if: steps.detect.outputs.manual_tests_found == 'true'
+        run: |
+          set -e
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install -U pip setuptools wheel pytest pytest-cov httpx
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # 🧪 Run manual tests with coverage (BLOCKING)
+      - name: Run manual tests with coverage
+        id: tests
+        if: steps.detect.outputs.manual_tests_found == 'true'
+        working-directory: target
+        run: |
+          echo "🧪 Running manual developer tests at: ${{ steps.detect.outputs.manual_test_paths }}"
+          . ../.venv/bin/activate
+          pytest ${{ steps.detect.outputs.manual_test_paths }} \
+            --cov=. \
+            --cov-report=term-missing:skip-covered \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-fail-under=${{ github.event.inputs.min_coverage || 70 }} \
+            -v
+        continue-on-error: false
+
+      # 📊 Parse coverage percentage from coverage.xml
+      - name: Parse coverage percentage
+        id: coverage
+        if: steps.detect.outputs.manual_tests_found == 'true'
+        working-directory: target
+        run: |
+          if [ -f coverage.xml ]; then
+            COVERAGE=$(python -c "import xml.etree.ElementTree as ET; \
+              tree = ET.parse('coverage.xml'); root = tree.getroot(); \
+              print(f\"{float(root.attrib['line-rate']) * 100:.2f}\")")
+            echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+            echo "✅ Manual Test Coverage: $COVERAGE%"
+          else
+            echo "coverage=0" >> $GITHUB_OUTPUT
+            echo "❌ No coverage report generated"
+          fi
+
+      # 📤 Upload coverage artifacts (XML + HTML)
+      - name: Upload coverage artifact
+        if: steps.detect.outputs.manual_tests_found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-test-coverage
+          path: |
+            target/coverage.xml
+            target/htmlcov/
+          if-no-files-found: warn
+
+      # 🔍 SonarQube Scan with Quality Gate
+      - name: SonarQube Scan (manual tests)
+        id: sonar
+        if: env.SONAR_HOST_URL && env.SONAR_TOKEN && steps.detect.outputs.manual_tests_found == 'true'
+        uses: SonarSource/sonarqube-scan-action@v2.3
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ github.event.inputs.target_repo }}
+            -Dsonar.projectName=${{ github.event.inputs.target_repo }}
+            -Dsonar.sources=target
+            -Dsonar.exclusions=**/tests/generated/**,**/gen/**,**/autogen/**,**/test/generated/**
+            -Dsonar.python.coverage.reportPaths=target/coverage.xml
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+
+      # 🧾 Quality Gate Summary
+      - name: Quality Gate Summary
+        if: steps.detect.outputs.manual_tests_found == 'true'
+        run: |
+          echo "## 📊 Manual Test Quality Gate Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.tests.outcome }}" == "success" ]; then
+            echo "| ✅ Manual Tests | PASSED | All manual developer tests passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| ❌ Manual Tests | FAILED | Some manual developer tests failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "| 📈 Coverage | ${{ steps.coverage.outputs.coverage }}% | Min: ${{ github.event.inputs.min_coverage || 70 }}% |" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.sonar.outcome }}" == "success" ]; then
+            echo "| ✅ SonarQube | PASSED | Quality gate passed |" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.sonar.outcome }}" == "failure" ]; then
+            echo "| ❌ SonarQube | FAILED | Quality gate failed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| ⚠️ SonarQube | SKIPPED | Not configured |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Links" >> $GITHUB_STEP_SUMMARY
+          echo "- [SonarQube Dashboard](${{ env.SONAR_HOST_URL }}/dashboard?id=${{ github.event.inputs.target_repo }})" >> $GITHUB_STEP_SUMMARY
+
+      - name: No Manual Tests Found
+        if: steps.detect.outputs.manual_tests_found == 'false'
+        run: |
+          echo "ℹ️ No manual test cases found in the repository."
+          echo "Skipping Pipeline 1 and proceeding to Pipeline 2."
+
+      - name: Pipeline 1 Summary
+        run: |
+          echo "## 📋 Pipeline 1 - Manual Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.detect.outputs.manual_tests_found }}" = "true" ]; then
+            echo "✅ **Manual Tests Found**: Yes" >> $GITHUB_STEP_SUMMARY
+            echo "📁 **Test Paths**: ${{ steps.detect.outputs.manual_test_paths }}" >> $GITHUB_STEP_SUMMARY
+            echo "📊 **Coverage**: Manual tests executed and results uploaded to SonarQube" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ **Manual Tests Found**: No" >> $GITHUB_STEP_SUMMARY
+            echo "⏭️ **Next**: Proceeding to Pipeline 2 (AI Test Generation)" >> $GITHUB_STEP_SUMMARY
+          fi

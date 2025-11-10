@@ -25,12 +25,12 @@ permissions:
 
 env:
   GITHUB_TOKEN: ${{ secrets.GH_PAT3 }}
-  SONAR_HOST_URL: "http://localhost:9000"
+  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL}}
   SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
 jobs:
   detect-and-run-manual-tests:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
       manual_tests_found: ${{ steps.detect.outputs.manual_tests_found }}

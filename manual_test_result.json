@@ -1,5 +1,22 @@
 {
-  "manual_tests_found": false,
-  "manual_test_paths": [],
-  "test_files_count": 0
+  "manual_tests_found": true,
+  "manual_test_paths": [
+    "/home/sigmoid/test-repos/ExamplePythonTravis/tests",
+    "/home/sigmoid/test-repos/ExamplePythonTravis/tests/scipy",
+    "/home/sigmoid/test-repos/ExamplePythonTravis/docs"
+  ],
+  "test_files_count": 5,
+  "test_dirs_detail": {
+    "/home/sigmoid/test-repos/ExamplePythonTravis/tests": [
+      "/home/sigmoid/test-repos/ExamplePythonTravis/tests/test_points.py",
+      "/home/sigmoid/test-repos/ExamplePythonTravis/tests/test_random.py",
+      "/home/sigmoid/test-repos/ExamplePythonTravis/tests/test_nn.py"
+    ],
+    "/home/sigmoid/test-repos/ExamplePythonTravis/tests/scipy": [
+      "/home/sigmoid/test-repos/ExamplePythonTravis/tests/scipy/test_pdist.py"
+    ],
+    "/home/sigmoid/test-repos/ExamplePythonTravis/docs": [
+      "/home/sigmoid/test-repos/ExamplePythonTravis/docs/test.py"
+    ]
+  }
 }

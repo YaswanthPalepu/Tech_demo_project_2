@@ -31,7 +31,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SONAR_HOST_URL: "http://localhost:9000"
+  GITHUB_TOKEN: ${{ secrets.GH_PAT3 }}
+  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL}} 
   SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
 jobs:

@@ -24,12 +24,12 @@ def find_all_manual_test_dirs(repo_root: str = ".") -> Dict[str, List[str]]:
     candidate_dirs = {}
 
     for root, dirs, files in os.walk(repo_root):
-        # Skip AI-generated or irrelevant folders early
-        if "generated" in root.lower() or "autogen" in root.lower():
+        # Skip unwanted folders
+        if any(skip in root.lower() for skip in ["generated", "autogen", "__pycache__", ".git", "venv", "env"]):
             continue
 
-        dirname = os.path.basename(root).lower()
-        if dirname not in ["tests", "test", "testing", "testsuite"]:
+        # Include any folder under a test-related path
+        if not any("test" in part for part in root.lower().split(os.sep)):
             continue
 
         test_files = []

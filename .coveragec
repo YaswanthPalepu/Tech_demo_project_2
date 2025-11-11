@@ -1,5 +1,5 @@
 [run]
-source = conduit
+source = .
 omit = 
     */tests/*
     */test*

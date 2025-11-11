@@ -1,5 +1,12 @@
 {
-  "manual_tests_found": false,
-  "manual_test_paths": [],
-  "test_files_count": 0
+  "manual_tests_found": true,
+  "manual_test_paths": [
+    "/home/sigmoid/test-repos/backend_code/tests"
+  ],
+  "test_files_count": 1,
+  "test_dirs_detail": {
+    "/home/sigmoid/test-repos/backend_code/tests": [
+      "/home/sigmoid/test-repos/backend_code/tests/test.py"
+    ]
+  }
 }

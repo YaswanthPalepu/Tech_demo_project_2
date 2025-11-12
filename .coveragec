@@ -2,8 +2,8 @@
 source = .
 omit = 
     */tests/*
-    */test*
     */test_*
+    *test*.py
     */testing/*
     */__pycache__/*
     */venv/*
@@ -13,6 +13,11 @@ omit =
     */wsgi.py
     */asgi.py
     */conftest.py
+    */setup.py
+    clinic/tests/*
+    $CURRENT_DIR/tests/*
+    $CURRENT_DIR/tests/manual/*
+    $CURRENT_DIR/tests/generated/*
 
 [report]
 exclude_lines =
@@ -26,6 +31,6 @@ exclude_lines =
 
 show_missing = True
 skip_covered = False
-
+skip_empty = True
 [html]
 directory = htmlcov

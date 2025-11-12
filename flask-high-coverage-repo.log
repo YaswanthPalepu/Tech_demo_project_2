@@ -1,0 +1,1123 @@
+🚀 Starting Local Pipeline 1 - Manual + AI Test Flow
+===================================================================
+
+🎯 Target Directory: /home/sigmoid/test-repos/flask-high-coverage-repo
+
+🧹 Cleaning previous coverage data...
+✅ Coverage data cleaned
+
+🔍 Running detect_manual_tests.py on target repo...
+🔍 Scanning repository for manual test directories in: /home/sigmoid/test-repos/flask-high-coverage-repo
+
+📊 Detection Result:
+{
+  "manual_tests_found": true,
+  "manual_test_paths": [
+    "/home/sigmoid/test-repos/flask-high-coverage-repo/tests",
+    "/home/sigmoid/test-repos/flask-high-coverage-repo/tests/test_models"
+  ],
+  "test_files_count": 4,
+  "test_dirs_detail": {
+    "/home/sigmoid/test-repos/flask-high-coverage-repo/tests": [
+      "/home/sigmoid/test-repos/flask-high-coverage-repo/tests/test_string_utils.py",
+      "/home/sigmoid/test-repos/flask-high-coverage-repo/tests/test_calculator.py",
+      "/home/sigmoid/test-repos/flask-high-coverage-repo/tests/test_data_processor.py"
+    ],
+    "/home/sigmoid/test-repos/flask-high-coverage-repo/tests/test_models": [
+      "/home/sigmoid/test-repos/flask-high-coverage-repo/tests/test_models/test-user.py"
+    ]
+  }
+}
+
+📁 Manual Tests Found: True
+📂 Test Paths: /home/sigmoid/test-repos/flask-high-coverage-repo/tests /home/sigmoid/test-repos/flask-high-coverage-repo/tests/test_models
+
+⚠️ No manual tests found. Proceeding with AI Test Generation...
+
+=== Starting granular AI test generation ===
+Force regeneration: true
+Warning: postprocess import failed: cannot import name 'extract_python_only' from 'src.gen.postprocess' (/home/sigmoid/TECH_DEMO/new-tech-demo/src/gen/postprocess.py); using fallbacks
+Found 8 Python files in target directory
+Project structure: Universal compatibility enabled
+UNIVERSAL analysis for ANY PROJECT STRUCTURE in: /home/sigmoid/test-repos/flask-high-coverage-repo
+Analyzing 4 Python files in project...
+[framework_manager] Detection error in django: 'str' object has no attribute 'get'
+[framework_manager] Detection error in fastapi: 'str' object has no attribute 'get'
+[framework_manager] Framework(s) detected: ['universal'] -> selected: universal
+UNIVERSAL ANALYSIS COMPLETE:
+   Files analyzed: 4
+   Functions: 36 (top-level)
+   Nested Functions: 36
+   Classes: 10
+   Methods: 36
+   Routes: 0
+   FastAPI Routes: 0
+   Properties: 1
+   Async functions: 0
+   Imports tracked: 16
+   Django models: 0
+   Serializers: 0
+   Views/ViewSets: 0
+   Forms: 0
+   Admin: 0
+   Project packages: 1
+   Detected Framework: universal
+Starting UNIVERSAL test generation with universal coverage mode...
+UNIVERSAL test generation for ANY PROJECT STRUCTURE...
+✅ Successfully wrote: tests/generated/conftest.py
+Created universal conftest: tests/generated/conftest.py
+TESTGEN_FORCE environment variable: 'true'
+🚀 Force generation enabled - will regenerate all tests
+Found 4 source files for force generation:
+  - src/calculator.py
+  - src/data_processor.py
+  - src/models/user.py
+  - src/string_utils.py
+🧹 Force mode: Cleaning up all existing generated tests
+Cleaned up 0 existing test files
+UNIVERSAL TARGET INCLUSION:
+   Functions: 72 (including 36 nested)
+   Classes: 10
+   Methods: 36
+   Routes: 0
+   Project Packages: 1
+Using universal targeting - all targets included
+Analyzing required packages...
+Inferred 0 external packages.
+No external packages need installation
+UNIVERSAL COVERAGE TARGETS:
+   Functions: 72
+   Classes: 10
+   Methods: 36
+   Routes: 0
+   Total Targets: 118
+   Expected Coverage: Maximum
+   Project Structure: Universal compatibility
+Generating 3 UNIT test files for universal compatibility...
+Generating unit test 1/3 for 40 targets
+⚠️ Syntax error in generated code for tests/generated/test_unit_20251112_084358_01.py: expected an indented block after 'if' statement on line 21 (<unknown>, line 23)
+✅ Fixed syntax errors in tests/generated/test_unit_20251112_084358_01.py
+✅ Successfully wrote: tests/generated/test_unit_20251112_084358_01.py
+  test_unit_20251112_084358_01.py - 40 targets
+Generating unit test 2/3 for 39 targets
+✅ Successfully wrote: tests/generated/test_unit_20251112_084358_02.py
+  test_unit_20251112_084358_02.py - 39 targets
+Generating unit test 3/3 for 39 targets
+⚠️ Syntax error in generated code for tests/generated/test_unit_20251112_084358_03.py: expected an indented block after 'if' statement on line 19 (<unknown>, line 22)
+✅ Fixed syntax errors in tests/generated/test_unit_20251112_084358_03.py
+✅ Successfully wrote: tests/generated/test_unit_20251112_084358_03.py
+  test_unit_20251112_084358_03.py - 39 targets
+Generating 4 INTEG test files for universal compatibility...
+Generating integ test 1/4 for 30 targets
+✅ Successfully wrote: tests/generated/test_integ_20251112_084358_01.py
+  test_integ_20251112_084358_01.py - 30 targets
+Generating integ test 2/4 for 30 targets
+✅ Successfully wrote: tests/generated/test_integ_20251112_084358_02.py
+  test_integ_20251112_084358_02.py - 30 targets
+Generating integ test 3/4 for 29 targets
+⚠️ Syntax error in generated code for tests/generated/test_integ_20251112_084358_03.py: expected an indented block after 'if' statement on line 20 (<unknown>, line 22)
+✅ Fixed syntax errors in tests/generated/test_integ_20251112_084358_03.py
+✅ Successfully wrote: tests/generated/test_integ_20251112_084358_03.py
+  test_integ_20251112_084358_03.py - 29 targets
+Generating integ test 4/4 for 29 targets
+⚠️ Syntax error in generated code for tests/generated/test_integ_20251112_084358_04.py: expected an indented block after 'if' statement on line 20 (<unknown>, line 23)
+✅ Fixed syntax errors in tests/generated/test_integ_20251112_084358_04.py
+✅ Successfully wrote: tests/generated/test_integ_20251112_084358_04.py
+  test_integ_20251112_084358_04.py - 29 targets
+Updated test mapping for 4 source files
+Generation completed: 7 test files for 4 source files
+📊 Updated test manifest: tests/generated/_manifest.json
+UNIVERSAL GENERATION COMPLETE: 7 test files
+Expected Coverage: Maximum with REAL IMPORTS
+Universal Compatibility: ENABLED
+Targets Covered: 118
+Project Structure: 1 packages detected
+UNIVERSAL TEST GENERATION SUCCESSFUL!
+UNIVERSAL Results:
+   Generated: 7 test files
+   Coverage Mode: universal
+   Universal Compatibility: ENABLED
+   Targets Covered: 82
+   Project Structure: Universal handling enabled
+Run UNIVERSAL Tests:
+   Basic: python -m pytest ./tests/generated -v
+   Coverage: python -m pytest ./tests/generated --cov=. --cov-report=html
+   Universal: PYTHONPATH=/home/sigmoid/test-repos/flask-high-coverage-repo python -m pytest ./tests/generated
+=== AI Test Generation Completed ===
+🧩 Total AI-generated test files: 7
+./tests/generated/test_integ_20251112_084358_04.py
+./tests/generated/test_unit_20251112_084358_03.py
+./tests/generated/test_integ_20251112_084358_01.py
+./tests/generated/test_integ_20251112_084358_03.py
+./tests/generated/test_integ_20251112_084358_02.py
+./tests/generated/test_unit_20251112_084358_01.py
+./tests/generated/test_unit_20251112_084358_02.py
+
+⚠️ No requirements.txt found — skipping dependency installation
+🧪 Running pytest on AI-generated tests...
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-7.4.3, pluggy-1.6.0 -- /home/sigmoid/TECH_DEMO/new-tech-demo/venv/bin/python3
+cachedir: .pytest_cache
+django: version: 5.2.8
+metadata: {'Python': '3.12.3', 'Platform': 'Linux-6.14.0-33-generic-x86_64-with-glibc2.39', 'Packages': {'pytest': '7.4.3', 'pluggy': '1.6.0'}, 'Plugins': {'html': '4.1.1', 'django': '4.11.1', 'asyncio': '0.21.1', 'mock': '3.15.1', 'anyio': '3.7.1', 'metadata': '3.1.1', 'cov': '4.1.0'}}
+rootdir: /home/sigmoid/TECH_DEMO/new-tech-demo
+configfile: pytest.ini
+plugins: html-4.1.1, django-4.11.1, asyncio-0.21.1, mock-3.15.1, anyio-3.7.1, metadata-3.1.1, cov-4.1.0
+asyncio: mode=Mode.AUTO
+collecting ... collected 350 items
+
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_add_sets_last_result[1-2-3] PASSED [  0%]
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_add_sets_last_result[0-0-0] PASSED [  0%]
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_add_sets_last_result[-1-1-0] PASSED [  0%]
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_add_sets_last_result[1.5-2.5-4.0] PASSED [  1%]
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_subtract_and_persistence[5-3-2] PASSED [  1%]
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_subtract_and_persistence[0-5--5] PASSED [  1%]
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_subtract_and_persistence[-2--3-1] PASSED [  2%]
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_multiply_and_reset[2-3-6] PASSED [  2%]
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_multiply_and_reset[0-10-0] PASSED [  2%]
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_multiply_and_reset[-2-3--6] PASSED [  2%]
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_multiply_and_reset[1.5-2-3.0] PASSED [  3%]
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_divide_success_and_divide_by_zero PASSED [  3%]
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_power_and_last_result[2-3-8] PASSED [  3%]
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_power_and_last_result[9-0.5-3.0] PASSED [  4%]
+tests/generated/test_integ_20251112_084358_01.py::test_calculator_power_and_last_result[5-0-1] PASSED [  4%]
+tests/generated/test_integ_20251112_084358_01.py::test_get_last_result_without_operations_raises PASSED [  4%]
+tests/generated/test_integ_20251112_084358_01.py::test_sequence_of_operations_and_persistence PASSED [  4%]
+tests/generated/test_integ_20251112_084358_01.py::test_reverse_string[abc-cba] PASSED [  5%]
+tests/generated/test_integ_20251112_084358_01.py::test_reverse_string[-] PASSED [  5%]
+tests/generated/test_integ_20251112_084358_01.py::test_reverse_string[A-A] PASSED [  5%]
+tests/generated/test_integ_20251112_084358_01.py::test_reverse_string[racecar-racecar] PASSED [  6%]
+tests/generated/test_integ_20251112_084358_01.py::test_reverse_string[hello world-dlrow olleh] PASSED [  6%]
+tests/generated/test_integ_20251112_084358_01.py::test_is_palindrome_various[-True] FAILED [  6%]
+tests/generated/test_integ_20251112_084358_01.py::test_is_palindrome_various[a-True] PASSED [  6%]
+tests/generated/test_integ_20251112_084358_01.py::test_is_palindrome_various[racecar-True] PASSED [  7%]
+tests/generated/test_integ_20251112_084358_01.py::test_is_palindrome_various[RaceCar-False] PASSED [  7%]
+tests/generated/test_integ_20251112_084358_01.py::test_count_vowels[-0] PASSED [  7%]
+tests/generated/test_integ_20251112_084358_01.py::test_count_vowels[aeiou-5] PASSED [  8%]
+tests/generated/test_integ_20251112_084358_01.py::test_count_vowels[AEIOU-5] PASSED [  8%]
+tests/generated/test_integ_20251112_084358_01.py::test_count_vowels[abcde-2] PASSED [  8%]
+tests/generated/test_integ_20251112_084358_01.py::test_count_vowels[bcdfg-0] PASSED [  8%]
+tests/generated/test_integ_20251112_084358_01.py::test_word_count[-0] PASSED [  9%]
+tests/generated/test_integ_20251112_084358_01.py::test_word_count[one-1] PASSED [  9%]
+tests/generated/test_integ_20251112_084358_01.py::test_word_count[one two three-3] PASSED [  9%]
+tests/generated/test_integ_20251112_084358_01.py::test_word_count[  spaced   words -2] PASSED [ 10%]
+tests/generated/test_integ_20251112_084358_01.py::test_find_substring_returns_positions_or_empty[hello world-lo-expected_positions0] PASSED [ 10%]
+tests/generated/test_integ_20251112_084358_01.py::test_find_substring_returns_positions_or_empty[aaaa-aa-expected_positions1] PASSED [ 10%]
+tests/generated/test_integ_20251112_084358_01.py::test_find_substring_returns_positions_or_empty[abc-d-expected_positions2] PASSED [ 10%]
+tests/generated/test_integ_20251112_084358_01.py::test_find_substring_returns_positions_or_empty[-a-expected_positions3] PASSED [ 11%]
+tests/generated/test_integ_20251112_084358_01.py::test_capitalize_words[hello world-Hello World] PASSED [ 11%]
+tests/generated/test_integ_20251112_084358_01.py::test_capitalize_words[already Capitalized-Already Capitalized] PASSED [ 11%]
+tests/generated/test_integ_20251112_084358_01.py::test_capitalize_words[-] PASSED [ 12%]
+tests/generated/test_integ_20251112_084358_01.py::test_user_creation_and_display_name_and_activation_and_age_checks PASSED [ 12%]
+tests/generated/test_integ_20251112_084358_01.py::test_user_invalid_email_raises PASSED [ 12%]
+tests/generated/test_integ_20251112_084358_01.py::test_user_negative_age_raises PASSED [ 12%]
+tests/generated/test_integ_20251112_084358_01.py::test_days_since_creation_calculation PASSED [ 13%]
+tests/generated/test_integ_20251112_084358_01.py::test_usermanager_add_get_find_delete_and_counts PASSED [ 13%]
+tests/generated/test_integ_20251112_084358_01.py::test_usermanager_integration_flow_multiple_operations PASSED [ 13%]
+tests/generated/test_integ_20251112_084358_01.py::test_dataprocessor_load_and_stats_and_clear PASSED [ 14%]
+tests/generated/test_integ_20251112_084358_01.py::test_dataprocessor_load_from_json_valid_and_invalid PASSED [ 14%]
+tests/generated/test_integ_20251112_084358_01.py::test_dataprocessor_filter_and_map_edge_cases PASSED [ 14%]
+tests/generated/test_integ_20251112_084358_01.py::test_user_and_stringutils_integration PASSED [ 14%]
+tests/generated/test_integ_20251112_084358_01.py::test_manager_and_stringutils_workflow FAILED [ 15%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_add[1-2-3] PASSED [ 15%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_add[0-0-0] PASSED [ 15%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_add[-1--2--3] PASSED [ 16%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_add[1.5-2.25-3.75] PASSED [ 16%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_subtract[5-3-2] PASSED [ 16%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_subtract[0-5--5] PASSED [ 16%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_subtract[-2--3-1] PASSED [ 17%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_multiply[2-3-6] PASSED [ 17%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_multiply[0-10-0] PASSED [ 17%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_multiply[-2-3--6] PASSED [ 18%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_multiply[2.5-2-5.0] PASSED [ 18%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_divide_success[6-3-2.0] PASSED [ 18%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_divide_success[5-2-2.5] PASSED [ 18%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_divide_success[0-1-0.0] PASSED [ 19%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_divide_by_zero_raises PASSED [ 19%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_power_and_reset_and_get_last_result_errors PASSED [ 19%]
+tests/generated/test_integ_20251112_084358_02.py::test_integration_calculator_with_user_manager PASSED [ 20%]
+tests/generated/test_integ_20251112_084358_02.py::test_reverse_string[abc-cba] PASSED [ 20%]
+tests/generated/test_integ_20251112_084358_02.py::test_reverse_string[-] PASSED [ 20%]
+tests/generated/test_integ_20251112_084358_02.py::test_reverse_string[a-a] PASSED [ 20%]
+tests/generated/test_integ_20251112_084358_02.py::test_reverse_string[racecar-racecar] PASSED [ 21%]
+tests/generated/test_integ_20251112_084358_02.py::test_reverse_string_type_error PASSED [ 21%]
+tests/generated/test_integ_20251112_084358_02.py::test_is_palindrome_various[Racecar-True] PASSED [ 21%]
+tests/generated/test_integ_20251112_084358_02.py::test_is_palindrome_various[A man, a plan, a canal: Panama-True] PASSED [ 22%]
+tests/generated/test_integ_20251112_084358_02.py::test_is_palindrome_various[-False] PASSED [ 22%]
+tests/generated/test_integ_20251112_084358_02.py::test_is_palindrome_various[abc-False] PASSED [ 22%]
+tests/generated/test_integ_20251112_084358_02.py::test_is_palindrome_various[12321-True] PASSED [ 22%]
+tests/generated/test_integ_20251112_084358_02.py::test_is_palindrome_various[123-321-True] PASSED [ 23%]
+tests/generated/test_integ_20251112_084358_02.py::test_count_vowels[hello-2] PASSED [ 23%]
+tests/generated/test_integ_20251112_084358_02.py::test_count_vowels[-0] PASSED [ 23%]
+tests/generated/test_integ_20251112_084358_02.py::test_count_vowels[AEIOU-5] PASSED [ 24%]
+tests/generated/test_integ_20251112_084358_02.py::test_count_vowels[bcdf-0] PASSED [ 24%]
+tests/generated/test_integ_20251112_084358_02.py::test_count_vowels[alphabet-3] PASSED [ 24%]
+tests/generated/test_integ_20251112_084358_02.py::test_word_count[one two three-3] PASSED [ 24%]
+tests/generated/test_integ_20251112_084358_02.py::test_word_count[   -0] PASSED [ 25%]
+tests/generated/test_integ_20251112_084358_02.py::test_word_count[hello-1] PASSED [ 25%]
+tests/generated/test_integ_20251112_084358_02.py::test_word_count[multiple   spaces between-3] PASSED [ 25%]
+tests/generated/test_integ_20251112_084358_02.py::test_word_count[-0] PASSED [ 26%]
+tests/generated/test_integ_20251112_084358_02.py::test_find_substring_basic_and_overlaps PASSED [ 26%]
+tests/generated/test_integ_20251112_084358_02.py::test_find_substring_empty_inputs PASSED [ 26%]
+tests/generated/test_integ_20251112_084358_02.py::test_capitalize_words PASSED [ 26%]
+tests/generated/test_integ_20251112_084358_02.py::test_integration_stringutils_with_usermanager PASSED [ 27%]
+tests/generated/test_integ_20251112_084358_02.py::test_user_post_init_and_display_name_and_days_since_creation PASSED [ 27%]
+tests/generated/test_integ_20251112_084358_02.py::test_user_email_validation_and_age_validation PASSED [ 27%]
+tests/generated/test_integ_20251112_084358_02.py::test_user_activation_and_deactivation_and_is_adult PASSED [ 28%]
+tests/generated/test_integ_20251112_084358_02.py::test_user_manager_add_get_delete_find_and_count PASSED [ 28%]
+tests/generated/test_integ_20251112_084358_02.py::test_get_active_users_filters_correctly PASSED [ 28%]
+tests/generated/test_integ_20251112_084358_02.py::test_integration_palindrome_usernames PASSED [ 28%]
+tests/generated/test_integ_20251112_084358_02.py::test_data_processor_load_and_clear_and_get_stats_and_map_and_filter PASSED [ 29%]
+tests/generated/test_integ_20251112_084358_02.py::test_data_processor_load_from_json_and_invalid_json PASSED [ 29%]
+tests/generated/test_integ_20251112_084358_02.py::test_data_processor_private_calculate_stats_is_consistent FAILED [ 29%]
+tests/generated/test_integ_20251112_084358_02.py::test_integration_calculator_with_data_processor FAILED [ 30%]
+tests/generated/test_integ_20251112_084358_02.py::test_stringutils_none_and_whitespace_edge_cases FAILED [ 30%]
+tests/generated/test_integ_20251112_084358_02.py::test_user_manager_edge_cases_with_none_and_empty_strings PASSED [ 30%]
+tests/generated/test_integ_20251112_084358_02.py::test_calculator_operations_with_invalid_types_and_large_numbers FAILED [ 30%]
+tests/generated/test_integ_20251112_084358_02.py::test_full_workflow_create_users_from_processed_data PASSED [ 31%]
+tests/generated/test_integ_20251112_084358_03.py::test_is_palindrome_integration[racecar-True] PASSED [ 31%]
+tests/generated/test_integ_20251112_084358_03.py::test_is_palindrome_integration[RaceCar-True] PASSED [ 31%]
+tests/generated/test_integ_20251112_084358_03.py::test_is_palindrome_integration[notpalindrome-False] PASSED [ 32%]
+tests/generated/test_integ_20251112_084358_03.py::test_is_palindrome_integration[-True] FAILED [ 32%]
+tests/generated/test_integ_20251112_084358_03.py::test_is_palindrome_integration[None-False] PASSED [ 32%]
+tests/generated/test_integ_20251112_084358_03.py::test_is_palindrome_integration[A man, a plan, a canal: Panama-True] PASSED [ 32%]
+tests/generated/test_integ_20251112_084358_03.py::test_count_vowels_integration[hello-2] PASSED [ 33%]
+tests/generated/test_integ_20251112_084358_03.py::test_count_vowels_integration[AEIOUaeiou-10] PASSED [ 33%]
+tests/generated/test_integ_20251112_084358_03.py::test_count_vowels_integration[bcdfg-0] PASSED [ 33%]
+tests/generated/test_integ_20251112_084358_03.py::test_count_vowels_integration[-0] PASSED [ 34%]
+tests/generated/test_integ_20251112_084358_03.py::test_count_vowels_integration[None-0] PASSED [ 34%]
+tests/generated/test_integ_20251112_084358_03.py::test_word_count_and_capitalize_integration[one two three-expected0] FAILED [ 34%]
+tests/generated/test_integ_20251112_084358_03.py::test_word_count_and_capitalize_integration[  repeated repeated  -expected1] FAILED [ 34%]
+tests/generated/test_integ_20251112_084358_03.py::test_word_count_and_capitalize_integration[-expected2] FAILED [ 35%]
+tests/generated/test_integ_20251112_084358_03.py::test_word_count_and_capitalize_integration[None-expected3] XFAIL [ 35%]
+tests/generated/test_integ_20251112_084358_03.py::test_find_substring_integration[hello world-lo-expected_indices0] PASSED [ 35%]
+tests/generated/test_integ_20251112_084358_03.py::test_find_substring_integration[ababab-ab-expected_indices1] PASSED [ 36%]
+tests/generated/test_integ_20251112_084358_03.py::test_find_substring_integration[no match here-z-expected_indices2] PASSED [ 36%]
+tests/generated/test_integ_20251112_084358_03.py::test_find_substring_integration[--expected_indices3] PASSED [ 36%]
+tests/generated/test_integ_20251112_084358_03.py::test_find_substring_integration[None-a-expected_indices4] PASSED [ 36%]
+tests/generated/test_integ_20251112_084358_03.py::test_data_processor_load_and_stats_integration PASSED [ 37%]
+tests/generated/test_integ_20251112_084358_03.py::test_data_processor_load_from_json_and_errors PASSED [ 37%]
+tests/generated/test_integ_20251112_084358_03.py::test_data_processor_filter_map_clear_integration PASSED [ 37%]
+tests/generated/test_integ_20251112_084358_03.py::test_data_processor_using_calculator_results_integration PASSED [ 38%]
+tests/generated/test_integ_20251112_084358_03.py::test_user_creation_and_validation_and_display_name PASSED [ 38%]
+tests/generated/test_integ_20251112_084358_03.py::test_user_invalid_email_and_negative_age PASSED [ 38%]
+tests/generated/test_integ_20251112_084358_03.py::test_user_manager_full_workflow_integration PASSED [ 38%]
+tests/generated/test_integ_20251112_084358_03.py::test_user_manager_and_string_utils_integration PASSED [ 39%]
+tests/generated/test_integ_20251112_084358_03.py::test_calculator_basic_operations_and_state FAILED [ 39%]
+tests/generated/test_integ_20251112_084358_03.py::test_full_integration_pipeline_users_and_stats_and_strings PASSED [ 39%]
+tests/generated/test_integ_20251112_084358_03.py::test_data_processor_rejects_non_list PASSED [ 40%]
+tests/generated/test_integ_20251112_084358_03.py::test_user_days_since_creation_for_old_date PASSED [ 40%]
+tests/generated/test_integ_20251112_084358_03.py::test_string_utils_smoke_methods_exist PASSED [ 40%]
+tests/generated/test_integ_20251112_084358_03.py::test_user_manager_id_increment_and_deletion_behavior PASSED [ 40%]
+tests/generated/test_integ_20251112_084358_03.py::test_find_substring_parametrized[hello-ll] PASSED [ 41%]
+tests/generated/test_integ_20251112_084358_03.py::test_find_substring_parametrized[hello-z] PASSED [ 41%]
+tests/generated/test_integ_20251112_084358_03.py::test_find_substring_parametrized[-a] PASSED [ 41%]
+tests/generated/test_integ_20251112_084358_03.py::test_data_processor_map_handles_exceptions_in_transform PASSED [ 42%]
+tests/generated/test_integ_20251112_084358_04.py::test_reverse_string_various[abc-cba] PASSED [ 42%]
+tests/generated/test_integ_20251112_084358_04.py::test_reverse_string_various[-] PASSED [ 42%]
+tests/generated/test_integ_20251112_084358_04.py::test_reverse_string_various[a-a] PASSED [ 42%]
+tests/generated/test_integ_20251112_084358_04.py::test_reverse_string_various[racecar-racecar] PASSED [ 43%]
+tests/generated/test_integ_20251112_084358_04.py::test_reverse_string_various[123!@-@!321] PASSED [ 43%]
+tests/generated/test_integ_20251112_084358_04.py::test_reverse_string_type_error PASSED [ 43%]
+tests/generated/test_integ_20251112_084358_04.py::test_is_palindrome_various[-False] PASSED [ 44%]
+tests/generated/test_integ_20251112_084358_04.py::test_is_palindrome_various[A man, a plan, a canal: Panama-True] PASSED [ 44%]
+tests/generated/test_integ_20251112_084358_04.py::test_is_palindrome_various[No lemon, no melon-True] PASSED [ 44%]
+tests/generated/test_integ_20251112_084358_04.py::test_is_palindrome_various[hello-False] PASSED [ 44%]
+tests/generated/test_integ_20251112_084358_04.py::test_is_palindrome_various[12321-True] PASSED [ 45%]
+tests/generated/test_integ_20251112_084358_04.py::test_is_palindrome_various[None-False] PASSED [ 45%]
+tests/generated/test_integ_20251112_084358_04.py::test_count_vowels_various[hello-2] PASSED [ 45%]
+tests/generated/test_integ_20251112_084358_04.py::test_count_vowels_various[-0] PASSED [ 46%]
+tests/generated/test_integ_20251112_084358_04.py::test_count_vowels_various[None-0] PASSED [ 46%]
+tests/generated/test_integ_20251112_084358_04.py::test_count_vowels_various[AEIOU-5] PASSED [ 46%]
+tests/generated/test_integ_20251112_084358_04.py::test_count_vowels_various[xyz-0] PASSED [ 46%]
+tests/generated/test_integ_20251112_084358_04.py::test_count_vowels_various[Beautiful-5] PASSED [ 47%]
+tests/generated/test_integ_20251112_084358_04.py::test_word_count_various[one two three-3] PASSED [ 47%]
+tests/generated/test_integ_20251112_084358_04.py::test_word_count_various[   -0] PASSED [ 47%]
+tests/generated/test_integ_20251112_084358_04.py::test_word_count_various[-0] PASSED [ 48%]
+tests/generated/test_integ_20251112_084358_04.py::test_word_count_various[word-1] PASSED [ 48%]
+tests/generated/test_integ_20251112_084358_04.py::test_word_count_various[multiple   spaces here-3] PASSED [ 48%]
+tests/generated/test_integ_20251112_084358_04.py::test_find_substring_various[abracadabra-abra-expected0] PASSED [ 48%]
+tests/generated/test_integ_20251112_084358_04.py::test_find_substring_various[aaaa-aa-expected1] PASSED [ 49%]
+tests/generated/test_integ_20251112_084358_04.py::test_find_substring_various[hello-z-expected2] PASSED [ 49%]
+tests/generated/test_integ_20251112_084358_04.py::test_find_substring_various[-a-expected3] PASSED [ 49%]
+tests/generated/test_integ_20251112_084358_04.py::test_find_substring_various[abc--expected4] PASSED [ 50%]
+tests/generated/test_integ_20251112_084358_04.py::test_find_substring_various[None-a-expected5] PASSED [ 50%]
+tests/generated/test_integ_20251112_084358_04.py::test_capitalize_words_various[hello world-Hello World] PASSED [ 50%]
+tests/generated/test_integ_20251112_084358_04.py::test_capitalize_words_various[multiple words here-Multiple Words Here] PASSED [ 50%]
+tests/generated/test_integ_20251112_084358_04.py::test_capitalize_words_various[-] PASSED [ 51%]
+tests/generated/test_integ_20251112_084358_04.py::test_capitalize_words_various[already Capitalized-Already Capitalized] PASSED [ 51%]
+tests/generated/test_integ_20251112_084358_04.py::test_calculator_basic_operations_and_state PASSED [ 51%]
+tests/generated/test_integ_20251112_084358_04.py::test_calculator_divide_and_zero_division FAILED [ 52%]
+tests/generated/test_integ_20251112_084358_04.py::test_calculator_reset_clears_state FAILED [ 52%]
+tests/generated/test_integ_20251112_084358_04.py::test_data_processor_load_and_basic_transformations PASSED [ 52%]
+tests/generated/test_integ_20251112_084358_04.py::test_data_processor_load_from_json_and_clear FAILED [ 52%]
+tests/generated/test_integ_20251112_084358_04.py::test_data_processor_invalid_json_raises FAILED [ 53%]
+tests/generated/test_integ_20251112_084358_04.py::test_data_processor_map_parametrized[<lambda>-expected0] PASSED [ 53%]
+tests/generated/test_integ_20251112_084358_04.py::test_data_processor_map_parametrized[<lambda>-expected1] PASSED [ 53%]
+tests/generated/test_integ_20251112_084358_04.py::test_user_post_init_and_validation_and_display_name PASSED [ 54%]
+tests/generated/test_integ_20251112_084358_04.py::test_user_activation_deactivation_and_adult_check PASSED [ 54%]
+tests/generated/test_integ_20251112_084358_04.py::test_user_days_since_creation_consistency PASSED [ 54%]
+tests/generated/test_integ_20251112_084358_04.py::test_user_manager_add_get_find_delete_count_and_active PASSED [ 54%]
+tests/generated/test_integ_20251112_084358_04.py::test_integration_usermanager_with_data_processor_and_stringutils PASSED [ 55%]
+tests/generated/test_integ_20251112_084358_04.py::test_integration_stringutils_with_data_processor_strings PASSED [ 55%]
+tests/generated/test_integ_20251112_084358_04.py::test_edge_cases_empty_and_none_inputs PASSED [ 55%]
+tests/generated/test_integ_20251112_084358_04.py::test_integration_calculator_with_data_processor_stats PASSED [ 56%]
+tests/generated/test_unit_20251112_084358_01.py::test_calculator_add_sets_last_result[1-2-3] PASSED [ 56%]
+tests/generated/test_unit_20251112_084358_01.py::test_calculator_add_sets_last_result[0-0-0] PASSED [ 56%]
+tests/generated/test_unit_20251112_084358_01.py::test_calculator_add_sets_last_result[-1-1-0] PASSED [ 56%]
+tests/generated/test_unit_20251112_084358_01.py::test_calculator_add_sets_last_result[1.5-2.5-4.0] PASSED [ 57%]
+tests/generated/test_unit_20251112_084358_01.py::test_calculator_subtract_and_reset[5-3-2] PASSED [ 57%]
+tests/generated/test_unit_20251112_084358_01.py::test_calculator_subtract_and_reset[0-5--5] PASSED [ 57%]
+tests/generated/test_unit_20251112_084358_01.py::test_calculator_subtract_and_reset[2.5-1.5-1.0] PASSED [ 58%]
+tests/generated/test_unit_20251112_084358_01.py::test_calculator_multiply_and_power[2-3-6] PASSED [ 58%]
+tests/generated/test_unit_20251112_084358_01.py::test_calculator_multiply_and_power[0-100-0] PASSED [ 58%]
+tests/generated/test_unit_20251112_084358_01.py::test_calculator_multiply_and_power[-2--2-4] PASSED [ 58%]
+tests/generated/test_unit_20251112_084358_01.py::test_calculator_divide_success_and_zero PASSED [ 59%]
+tests/generated/test_unit_20251112_084358_01.py::test_calculator_get_last_result_no_calculation PASSED [ 59%]
+tests/generated/test_unit_20251112_084358_01.py::test_data_processor_load_data_type_validation PASSED [ 59%]
+tests/generated/test_unit_20251112_084358_01.py::test_data_processor_stats_computation_mixed_types PASSED [ 60%]
+tests/generated/test_unit_20251112_084358_01.py::test_data_processor_load_from_json_and_errors PASSED [ 60%]
+tests/generated/test_unit_20251112_084358_01.py::test_data_processor_filter_data[<lambda>-expected0] PASSED [ 60%]
+tests/generated/test_unit_20251112_084358_01.py::test_data_processor_filter_data[<lambda>-expected1] PASSED [ 60%]
+tests/generated/test_unit_20251112_084358_01.py::test_data_processor_map_data_and_clear PASSED [ 61%]
+tests/generated/test_unit_20251112_084358_01.py::test_reverse_string_valid[abc-cba] PASSED [ 61%]
+tests/generated/test_unit_20251112_084358_01.py::test_reverse_string_valid[-] PASSED [ 61%]
+tests/generated/test_unit_20251112_084358_01.py::test_reverse_string_valid[a-a] PASSED [ 62%]
+tests/generated/test_unit_20251112_084358_01.py::test_reverse_string_valid[12345-54321] PASSED [ 62%]
+tests/generated/test_unit_20251112_084358_01.py::test_reverse_string_type_error PASSED [ 62%]
+tests/generated/test_unit_20251112_084358_01.py::test_is_palindrome_various[-False] PASSED [ 62%]
+tests/generated/test_unit_20251112_084358_01.py::test_is_palindrome_various[A man, a plan, a canal: Panama-True] PASSED [ 63%]
+tests/generated/test_unit_20251112_084358_01.py::test_is_palindrome_various[No lemon, no melon-True] PASSED [ 63%]
+tests/generated/test_unit_20251112_084358_01.py::test_is_palindrome_various[Not a palindrome-False] PASSED [ 63%]
+tests/generated/test_unit_20251112_084358_01.py::test_count_vowels_various[-0] PASSED [ 64%]
+tests/generated/test_unit_20251112_084358_01.py::test_count_vowels_various[aeiouAEIOU-10] PASSED [ 64%]
+tests/generated/test_unit_20251112_084358_01.py::test_count_vowels_various[hello world-3] PASSED [ 64%]
+tests/generated/test_unit_20251112_084358_01.py::test_count_vowels_various[xyz-0] PASSED [ 64%]
+tests/generated/test_unit_20251112_084358_01.py::test_word_count_various[-0] PASSED [ 65%]
+tests/generated/test_unit_20251112_084358_01.py::test_word_count_various[   -0] PASSED [ 65%]
+tests/generated/test_unit_20251112_084358_01.py::test_word_count_various[hello world-2] PASSED [ 65%]
+tests/generated/test_unit_20251112_084358_01.py::test_word_count_various[hello   world  spaced-3] PASSED [ 66%]
+tests/generated/test_unit_20251112_084358_01.py::test_find_substring_edge_and_overlapping PASSED [ 66%]
+tests/generated/test_unit_20251112_084358_01.py::test_capitalize_words[hello world-Hello World] PASSED [ 66%]
+tests/generated/test_unit_20251112_084358_01.py::test_capitalize_words[mixed CASE words-Mixed Case Words] PASSED [ 66%]
+tests/generated/test_unit_20251112_084358_01.py::test_capitalize_words[-] PASSED [ 67%]
+tests/generated/test_unit_20251112_084358_01.py::test_user_valid_and_properties PASSED [ 67%]
+tests/generated/test_unit_20251112_084358_01.py::test_user_invalid_email_raises[no-at-symbol] PASSED [ 67%]
+tests/generated/test_unit_20251112_084358_01.py::test_user_invalid_email_raises[bad@domain] PASSED [ 68%]
+tests/generated/test_unit_20251112_084358_01.py::test_user_invalid_email_raises[also@bad@domain.com] PASSED [ 68%]
+tests/generated/test_unit_20251112_084358_01.py::test_user_invalid_email_raises[@missinglocal.com] PASSED [ 68%]
+tests/generated/test_unit_20251112_084358_01.py::test_user_negative_age_raises PASSED [ 68%]
+tests/generated/test_unit_20251112_084358_01.py::test_user_days_since_creation_with_old_date PASSED [ 69%]
+tests/generated/test_unit_20251112_084358_01.py::test_user_manager_add_get_delete_find_and_counts PASSED [ 69%]
+tests/generated/test_unit_20251112_084358_01.py::test_string_utils_methods_do_not_modify_original PASSED [ 69%]
+tests/generated/test_unit_20251112_084358_01.py::test_data_processor_load_data_various_inputs[None-True] PASSED [ 70%]
+tests/generated/test_unit_20251112_084358_01.py::test_data_processor_load_data_various_inputs[value1-False] PASSED [ 70%]
+tests/generated/test_unit_20251112_084358_01.py::test_data_processor_load_data_various_inputs[value2-True] PASSED [ 70%]
+tests/generated/test_unit_20251112_084358_01.py::test_data_processor_load_data_various_inputs[[]-True] PASSED [ 70%]
+tests/generated/test_unit_20251112_084358_01.py::test_user_equality_and_hash_behavior FAILED [ 71%]
+tests/generated/test_unit_20251112_084358_01.py::test_imported_objects_exist_and_types PASSED [ 71%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_initial_state PASSED [ 71%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_add[1-2-3] PASSED [ 72%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_add[0.5-0.25-0.75] PASSED [ 72%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_add[-1-1-0] PASSED [ 72%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_subtract[5-3-2] PASSED [ 72%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_subtract[0-0-0] PASSED [ 73%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_subtract[-1--1-0] PASSED [ 73%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_multiply[2-3-6] PASSED [ 73%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_multiply[0-10-0] PASSED [ 74%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_multiply[-2-3--6] PASSED [ 74%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_divide_normal_and_by_zero PASSED [ 74%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_power_and_last_result[2-3-8] PASSED [ 74%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_power_and_last_result[9-0.5-3.0] PASSED [ 75%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_power_and_last_result[5-0-1] PASSED [ 75%]
+tests/generated/test_unit_20251112_084358_02.py::test_calculator_get_last_result_error_and_reset PASSED [ 75%]
+tests/generated/test_unit_20251112_084358_02.py::test_data_processor_load_and_clear_and_attributes PASSED [ 76%]
+tests/generated/test_unit_20251112_084358_02.py::test_data_processor_load_from_json_and_invalid_json FAILED [ 76%]
+tests/generated/test_unit_20251112_084358_02.py::test_data_processor_filter_and_map_behavior PASSED [ 76%]
+tests/generated/test_unit_20251112_084358_02.py::test_data_processor_calculate_stats_content PASSED [ 76%]
+tests/generated/test_unit_20251112_084358_02.py::test_user_post_init_and_validation[alice-alice@example.com-30-False] PASSED [ 77%]
+tests/generated/test_unit_20251112_084358_02.py::test_user_post_init_and_validation[bob-bad-email-25-True] PASSED [ 77%]
+tests/generated/test_unit_20251112_084358_02.py::test_user_post_init_and_validation[carl-carl@example.com--1-True] PASSED [ 77%]
+tests/generated/test_unit_20251112_084358_02.py::test_user_activate_deactivate_and_is_adult_and_days_since_creation PASSED [ 78%]
+tests/generated/test_unit_20251112_084358_02.py::test_user_created_at_custom_and_equality_hash_like_behaviors PASSED [ 78%]
+tests/generated/test_unit_20251112_084358_02.py::test_user_manager_add_get_delete_find_count PASSED [ 78%]
+tests/generated/test_unit_20251112_084358_02.py::test_reverse_string_various[abc-cba] PASSED [ 78%]
+tests/generated/test_unit_20251112_084358_02.py::test_reverse_string_various[-] PASSED [ 79%]
+tests/generated/test_unit_20251112_084358_02.py::test_reverse_string_various[A-A] PASSED [ 79%]
+tests/generated/test_unit_20251112_084358_02.py::test_reverse_string_various[racecar-racecar] PASSED [ 79%]
+tests/generated/test_unit_20251112_084358_02.py::test_reverse_string_type_error PASSED [ 80%]
+tests/generated/test_unit_20251112_084358_02.py::test_is_palindrome[-False] PASSED [ 80%]
+tests/generated/test_unit_20251112_084358_02.py::test_is_palindrome[A man, a plan, a canal: Panama-True] PASSED [ 80%]
+tests/generated/test_unit_20251112_084358_02.py::test_is_palindrome[racecar-True] PASSED [ 80%]
+tests/generated/test_unit_20251112_084358_02.py::test_is_palindrome[not palindrome-False] PASSED [ 81%]
+tests/generated/test_unit_20251112_084358_02.py::test_count_vowels[-0] PASSED [ 81%]
+tests/generated/test_unit_20251112_084358_02.py::test_count_vowels[abcdef-2] PASSED [ 81%]
+tests/generated/test_unit_20251112_084358_02.py::test_count_vowels[AEIOU-5] PASSED [ 82%]
+tests/generated/test_unit_20251112_084358_02.py::test_count_vowels[xyz-0] PASSED [ 82%]
+tests/generated/test_unit_20251112_084358_02.py::test_word_count[-0] PASSED [ 82%]
+tests/generated/test_unit_20251112_084358_02.py::test_word_count[   -0] PASSED [ 82%]
+tests/generated/test_unit_20251112_084358_02.py::test_word_count[one two three-3] PASSED [ 83%]
+tests/generated/test_unit_20251112_084358_02.py::test_word_count[word-1] PASSED [ 83%]
+tests/generated/test_unit_20251112_084358_02.py::test_find_substring_indices_and_edge_cases PASSED [ 83%]
+tests/generated/test_unit_20251112_084358_02.py::test_capitalize_words_basic PASSED [ 84%]
+tests/generated/test_unit_20251112_084358_02.py::test_integration_user_manager_stringutils_and_processor PASSED [ 84%]
+tests/generated/test_unit_20251112_084358_02.py::test_stringutils_palindrome_and_cleanup_chars PASSED [ 84%]
+tests/generated/test_unit_20251112_084358_02.py::test_stress_calls_do_not_raise PASSED [ 84%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_add[1-2-3] PASSED [ 85%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_add[2.5-0.5-3.0] PASSED [ 85%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_add[-1--1--2] PASSED [ 85%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_add[0-0-0] PASSED [ 86%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_subtract[5-3-2] PASSED [ 86%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_subtract[2.5-0.5-2.0] PASSED [ 86%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_subtract[-1-1--2] PASSED [ 86%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_multiply[2-3-6] PASSED [ 87%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_multiply[2.5-2-5.0] PASSED [ 87%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_multiply[0-5-0] PASSED [ 87%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_multiply[-2-3--6] PASSED [ 88%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_divide_success_and_division_by_zero PASSED [ 88%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_power_and_get_last_result[2-3-8] PASSED [ 88%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_power_and_get_last_result[5-0-1] PASSED [ 88%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_power_and_get_last_result[2--1-0.5] PASSED [ 89%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculator_reset ERROR [ 89%]
+tests/generated/test_unit_20251112_084358_03.py::test_load_data_valid_and_stats_calculation PASSED [ 89%]
+tests/generated/test_unit_20251112_084358_03.py::test_load_data_invalid_type_raises PASSED [ 90%]
+tests/generated/test_unit_20251112_084358_03.py::test_load_from_json_valid_and_invalid PASSED [ 90%]
+tests/generated/test_unit_20251112_084358_03.py::test_calculate_stats_edge_cases PASSED [ 90%]
+tests/generated/test_unit_20251112_084358_03.py::test_filter_and_map_and_clear PASSED [ 90%]
+tests/generated/test_unit_20251112_084358_03.py::test_reverse_string[abc-cba] PASSED [ 91%]
+tests/generated/test_unit_20251112_084358_03.py::test_reverse_string[-] PASSED [ 91%]
+tests/generated/test_unit_20251112_084358_03.py::test_reverse_string[a-a] PASSED [ 91%]
+tests/generated/test_unit_20251112_084358_03.py::test_reverse_string[Hello, World!-!dlroW ,olleH] PASSED [ 92%]
+tests/generated/test_unit_20251112_084358_03.py::test_is_palindrome[madam-True] PASSED [ 92%]
+tests/generated/test_unit_20251112_084358_03.py::test_is_palindrome[racecar-True] PASSED [ 92%]
+tests/generated/test_unit_20251112_084358_03.py::test_is_palindrome[-True] FAILED [ 92%]
+tests/generated/test_unit_20251112_084358_03.py::test_is_palindrome[Hello-False] PASSED [ 93%]
+tests/generated/test_unit_20251112_084358_03.py::test_count_vowels[hello-2] PASSED [ 93%]
+tests/generated/test_unit_20251112_084358_03.py::test_count_vowels[AEIOU-5] PASSED [ 93%]
+tests/generated/test_unit_20251112_084358_03.py::test_count_vowels[xyz-0] PASSED [ 94%]
+tests/generated/test_unit_20251112_084358_03.py::test_count_vowels[-0] PASSED [ 94%]
+tests/generated/test_unit_20251112_084358_03.py::test_word_count[hello world-2] PASSED [ 94%]
+tests/generated/test_unit_20251112_084358_03.py::test_word_count[ one two  three -3] PASSED [ 94%]
+tests/generated/test_unit_20251112_084358_03.py::test_word_count[-0] PASSED [ 95%]
+tests/generated/test_unit_20251112_084358_03.py::test_find_substring_basic_cases PASSED [ 95%]
+tests/generated/test_unit_20251112_084358_03.py::test_capitalize_words PASSED [ 95%]
+tests/generated/test_unit_20251112_084358_03.py::test_stringutils_none_inputs_raise_type_error FAILED [ 96%]
+tests/generated/test_unit_20251112_084358_03.py::test_user_creation_and_display_name_and_activation PASSED [ 96%]
+tests/generated/test_unit_20251112_084358_03.py::test_user_invalid_email_rejected PASSED [ 96%]
+tests/generated/test_unit_20251112_084358_03.py::test_user_negative_age_rejected PASSED [ 96%]
+tests/generated/test_unit_20251112_084358_03.py::test_user_validate_email_private_method PASSED [ 97%]
+tests/generated/test_unit_20251112_084358_03.py::test_user_is_adult_none_age_returns_false PASSED [ 97%]
+tests/generated/test_unit_20251112_084358_03.py::test_user_days_since_creation_custom_created_at PASSED [ 97%]
+tests/generated/test_unit_20251112_084358_03.py::test_user_manager_add_get_delete_and_find PASSED [ 98%]
+tests/generated/test_unit_20251112_084358_03.py::test_user_manager_activation_affects_get_active_users PASSED [ 98%]
+tests/generated/test_unit_20251112_084358_03.py::test_parametrized_universal_cases[normal_case-test_value-True] PASSED [ 98%]
+tests/generated/test_unit_20251112_084358_03.py::test_parametrized_universal_cases[empty_case--False] PASSED [ 98%]
+tests/generated/test_unit_20251112_084358_03.py::test_parametrized_universal_cases[none_case-None-False] PASSED [ 99%]
+tests/generated/test_unit_20251112_084358_03.py::test_parametrized_universal_cases[numeric_case-123-True] PASSED [ 99%]
+tests/generated/test_unit_20251112_084358_03.py::test_parametrized_universal_cases[list_case-value4-True] PASSED [ 99%]
+tests/generated/test_unit_20251112_084358_03.py::test_get_stats_return_is_copy PASSED [100%]
+
+==================================== ERRORS ====================================
+___________________ ERROR at setup of test_calculator_reset ____________________
+file /home/sigmoid/TECH_DEMO/new-tech-demo/tests/generated/test_unit_20251112_084358_03.py, line 130
+  def test_calculator_reset(calculater):
+E       fixture 'calculater' not found
+>       available fixtures: _base_test_env, _dj_autoclear_mailbox, _django_clear_site_cache, _django_db_helper, _django_db_marker, _django_set_urlconf, _django_setup_unittest, _expose_adminviews_and_views_helpers, _fail_for_invalid_template_variable, _fk_coercions_and_defaults, _live_server_helper, _materialize_abstract_models, _media_root_tmpdir, _patch_django_middleware, _patch_user_profile_signals, _request_shims, _template_string_if_invalid_marker, _wrap_request_collections, admin_client, admin_user, anyio_backend, anyio_backend_name, anyio_backend_options, api_client, app, async_client, async_rf, async_run, authenticated_user, cache, calculator, capfd, capfdbinary, caplog, capsys, capsysbinary, class_mocker, clean_environment, client, cov, db, django_assert_max_num_queries, django_assert_num_queries, django_capture_on_commit_callbacks, django_db_blocker, django_db_createdb, django_db_keepdb, django_db_modify_db_settings, django_db_modify_db_settings_parallel_suffix, django_db_modify_db_settings_tox_suffix, django_db_modify_db_settings_xdist_suffix, django_db_reset_sequences, django_db_serialized_rollback, django_db_setup, django_db_use_migrations, django_mail_dnsname, django_mail_patch_dns, django_test_environment, django_user_model, django_username_field, doctest_namespace, edge_case_values, enable_db_access_for_all, event_loop, extra, extras, include_metadata_in_junit_xml, live_server, mailoutbox, metadata, mock_file_operations, mock_request, mocker, module_mocker, monkeypatch, no_cover, package_mocker, processor, pytestconfig, record_property, record_testsuite_property, record_xml_attribute, recwarn, rf, rf_with_session, sample_data, session_mocker, settings, tmp_path, tmp_path_factory, tmpdir, tmpdir_factory, transactional_db, universal_coverage_setup, universal_sample_data, unused_tcp_port, unused_tcp_port_factory, unused_udp_port, unused_udp_port_factory, various_data
+>       use 'pytest --fixtures [testpath]' for help on them.
+
+/home/sigmoid/TECH_DEMO/new-tech-demo/tests/generated/test_unit_20251112_084358_03.py:130
+=================================== FAILURES ===================================
+______________________ test_is_palindrome_various[-True] _______________________
+
+text = '', expected = True
+
+    @pytest.mark.parametrize("text,expected", [
+        ("", True),            # empty string often considered palindrome
+        ("a", True),
+        ("racecar", True),
+        ("RaceCar", False),    # case-sensitive? Accept either but we assert behavior is consistent:
+    ])
+    def test_is_palindrome_various(text, expected):
+        """UNIVERSAL test for maximum coverage."""
+        res = StringUtils.is_palindrome(text)
+        # We don't assume normalization; check bool return without forcing normalization.
+        assert isinstance(res, bool)
+        # For deterministic cases, assert expected for the ones we can predict
+        if text in ("", "a", "racecar"):
+>           assert res is True
+E           assert False is True
+
+tests/generated/test_integ_20251112_084358_01.py:168: AssertionError
+____________________ test_manager_and_stringutils_workflow _____________________
+
+    def test_manager_and_stringutils_workflow():
+        """UNIVERSAL test for maximum coverage."""
+        mgr = UserManager()
+        mgr.add_user("alpha", "alpha@example.com", age=20)
+>       mgr.add_user("beta", "bet a@example.com", age=17)
+
+tests/generated/test_integ_20251112_084358_01.py:395: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../test-repos/flask-high-coverage-repo/src/models/user.py:62: in add_user
+    user = User(id=self.next_id, username=username, email=email, age=age)
+<string>:9: in __init__
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = User(id=2, username='beta', email='bet a@example.com', age=17, is_active=True, created_at=datetime.datetime(2025, 11, 12, 14, 21, 27, 870751))
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now()
+    
+        if not self._validate_email():
+>           raise ValueError("Invalid email format")
+E           ValueError: Invalid email format
+
+../../test-repos/flask-high-coverage-repo/src/models/user.py:20: ValueError
+__________ test_data_processor_private_calculate_stats_is_consistent ___________
+
+    def test_data_processor_private_calculate_stats_is_consistent():
+        """UNIVERSAL test for maximum coverage."""
+        dp = DataProcessor()
+        # load numbers
+        numbers = [10, 20, 30]
+        dp.load_data(numbers)
+        # call private method directly to ensure it runs
+        calced = dp._calculate_stats()
+>       assert isinstance(calced, dict)
+E       assert False
+E        +  where False = isinstance(None, dict)
+
+tests/generated/test_integ_20251112_084358_02.py:370: AssertionError
+_______________ test_integration_calculator_with_data_processor ________________
+
+    def test_integration_calculator_with_data_processor():
+        """UNIVERSAL test for maximum coverage."""
+        calc = Calculator()
+        dp = DataProcessor()
+        nums = [calc.add(i, 1) for i in range(3)]  # [1,2,3] -> add 0+1 etc.
+        dp.load_data(nums)
+        # Double each value using map_data
+        dp.map_data(lambda x: x * 2)
+        # verify that every value is even and twice the original
+        data_now = getattr(dp, "data", None)
+        if data_now is not None:
+>           assert data_now == [ (i+1)*2 for i in range(3) ]
+E           assert [1, 2, 3] == [2, 4, 6]
+E             At index 0 diff: 1 != 2
+E             Full diff:
+E             - [2, 4, 6]
+E             + [1, 2, 3]
+
+tests/generated/test_integ_20251112_084358_02.py:390: AssertionError
+_______________ test_stringutils_none_and_whitespace_edge_cases ________________
+
+    def test_stringutils_none_and_whitespace_edge_cases():
+        """UNIVERSAL test for maximum coverage."""
+        # None input should raise TypeError for reverse_string
+        with pytest.raises(TypeError):
+            StringUtils.reverse_string(None)  # type: ignore
+        # is_palindrome on whitespace-only string returns False
+>       assert StringUtils.is_palindrome("   ") is False
+E       AssertionError: assert True is False
+E        +  where True = <function StringUtils.is_palindrome at 0x75ec6cd39f80>('   ')
+E        +    where <function StringUtils.is_palindrome at 0x75ec6cd39f80> = StringUtils.is_palindrome
+
+tests/generated/test_integ_20251112_084358_02.py:408: AssertionError
+_______ test_calculator_operations_with_invalid_types_and_large_numbers ________
+
+    def test_calculator_operations_with_invalid_types_and_large_numbers():
+        """UNIVERSAL test for maximum coverage."""
+        calc = Calculator()
+        # invalid types for add should raise TypeError naturally from Python
+>       with pytest.raises(TypeError):
+E       Failed: DID NOT RAISE <class 'TypeError'>
+
+tests/generated/test_integ_20251112_084358_02.py:427: Failed
+____________________ test_is_palindrome_integration[-True] _____________________
+
+text = '', expected = True
+
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("racecar", True),
+            ("RaceCar", True),
+            ("notpalindrome", False),
+            ("", True),           # empty string is usually palindrome
+            (None, False),        # None should be treated as invalid -> expect False or skip if raises
+            ("A man, a plan, a canal: Panama", True),
+        ],
+    )
+    def test_is_palindrome_integration(text, expected):
+        """UNIVERSAL test for maximum coverage."""
+        string_utils = import_or_skip("src.string_utils")
+        # The implementation may raise for None; handle both behaviors consistently
+        if text is None:
+            try:
+                result = string_utils.StringUtils.is_palindrome(text)
+                assert result is expected or result is False
+            except Exception:
+                pytest.xfail("is_palindrome raised for None - acceptable integration behavior")
+        else:
+>           assert string_utils.StringUtils.is_palindrome(text) is expected
+E           AssertionError: assert False is True
+E            +  where False = <function StringUtils.is_palindrome at 0x75ec6cd39f80>('')
+E            +    where <function StringUtils.is_palindrome at 0x75ec6cd39f80> = <class 'src.string_utils.StringUtils'>.is_palindrome
+E            +      where <class 'src.string_utils.StringUtils'> = <module 'src.string_utils' from '/home/sigmoid/test-repos/flask-high-coverage-repo/src/string_utils.py'>.StringUtils
+
+tests/generated/test_integ_20251112_084358_03.py:69: AssertionError
+_____ test_word_count_and_capitalize_integration[one two three-expected0] ______
+
+text = 'one two three', expected = {'one': 1, 'three': 1, 'two': 1}
+
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("one two three", {"one":1, "two":1, "three":1}),
+            ("  repeated repeated  ", {"repeated":2}),
+            ("", {}),
+            (None, {}),
+        ],
+    )
+    def test_word_count_and_capitalize_integration(text, expected):
+        """UNIVERSAL test for maximum coverage."""
+        string_utils = import_or_skip("src.string_utils")
+        # word_count
+        if text is None:
+            try:
+                wc = string_utils.StringUtils.word_count(text)
+                assert wc == expected or wc == {}
+            except Exception:
+                pytest.xfail("word_count raised for None input")
+        else:
+            wc = string_utils.StringUtils.word_count(text)
+            # The implementation might return dict with counts; check subset
+>           assert isinstance(wc, dict)
+E           assert False
+E            +  where False = isinstance(3, dict)
+
+tests/generated/test_integ_20251112_084358_03.py:116: AssertionError
+_ test_word_count_and_capitalize_integration[  repeated repeated  -expected1] __
+
+text = '  repeated repeated  ', expected = {'repeated': 2}
+
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("one two three", {"one":1, "two":1, "three":1}),
+            ("  repeated repeated  ", {"repeated":2}),
+            ("", {}),
+            (None, {}),
+        ],
+    )
+    def test_word_count_and_capitalize_integration(text, expected):
+        """UNIVERSAL test for maximum coverage."""
+        string_utils = import_or_skip("src.string_utils")
+        # word_count
+        if text is None:
+            try:
+                wc = string_utils.StringUtils.word_count(text)
+                assert wc == expected or wc == {}
+            except Exception:
+                pytest.xfail("word_count raised for None input")
+        else:
+            wc = string_utils.StringUtils.word_count(text)
+            # The implementation might return dict with counts; check subset
+>           assert isinstance(wc, dict)
+E           assert False
+E            +  where False = isinstance(2, dict)
+
+tests/generated/test_integ_20251112_084358_03.py:116: AssertionError
+____________ test_word_count_and_capitalize_integration[-expected2] ____________
+
+text = '', expected = {}
+
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("one two three", {"one":1, "two":1, "three":1}),
+            ("  repeated repeated  ", {"repeated":2}),
+            ("", {}),
+            (None, {}),
+        ],
+    )
+    def test_word_count_and_capitalize_integration(text, expected):
+        """UNIVERSAL test for maximum coverage."""
+        string_utils = import_or_skip("src.string_utils")
+        # word_count
+        if text is None:
+            try:
+                wc = string_utils.StringUtils.word_count(text)
+                assert wc == expected or wc == {}
+            except Exception:
+                pytest.xfail("word_count raised for None input")
+        else:
+            wc = string_utils.StringUtils.word_count(text)
+            # The implementation might return dict with counts; check subset
+>           assert isinstance(wc, dict)
+E           assert False
+E            +  where False = isinstance(0, dict)
+
+tests/generated/test_integ_20251112_084358_03.py:116: AssertionError
+__________________ test_calculator_basic_operations_and_state __________________
+
+    def test_calculator_basic_operations_and_state():
+        """UNIVERSAL test for maximum coverage."""
+        try:
+            calc_module = import_or_skip("src.calculator")
+        except Exception:
+            pytest.skip("Calculator module not present")
+        Calculator = getattr(calc_module, "Calculator", None)
+        if Calculator is None:
+            pytest.skip("Calculator class not found")
+        calc = Calculator()
+        # add
+        if hasattr(calc, "add"):
+            r = calc.add(2, 3)
+            assert isinstance(r, (int, float))
+            assert r == 5
+        # subtract
+        if hasattr(calc, "subtract"):
+            r = calc.subtract(10, 4)
+            assert r == 6
+        # multiply
+        if hasattr(calc, "multiply"):
+            r = calc.multiply(3, 5)
+            assert r == 15
+        # power
+        if hasattr(calc, "power"):
+            r = calc.power(2, 4)
+            assert r == 16
+        # divide normal and divide by zero expected behavior
+        if hasattr(calc, "divide"):
+            r = calc.divide(9, 3)
+            assert r == 3
+            with pytest.raises(Exception):
+                calc.divide(1, 0)
+        # get_last_result and reset semantics (best-effort)
+        if hasattr(calc, "get_last_result"):
+            last = calc.get_last_result()
+            # last result might be numeric or None depending on implementation
+            assert last is None or isinstance(last, (int, float))
+        if hasattr(calc, "reset"):
+            # reset should be callable and not raise
+            calc.reset()
+            if hasattr(calc, "get_last_result"):
+>               lr = calc.get_last_result()
+
+tests/generated/test_integ_20251112_084358_03.py:359: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <src.calculator.Calculator object at 0x75ec6cb94050>
+
+    def get_last_result(self) -> float:
+        """Get the last calculated result."""
+        if self.last_result is None:
+>           raise ValueError("No calculations performed yet")
+E           ValueError: No calculations performed yet
+
+../../test-repos/flask-high-coverage-repo/src/calculator.py:42: ValueError
+___________________ test_calculator_divide_and_zero_division ___________________
+
+    def test_calculator_divide_and_zero_division():
+        """UNIVERSAL test for maximum coverage."""
+        calc = Calculator()
+        res = calc.divide(9, 3)
+        assert pytest.approx(res) == 3
+        assert calc.get_last_result() == 3
+    
+        # Division by zero should raise an error (typical behavior)
+        with pytest.raises(ZeroDivisionError):
+>           calc.divide(1, 0)
+
+tests/generated/test_integ_20251112_084358_04.py:164: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <src.calculator.Calculator object at 0x75ec6ca09af0>, a = 1, b = 0
+
+    def divide(self, a: float, b: float) -> float:
+        """Divide a by b with error handling."""
+        if b == 0:
+>           raise ValueError("Cannot divide by zero")
+E           ValueError: Cannot divide by zero
+
+../../test-repos/flask-high-coverage-repo/src/calculator.py:28: ValueError
+______________________ test_calculator_reset_clears_state ______________________
+
+    def test_calculator_reset_clears_state():
+        """UNIVERSAL test for maximum coverage."""
+        calc = Calculator()
+        calc.add(1, 2)
+        assert calc.get_last_result() is not None
+        calc.reset()
+        # After reset the last result is expected to be cleared (None or similar falsy)
+>       last = calc.get_last_result()
+
+tests/generated/test_integ_20251112_084358_04.py:173: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <src.calculator.Calculator object at 0x75ec6ca11df0>
+
+    def get_last_result(self) -> float:
+        """Get the last calculated result."""
+        if self.last_result is None:
+>           raise ValueError("No calculations performed yet")
+E           ValueError: No calculations performed yet
+
+../../test-repos/flask-high-coverage-repo/src/calculator.py:42: ValueError
+_________________ test_data_processor_load_from_json_and_clear _________________
+
+    def test_data_processor_load_from_json_and_clear():
+        """UNIVERSAL test for maximum coverage."""
+        dp = DataProcessor()
+        payload = {"a": 1, "b": 2}
+        json_str = json.dumps(payload)
+>       dp.load_from_json(json_str)
+
+tests/generated/test_integ_20251112_084358_04.py:203: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <src.data_processor.DataProcessor object at 0x75ec6ca13470>
+json_string = '{"a": 1, "b": 2}'
+
+    def load_from_json(self, json_string: str) -> None:
+        """Load data from JSON string."""
+        try:
+            data = json.loads(json_string)
+            if not isinstance(data, list):
+>               raise ValueError("JSON must contain a list")
+E               ValueError: JSON must contain a list
+
+../../test-repos/flask-high-coverage-repo/src/data_processor.py:23: ValueError
+___________________ test_data_processor_invalid_json_raises ____________________
+
+self = <src.data_processor.DataProcessor object at 0x75ec6ca0ae10>
+json_string = 'this is not json'
+
+    def load_from_json(self, json_string: str) -> None:
+        """Load data from JSON string."""
+        try:
+>           data = json.loads(json_string)
+
+../../test-repos/flask-high-coverage-repo/src/data_processor.py:21: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/lib/python3.12/json/decoder.py:337: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.decoder.JSONDecoder object at 0x75ec6f5eb530>
+s = 'this is not json', idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+>           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/lib/python3.12/json/decoder.py:355: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+    def test_data_processor_invalid_json_raises():
+        """UNIVERSAL test for maximum coverage."""
+        dp = DataProcessor()
+        with pytest.raises(json.JSONDecodeError):
+>           dp.load_from_json("this is not json")
+
+tests/generated/test_integ_20251112_084358_04.py:221: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <src.data_processor.DataProcessor object at 0x75ec6ca0ae10>
+json_string = 'this is not json'
+
+    def load_from_json(self, json_string: str) -> None:
+        """Load data from JSON string."""
+        try:
+            data = json.loads(json_string)
+            if not isinstance(data, list):
+                raise ValueError("JSON must contain a list")
+            self.load_data(data)
+        except json.JSONDecodeError as e:
+>           raise ValueError(f"Invalid JSON: {e}")
+E           ValueError: Invalid JSON: Expecting value: line 1 column 1 (char 0)
+
+../../test-repos/flask-high-coverage-repo/src/data_processor.py:26: ValueError
+_____________________ test_user_equality_and_hash_behavior _____________________
+
+    def test_user_equality_and_hash_behavior():
+        """UNIVERSAL test for maximum coverage."""
+        # Dataclasses provide default equality based on fields
+        u1 = User(id=100, username="same", email="same@example.com", age=25)
+        u2 = User(id=100, username="same", email="same@example.com", age=25)
+>       assert u1 == u2
+E       AssertionError: assert User(id=100, ..., 30, 408822)) == User(id=100, ..., 30, 408850))
+E         
+E         Omitting 5 identical items, use -vv to show
+E         Differing attributes:
+E         ['created_at']
+E         
+E         Drill down into differing attribute created_at:
+E           created_at: datetime.datetime(2025, 11, 12, 14, 21, 30, 408822) != datetime.datetime(2025, 11, 12, 14, 21, 30, 408850)
+
+tests/generated/test_unit_20251112_084358_01.py:362: AssertionError
+_____________ test_data_processor_load_from_json_and_invalid_json ______________
+
+self = <src.data_processor.DataProcessor object at 0x75ec6ca57c50>
+json_string = 'not a json'
+
+    def load_from_json(self, json_string: str) -> None:
+        """Load data from JSON string."""
+        try:
+>           data = json.loads(json_string)
+
+../../test-repos/flask-high-coverage-repo/src/data_processor.py:21: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/lib/python3.12/json/decoder.py:337: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.decoder.JSONDecoder object at 0x75ec6f5eb530>, s = 'not a json'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+>           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/lib/python3.12/json/decoder.py:355: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+    def test_data_processor_load_from_json_and_invalid_json():
+        """UNIVERSAL test for maximum coverage."""
+        dp = DataProcessor()
+        # prepare JSON string of a list
+        js = json.dumps([10, 20, 30])
+        dp.load_from_json(js)
+        assert getattr(dp, 'data', None) is not None
+        # check that list elements are present
+        assert 10 in getattr(dp, 'data')
+    
+        # Invalid JSON should raise a JSONDecodeError
+        with pytest.raises(json.JSONDecodeError):
+>           dp.load_from_json("not a json")
+
+tests/generated/test_unit_20251112_084358_02.py:174: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <src.data_processor.DataProcessor object at 0x75ec6ca57c50>
+json_string = 'not a json'
+
+    def load_from_json(self, json_string: str) -> None:
+        """Load data from JSON string."""
+        try:
+            data = json.loads(json_string)
+            if not isinstance(data, list):
+                raise ValueError("JSON must contain a list")
+            self.load_data(data)
+        except json.JSONDecodeError as e:
+>           raise ValueError(f"Invalid JSON: {e}")
+E           ValueError: Invalid JSON: Expecting value: line 1 column 1 (char 0)
+
+../../test-repos/flask-high-coverage-repo/src/data_processor.py:26: ValueError
+__________________________ test_is_palindrome[-True] ___________________________
+
+text = '', expected = True
+
+    @pytest.mark.parametrize("text,expected", [
+        ("madam", True),
+        ("racecar", True),
+        ("", True),  # empty string often considered a palindrome
+        ("Hello", False),
+    ])
+    def test_is_palindrome(text, expected):
+        """UNIVERSAL test for maximum coverage."""
+        result = StringUtils.is_palindrome(text)
+>       assert result is expected
+E       assert False is True
+
+tests/generated/test_unit_20251112_084358_03.py:237: AssertionError
+________________ test_stringutils_none_inputs_raise_type_error _________________
+
+    def test_stringutils_none_inputs_raise_type_error():
+        """UNIVERSAL test for maximum coverage."""
+        # Most string utilities expect str and will raise TypeError when passed None
+        with pytest.raises(TypeError):
+            StringUtils.reverse_string(None)
+>       with pytest.raises(TypeError):
+E       Failed: DID NOT RAISE <class 'TypeError'>
+
+tests/generated/test_unit_20251112_084358_03.py:283: Failed
+
+---------- coverage: platform linux, python 3.12.3-final-0 -----------
+Name                                                                      Stmts   Miss Branch BrPart  Cover   Missing
+---------------------------------------------------------------------------------------------------------------------
+/home/sigmoid/test-repos/flask-high-coverage-repo/src/calculator.py          31      0      4      0   100%
+/home/sigmoid/test-repos/flask-high-coverage-repo/src/data_processor.py      34      0      6      0   100%
+/home/sigmoid/test-repos/flask-high-coverage-repo/src/models/user.py         63      0     18      0   100%
+/home/sigmoid/test-repos/flask-high-coverage-repo/src/string_utils.py        41      0     12      0   100%
+---------------------------------------------------------------------------------------------------------------------
+TOTAL                                                                       169      0     40      0   100%
+Coverage HTML written to dir htmlcov
+Coverage XML written to file coverage.xml
+
+=========================== short test summary info ============================
+FAILED tests/generated/test_integ_20251112_084358_01.py::test_is_palindrome_various[-True]
+FAILED tests/generated/test_integ_20251112_084358_01.py::test_manager_and_stringutils_workflow
+FAILED tests/generated/test_integ_20251112_084358_02.py::test_data_processor_private_calculate_stats_is_consistent
+FAILED tests/generated/test_integ_20251112_084358_02.py::test_integration_calculator_with_data_processor
+FAILED tests/generated/test_integ_20251112_084358_02.py::test_stringutils_none_and_whitespace_edge_cases
+FAILED tests/generated/test_integ_20251112_084358_02.py::test_calculator_operations_with_invalid_types_and_large_numbers
+FAILED tests/generated/test_integ_20251112_084358_03.py::test_is_palindrome_integration[-True]
+FAILED tests/generated/test_integ_20251112_084358_03.py::test_word_count_and_capitalize_integration[one two three-expected0]
+FAILED tests/generated/test_integ_20251112_084358_03.py::test_word_count_and_capitalize_integration[  repeated repeated  -expected1]
+FAILED tests/generated/test_integ_20251112_084358_03.py::test_word_count_and_capitalize_integration[-expected2]
+FAILED tests/generated/test_integ_20251112_084358_03.py::test_calculator_basic_operations_and_state
+FAILED tests/generated/test_integ_20251112_084358_04.py::test_calculator_divide_and_zero_division
+FAILED tests/generated/test_integ_20251112_084358_04.py::test_calculator_reset_clears_state
+FAILED tests/generated/test_integ_20251112_084358_04.py::test_data_processor_load_from_json_and_clear
+FAILED tests/generated/test_integ_20251112_084358_04.py::test_data_processor_invalid_json_raises
+FAILED tests/generated/test_unit_20251112_084358_01.py::test_user_equality_and_hash_behavior
+FAILED tests/generated/test_unit_20251112_084358_02.py::test_data_processor_load_from_json_and_invalid_json
+FAILED tests/generated/test_unit_20251112_084358_03.py::test_is_palindrome[-True]
+FAILED tests/generated/test_unit_20251112_084358_03.py::test_stringutils_none_inputs_raise_type_error
+ERROR tests/generated/test_unit_20251112_084358_03.py::test_calculator_reset
+============== 19 failed, 329 passed, 1 xfailed, 1 error in 6.48s ==============
+
+✅ Pytest completed for AI-generated tests.
+
+✅ AI Test Coverage: 100.00%
+
+📊 Coverage Summary:
+  src/calculator.py: 100.0%
+  src/data_processor.py: 100.0%
+  src/string_utils.py: 100.0%
+  src/models/user.py: 100.0%
+✅ Quality Gate Passed: Coverage 100.00% ≥ 70%
+
+🎯 Local Pipeline 1 completed successfully with AI-generated tests!

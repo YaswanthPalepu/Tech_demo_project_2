@@ -4,6 +4,7 @@ import json
 import os
 import random
 from typing import Any, Dict, List, Optional, Tuple
+from .gap_aware_analysis import get_coverage_context_for_prompts, is_gap_focused_mode
 
 SYSTEM_MIN = (
     "Generate comprehensive pytest test code that works with ANY Python project structure.\n"
@@ -255,102 +256,6 @@ def focus_for(compact: Dict[str, Any], kind: str, shard_idx: int, total_shards: 
     focus_label = ", ".join(target_names) if target_names else "(none)"
     return focus_label, target_names, shard_targets
 
-def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int,
-                 compact: Dict[str, Any], context: str = "") -> List[Dict[str, str]]:
-    """
-    Override build_prompt with defensive clarification to prevent pytest
-    collection errors like:
-      "function uses no argument 'expected_redirect_name'"
-    """
-    test_instructions = {
-        "unit": UNIT_ENHANCED,
-        "integ": INTEG_ENHANCED,
-        "e2e": E2E_ENHANCED
-    }
-    dev_instructions = test_instructions.get(kind, UNIT_ENHANCED)
-    max_ctx = 60000
-    trimmed_context = context[:max_ctx] if context else ""
-
-    user_content = f"""
-UNIVERSAL {kind.upper()} TEST GENERATION - FILE {shard + 1}/{total}
-
-{dev_instructions}
-
-CRITICAL PARAMETRIZATION REQUIREMENTS:
-- If you use @pytest.mark.parametrize, ensure **EVERY parameter listed there**
-  appears in the test function's signature. (Avoid pytest collection errors.)
-- Do NOT parametrize unused names.
-- When in doubt, rename or drop unused parameters.
-
-OTHER UNIVERSAL REQUIREMENTS:
-1. Use REAL imports and execution.
-2. Framework-agnostic (works with Django, Flask, FastAPI, etc.).
-3. Test real code paths and edge cases.
-4. Never generate stubs or placeholder asserts.
-5. Ensure syntactically valid, runnable pytest code.
-
-FOCUS TARGETS: {focus_label}
-PROJECT ANALYSIS: {compact_json}
-ADDITIONAL CONTEXT: {trimmed_context}
-UNIVERSAL SCAFFOLD: {UNIVERSAL_SCAFFOLD}
-""".strip()
-
-    return [
-        {"role": "system", "content": SYSTEM_MIN},
-        {"role": "user", "content": user_content},
-    ]
-
-def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int,
-                 compact: Dict[str, Any], context: str = "") -> List[Dict[str, str]]:
-    """
-    Append-only override: reinforce rules that avoid invalid function calls and
-    pytest collection errors. Keeps all earlier behavior but adds stronger
-    guidance to the LLM.
-    """
-    SYSTEM_MIN_LOCAL = SYSTEM_MIN  # reuse existing
-    test_instructions = {
-        "unit": UNIT_ENHANCED,
-        "integ": INTEG_ENHANCED,
-        "e2e": E2E_ENHANCED
-    }
-    dev_instructions = test_instructions.get(kind, UNIT_ENHANCED)
-    max_ctx = 60000
-    trimmed_context = context[:max_ctx] if context else ""
-
-    user_content = f"""
-UNIVERSAL {kind.upper()} TEST GENERATION - FILE {shard + 1}/{total}
-
-{dev_instructions}
-
-CRITICAL PARAMETRIZATION REQUIREMENTS:
-- If you use @pytest.mark.parametrize, every parameter listed there MUST also
-  appear in the test function's signature. Do NOT parametrize unused names.
-
-CRITICAL CALL-SAFETY REQUIREMENTS:
-- Do NOT repeat the same keyword argument in a single call
-  (e.g., use Mock(name="x") only once; never Mock(name="x", name="y")).
-- Ensure all function calls are syntactically valid Python.
-
-OTHER UNIVERSAL REQUIREMENTS:
-1. Use REAL imports and execution (no stubs).
-2. Framework-agnostic (Django/Flask/FastAPI/vanilla Python).
-3. Cover success paths, failures, and edge cases.
-4. Avoid placeholder asserts.
-5. Only output runnable Python code (no markdown).
-
-FOCUS TARGETS: {focus_label}
-PROJECT ANALYSIS: {compact_json}
-ADDITIONAL CONTEXT (TRIMMED): {trimmed_context}
-
-{UNIVERSAL_SCAFFOLD}
-""".strip()
-
-    return [
-        {"role": "system", "content": SYSTEM_MIN_LOCAL},
-        {"role": "user", "content": user_content},
-    ]
-
-
 
 def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int,
                  compact: Dict[str, Any], context: str = "") -> List[Dict[str, str]]:
@@ -362,12 +267,22 @@ def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, tot
     dev_instructions = test_instructions.get(kind, UNIT_ENHANCED)
     max_ctx = 60000
     trimmed_context = context[:max_ctx] if context else ""
+    merged_rules = _merge_universal_text()
+
+    # === ADD GAP-FOCUSED CONTEXT ===
+    gap_context = ""
+    if is_gap_focused_mode():
+        gap_context = get_coverage_context_for_prompts()
+        if gap_context:
+            print(f"   📊 Added {len(gap_context)} chars of gap-focused context to prompt")
 
     user_content = f"""
 UNIVERSAL {kind.upper()} TEST GENERATION - FILE {shard + 1}/{total}
 
 {dev_instructions}
+{merged_rules}
 
+{gap_context}
 DJANGO-SPECIFIC RULES (when Django is detected):
 - Use RequestFactory (not SimpleNamespace/DummyRequest) to build HttpRequest.
 - When setting request.POST/GET, use QueryDict (or helper) so .getlist works.
@@ -397,8 +312,8 @@ ADDITIONAL CONTEXT (TRIMMED): {trimmed_context}
 
 
 def _merge_universal_text():
-    # combines the strongest parts of the prior variants
-    return (
+    """Combines the strongest parts of all requirement variants including gap-focused."""
+    base_text = (
         "UNIVERSAL REQUIREMENTS:\n"
         "1) Use REAL imports and execution; no stubs.\n"
         "2) Test success, failure, and edge cases (None/empty/invalid).\n"
@@ -414,15 +329,34 @@ def _merge_universal_text():
         "- Use QueryDict (or helper) for request.POST/GET so .getlist works.\n"
         "- If touching models/querysets, mark with pytest.mark.django_db.\n"
         "- Prefer substring assertions (response/content), avoid strict HTML equality.\n"
-        "- Don’t fabricate .object_list as raw lists; use queryset-like objects "
+        "- Don't fabricate .object_list as raw lists; use queryset-like objects "
         "  (supporting .order_by/.all) when needed.\n"
     )
+    
+    # Add gap-focused specific guidance if in that mode
+    if is_gap_focused_mode():
+        gap_guidance = (
+            "\n"
+            "GAP-FOCUSED MODE REQUIREMENTS:\n"
+            "- PRIORITY: Generate tests that hit the specific UNCOVERED lines listed above\n"
+            "- Do NOT test already-covered code paths\n"
+            "- Focus each test on covering multiple uncovered lines when possible\n"
+            "- Target the specific functions/classes/methods marked as uncovered\n"
+            "- Design tests to cover multiple uncovered lines per test when possible\n"
+            "- Each test should directly exercise the uncovered code sections\n"
+            "- Use the line numbers provided to guide your test design\n"
+            "- Prioritize tests that will increase coverage percentage most\n"
+        )
+        base_text += gap_guidance
+    
+    return base_text
 
 def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int,
                  compact: Dict[str, Any], context: str = "") -> List[Dict[str, str]]:
     """
-    Final, unified override (append-only).
-    This merges: (a) parametrize-safety, (b) call-safety, and (c) Django-aware guidance.
+    Final, unified override (append-only) with GAP-FOCUSED support.
+    This merges: (a) parametrize-safety, (b) call-safety, and (c) Django-aware guidance,
+    and (d) gap-focused coverage targeting.
     The LAST definition in the file is the one Python will use.
     """
     SYSTEM_MIN_LOCAL = SYSTEM_MIN
@@ -435,6 +369,12 @@ def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, tot
     max_ctx = 60000
     trimmed_context = context[:max_ctx] if context else ""
     merged_rules = _merge_universal_text()
+
+    # === ADD GAP-FOCUSED CONTEXT ===
+    gap_context = ""
+    if is_gap_focused_mode():
+        gap_context = get_coverage_context_for_prompts()
+        print(f"   📊 Added {len(gap_context)} chars of gap-focused context to prompt")
 
     user_content = f"""
 UNIVERSAL {kind.upper()} TEST GENERATION - FILE {shard + 1}/{total}

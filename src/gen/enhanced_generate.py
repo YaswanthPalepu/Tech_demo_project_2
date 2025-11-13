@@ -17,6 +17,12 @@ from .smart_change import (
     prepare_for_generation, 
     finalize_generation)
 
+from .gap_aware_analysis import (
+    apply_gap_aware_filtering,
+    is_gap_focused_mode,
+    get_coverage_context_for_prompts
+)
+
 # Import framework handlers and orchestrator
 from ..framework_handlers.manager import FrameworkManager
 from ..test_generation.orchestrator import TestGenerationOrchestrator
@@ -495,6 +501,12 @@ def _gather_universal_context(target_root: pathlib.Path, analysis: Dict[str, Any
     )
     full_context = coverage_header + full_context
 
+    # Add gap-focused context if applicable
+    if is_gap_focused_mode():
+        gap_context = get_coverage_context_for_prompts()
+        if gap_context:
+            full_context = gap_context + "\n\n" + full_context
+
     if len(full_context) > max_bytes:
         full_context = full_context[:max_bytes] + "\n# ... (truncated for context limits)"
     return full_context
@@ -565,6 +577,20 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     
     print("UNIVERSAL test generation for ANY PROJECT STRUCTURE...")
     
+    # Apply gap-aware filtering if in gap-focused mode
+    if is_gap_focused_mode():
+        print("\n🎯 GAP-FOCUSED MODE: Analyzing coverage gaps...")
+        analysis = apply_gap_aware_filtering(analysis)
+        
+        # Check if generation should be skipped
+        if analysis.get("skip_generation"):
+            print("✅ Coverage is adequate, skipping generation")
+            return []
+        
+        print(f"✅ Gap analysis complete: Targeting {len(analysis.get('functions', []))} uncovered functions, "
+              f"{len(analysis.get('classes', []))} uncovered classes, "
+              f"{len(analysis.get('methods', []))} uncovered methods")
+
     output_dir = pathlib.Path(outdir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -614,7 +640,12 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
                        for key in ["functions", "classes", "methods", "routes"])
     
     if total_targets == 0:
-        raise RuntimeError("No testable targets found")
+        if is_gap_focused_mode():
+            print("✅ Gap-focused analysis found no significant gaps to target")
+            print("   Your manual tests already provide good coverage!")
+            return []  # Return empty list, but this is SUCCESS
+        else:
+            raise RuntimeError("No testable targets found")
     
     print(f"UNIVERSAL COVERAGE TARGETS:")
     print(f"   Functions: {len(compact.get('functions', []))}")
@@ -751,7 +782,8 @@ UNIVERSAL COMPATIBILITY EXAMPLES:
   python -m src.gen --target ./my_project
   python -m src.gen --target ./backend --force
   python -m src.gen --target ./app --outdir ./tests
-
+  python -m src.gen --target ./app --coverage-mode gap-focused 
+  
 SUPPORTED PROJECT STRUCTURES:
   - Flat structure (all files in root)
   - Nested structure (files in subdirectories) 
@@ -759,12 +791,17 @@ SUPPORTED PROJECT STRUCTURES:
   - Mixed structures
   - Any Python project layout
 
+COVERAGE MODES:
+  - normal: Full test generation (default)
+  - gap-focused: Generate tests only for uncovered code (requires coverage_gaps.json)
+  
 FEATURES:
   - Automatic project structure detection
   - Universal import handling
   - Real imports only (no stubs)
   - Maximum coverage target
   - Framework auto-detection
+  - Gap-focused generation for targeted coverage improvement
 """
     )
     
@@ -782,7 +819,7 @@ FEATURES:
     
     parser.add_argument(
         "--coverage-mode",
-        choices=["normal", "maximum", "universal"],
+        choices=["normal", "maximum", "universal", "gap-focused"],
         default=os.getenv("COVERAGE_MODE", "universal"),
         help="Coverage optimization mode (default: %(default)s)"
     )
@@ -806,7 +843,6 @@ FEATURES:
     )
     
     args = parser.parse_args()
-    
     # Set UNIVERSAL environment variables
     if args.force:
         os.environ["TESTGEN_FORCE"] = "true"
@@ -814,6 +850,19 @@ FEATURES:
     os.environ["COVERAGE_MODE"] = args.coverage_mode
     os.environ["UNIVERSAL_COMPATIBILITY"] = "true"
     
+    # === ADD THIS: Enable gap-focused mode if requested ===
+    if args.coverage_mode == "gap-focused":
+        os.environ["GAP_FOCUSED_MODE"] = "true"
+        print("🎯 Gap-focused mode enabled via --coverage-mode argument")
+        
+        # Check if coverage gaps file exists
+        gaps_file = os.environ.get("COVERAGE_GAPS_FILE", "coverage_gaps.json")
+        if not pathlib.Path(gaps_file).exists():
+            print(f"⚠️  Warning: Gap-focused mode requires {gaps_file}")
+            print("   Run coverage_gap_analyzer.py first to generate this file")
+            print("   Falling back to normal mode")
+            os.environ["GAP_FOCUSED_MODE"] = "false"
+
     # Validate target
     target_path = pathlib.Path(args.target)
     if not target_path.exists():
@@ -893,8 +942,14 @@ FEATURES:
             
             return 0
         else:
-            print("No tests generated")
-            return 1
+            # In gap-focused mode, no targets means coverage is good - this is success!
+            if args.coverage_mode == "gap-focused":
+                print("✅ No additional tests needed - coverage gaps are minimal")
+                print("   This is expected when most code is already covered by manual tests")
+                return 0  # ✅ Success
+            else:
+                print("⚠️  No tests generated - this may indicate an issue with the source code")
+                return 1
             
     except Exception as e:
         print(f"UNIVERSAL test generation failed: {e}")

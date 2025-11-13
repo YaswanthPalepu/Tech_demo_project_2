@@ -1,0 +1,2339 @@
+🚀 Starting Enhanced Pipeline - Manual + Gap-Based AI Test Flow
+===================================================================
+
+🎯 Target Directory: /home/sigmoid/test-repos/clinic
+
+🧹 Cleaning previous coverage data...
+✅ Coverage data cleaned
+
+🔍 Running detect_manual_tests.py on target repo...
+🔍 Scanning repository for manual test directories in: /home/sigmoid/test-repos/clinic
+
+📊 Detection Result:
+{
+  "manual_tests_found": true,
+  "manual_test_paths": [
+    "/home/sigmoid/test-repos/clinic/tests"
+  ],
+  "test_files_count": 5,
+  "test_dirs_detail": {
+    "/home/sigmoid/test-repos/clinic/tests": [
+      "/home/sigmoid/test-repos/clinic/tests/test_middleware.py",
+      "/home/sigmoid/test-repos/clinic/tests/test_api.py",
+      "/home/sigmoid/test-repos/clinic/tests/conftest.py",
+      "/home/sigmoid/test-repos/clinic/tests/test_model.py",
+      "/home/sigmoid/test-repos/clinic/tests/test_auth.py"
+    ]
+  }
+}
+
+📁 Manual Tests Found: True
+📂 Test Paths: /home/sigmoid/test-repos/clinic/tests
+
+✅ Manual test cases detected. Running pytest with coverage analysis...
+
+📦 Installing project dependencies...
+Requirement already satisfied: fastapi==0.104.1 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 2)) (0.104.1)
+Requirement already satisfied: uvicorn==0.24.0 in ./venv/lib/python3.12/site-packages (from uvicorn[standard]==0.24.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 3)) (0.24.0)
+Requirement already satisfied: pydantic==2.5.0 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 4)) (2.5.0)
+Requirement already satisfied: torch==2.4.0 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (2.4.0)
+Requirement already satisfied: transformers==4.35.2 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 8)) (4.35.2)
+Requirement already satisfied: tokenizers==0.15.0 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 9)) (0.15.0)
+Requirement already satisfied: accelerate==0.24.1 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 10)) (0.24.1)
+Requirement already satisfied: python-jose==3.3.0 in ./venv/lib/python3.12/site-packages (from python-jose[cryptography]==3.3.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 13)) (3.3.0)
+Requirement already satisfied: python-multipart==0.0.6 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 14)) (0.0.6)
+Requirement already satisfied: prometheus-client==0.19.0 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 17)) (0.19.0)
+Requirement already satisfied: aiofiles==23.2.1 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 20)) (23.2.1)
+Requirement already satisfied: httpx==0.25.2 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 21)) (0.25.2)
+Requirement already satisfied: psutil==5.9.6 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 24)) (5.9.6)
+Requirement already satisfied: pytest==7.4.3 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 27)) (7.4.3)
+Requirement already satisfied: pytest-asyncio==0.21.1 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 28)) (0.21.1)
+Requirement already satisfied: pytest-cov==4.1.0 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 29)) (4.1.0)
+Requirement already satisfied: black==23.10.1 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 30)) (23.10.1)
+Requirement already satisfied: isort==5.12.0 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 31)) (5.12.0)
+Requirement already satisfied: flake8==6.1.0 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 32)) (6.1.0)
+Requirement already satisfied: mypy==1.7.0 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 33)) (1.7.0)
+Requirement already satisfied: bandit==1.7.5 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 34)) (1.7.5)
+Requirement already satisfied: safety==2.3.4 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 35)) (2.3.4)
+Requirement already satisfied: python-dotenv==1.0.0 in ./venv/lib/python3.12/site-packages (from -r /home/sigmoid/test-repos/clinic/requirements.txt (line 38)) (1.0.0)
+Requirement already satisfied: anyio<4.0.0,>=3.7.1 in ./venv/lib/python3.12/site-packages (from fastapi==0.104.1->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 2)) (3.7.1)
+Requirement already satisfied: starlette<0.28.0,>=0.27.0 in ./venv/lib/python3.12/site-packages (from fastapi==0.104.1->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 2)) (0.27.0)
+Requirement already satisfied: typing-extensions>=4.8.0 in ./venv/lib/python3.12/site-packages (from fastapi==0.104.1->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 2)) (4.15.0)
+Requirement already satisfied: annotated-types>=0.4.0 in ./venv/lib/python3.12/site-packages (from pydantic==2.5.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 4)) (0.7.0)
+Requirement already satisfied: pydantic-core==2.14.1 in ./venv/lib/python3.12/site-packages (from pydantic==2.5.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 4)) (2.14.1)
+Requirement already satisfied: click>=7.0 in ./venv/lib/python3.12/site-packages (from uvicorn==0.24.0->uvicorn[standard]==0.24.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 3)) (8.3.0)
+Requirement already satisfied: h11>=0.8 in ./venv/lib/python3.12/site-packages (from uvicorn==0.24.0->uvicorn[standard]==0.24.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 3)) (0.16.0)
+Requirement already satisfied: filelock in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (3.20.0)
+Requirement already satisfied: sympy in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (1.14.0)
+Requirement already satisfied: networkx in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (3.5)
+Requirement already satisfied: jinja2 in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (3.1.6)
+Requirement already satisfied: fsspec in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (2025.10.0)
+Requirement already satisfied: setuptools in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (80.9.0)
+Requirement already satisfied: nvidia-cuda-nvrtc-cu12==12.1.105 in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (12.1.105)
+Requirement already satisfied: nvidia-cuda-runtime-cu12==12.1.105 in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (12.1.105)
+Requirement already satisfied: nvidia-cuda-cupti-cu12==12.1.105 in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (12.1.105)
+Requirement already satisfied: nvidia-cudnn-cu12==9.1.0.70 in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (9.1.0.70)
+Requirement already satisfied: nvidia-cublas-cu12==12.1.3.1 in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (12.1.3.1)
+Requirement already satisfied: nvidia-cufft-cu12==11.0.2.54 in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (11.0.2.54)
+Requirement already satisfied: nvidia-curand-cu12==10.3.2.106 in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (10.3.2.106)
+Requirement already satisfied: nvidia-cusolver-cu12==11.4.5.107 in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (11.4.5.107)
+Requirement already satisfied: nvidia-cusparse-cu12==12.1.0.106 in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (12.1.0.106)
+Requirement already satisfied: nvidia-nccl-cu12==2.20.5 in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (2.20.5)
+Requirement already satisfied: nvidia-nvtx-cu12==12.1.105 in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (12.1.105)
+Requirement already satisfied: triton==3.0.0 in ./venv/lib/python3.12/site-packages (from torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (3.0.0)
+Requirement already satisfied: huggingface-hub<1.0,>=0.16.4 in ./venv/lib/python3.12/site-packages (from transformers==4.35.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 8)) (0.36.0)
+Requirement already satisfied: numpy>=1.17 in ./venv/lib/python3.12/site-packages (from transformers==4.35.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 8)) (2.3.4)
+Requirement already satisfied: packaging>=20.0 in ./venv/lib/python3.12/site-packages (from transformers==4.35.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 8)) (25.0)
+Requirement already satisfied: pyyaml>=5.1 in ./venv/lib/python3.12/site-packages (from transformers==4.35.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 8)) (6.0.3)
+Requirement already satisfied: regex!=2019.12.17 in ./venv/lib/python3.12/site-packages (from transformers==4.35.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 8)) (2025.11.3)
+Requirement already satisfied: requests in ./venv/lib/python3.12/site-packages (from transformers==4.35.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 8)) (2.32.5)
+Requirement already satisfied: safetensors>=0.3.1 in ./venv/lib/python3.12/site-packages (from transformers==4.35.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 8)) (0.6.2)
+Requirement already satisfied: tqdm>=4.27 in ./venv/lib/python3.12/site-packages (from transformers==4.35.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 8)) (4.67.1)
+Requirement already satisfied: ecdsa!=0.15 in ./venv/lib/python3.12/site-packages (from python-jose==3.3.0->python-jose[cryptography]==3.3.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 13)) (0.19.1)
+Requirement already satisfied: rsa in ./venv/lib/python3.12/site-packages (from python-jose==3.3.0->python-jose[cryptography]==3.3.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 13)) (4.9.1)
+Requirement already satisfied: pyasn1 in ./venv/lib/python3.12/site-packages (from python-jose==3.3.0->python-jose[cryptography]==3.3.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 13)) (0.6.1)
+Requirement already satisfied: certifi in ./venv/lib/python3.12/site-packages (from httpx==0.25.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 21)) (2025.10.5)
+Requirement already satisfied: httpcore==1.* in ./venv/lib/python3.12/site-packages (from httpx==0.25.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 21)) (1.0.9)
+Requirement already satisfied: idna in ./venv/lib/python3.12/site-packages (from httpx==0.25.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 21)) (3.11)
+Requirement already satisfied: sniffio in ./venv/lib/python3.12/site-packages (from httpx==0.25.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 21)) (1.3.1)
+Requirement already satisfied: iniconfig in ./venv/lib/python3.12/site-packages (from pytest==7.4.3->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 27)) (2.3.0)
+Requirement already satisfied: pluggy<2.0,>=0.12 in ./venv/lib/python3.12/site-packages (from pytest==7.4.3->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 27)) (1.6.0)
+Requirement already satisfied: coverage>=5.2.1 in ./venv/lib/python3.12/site-packages (from coverage[toml]>=5.2.1->pytest-cov==4.1.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 29)) (7.11.3)
+Requirement already satisfied: mypy-extensions>=0.4.3 in ./venv/lib/python3.12/site-packages (from black==23.10.1->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 30)) (1.1.0)
+Requirement already satisfied: pathspec>=0.9.0 in ./venv/lib/python3.12/site-packages (from black==23.10.1->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 30)) (0.12.1)
+Requirement already satisfied: platformdirs>=2 in ./venv/lib/python3.12/site-packages (from black==23.10.1->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 30)) (4.5.0)
+Requirement already satisfied: mccabe<0.8.0,>=0.7.0 in ./venv/lib/python3.12/site-packages (from flake8==6.1.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 32)) (0.7.0)
+Requirement already satisfied: pycodestyle<2.12.0,>=2.11.0 in ./venv/lib/python3.12/site-packages (from flake8==6.1.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 32)) (2.11.1)
+Requirement already satisfied: pyflakes<3.2.0,>=3.1.0 in ./venv/lib/python3.12/site-packages (from flake8==6.1.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 32)) (3.1.0)
+Requirement already satisfied: GitPython>=1.0.1 in ./venv/lib/python3.12/site-packages (from bandit==1.7.5->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 34)) (3.1.45)
+Requirement already satisfied: stevedore>=1.20.0 in ./venv/lib/python3.12/site-packages (from bandit==1.7.5->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 34)) (5.5.0)
+Requirement already satisfied: rich in ./venv/lib/python3.12/site-packages (from bandit==1.7.5->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 34)) (14.2.0)
+Requirement already satisfied: dparse>=0.6.2 in ./venv/lib/python3.12/site-packages (from safety==2.3.4->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 35)) (0.6.4)
+Requirement already satisfied: ruamel.yaml>=0.17.21 in ./venv/lib/python3.12/site-packages (from safety==2.3.4->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 35)) (0.18.16)
+Requirement already satisfied: nvidia-nvjitlink-cu12 in ./venv/lib/python3.12/site-packages (from nvidia-cusolver-cu12==11.4.5.107->torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (12.9.86)
+Requirement already satisfied: cryptography>=3.4.0 in ./venv/lib/python3.12/site-packages (from python-jose[cryptography]==3.3.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 13)) (46.0.3)
+Requirement already satisfied: httptools>=0.5.0 in ./venv/lib/python3.12/site-packages (from uvicorn[standard]==0.24.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 3)) (0.7.1)
+Requirement already satisfied: uvloop!=0.15.0,!=0.15.1,>=0.14.0 in ./venv/lib/python3.12/site-packages (from uvicorn[standard]==0.24.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 3)) (0.22.1)
+Requirement already satisfied: watchfiles>=0.13 in ./venv/lib/python3.12/site-packages (from uvicorn[standard]==0.24.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 3)) (1.1.1)
+Requirement already satisfied: websockets>=10.4 in ./venv/lib/python3.12/site-packages (from uvicorn[standard]==0.24.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 3)) (15.0.1)
+Requirement already satisfied: hf-xet<2.0.0,>=1.1.3 in ./venv/lib/python3.12/site-packages (from huggingface-hub<1.0,>=0.16.4->transformers==4.35.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 8)) (1.2.0)
+Requirement already satisfied: cffi>=2.0.0 in ./venv/lib/python3.12/site-packages (from cryptography>=3.4.0->python-jose[cryptography]==3.3.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 13)) (2.0.0)
+Requirement already satisfied: pycparser in ./venv/lib/python3.12/site-packages (from cffi>=2.0.0->cryptography>=3.4.0->python-jose[cryptography]==3.3.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 13)) (2.23)
+Requirement already satisfied: six>=1.9.0 in ./venv/lib/python3.12/site-packages (from ecdsa!=0.15->python-jose==3.3.0->python-jose[cryptography]==3.3.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 13)) (1.10.0)
+Requirement already satisfied: gitdb<5,>=4.0.1 in ./venv/lib/python3.12/site-packages (from GitPython>=1.0.1->bandit==1.7.5->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 34)) (4.0.12)
+Requirement already satisfied: smmap<6,>=3.0.1 in ./venv/lib/python3.12/site-packages (from gitdb<5,>=4.0.1->GitPython>=1.0.1->bandit==1.7.5->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 34)) (5.0.2)
+Requirement already satisfied: ruamel.yaml.clib>=0.2.7 in ./venv/lib/python3.12/site-packages (from ruamel.yaml>=0.17.21->safety==2.3.4->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 35)) (0.2.14)
+Requirement already satisfied: MarkupSafe>=2.0 in ./venv/lib/python3.12/site-packages (from jinja2->torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (3.0.3)
+Requirement already satisfied: charset_normalizer<4,>=2 in ./venv/lib/python3.12/site-packages (from requests->transformers==4.35.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 8)) (3.4.4)
+Requirement already satisfied: urllib3<3,>=1.21.1 in ./venv/lib/python3.12/site-packages (from requests->transformers==4.35.2->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 8)) (2.5.0)
+Requirement already satisfied: markdown-it-py>=2.2.0 in ./venv/lib/python3.12/site-packages (from rich->bandit==1.7.5->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 34)) (4.0.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in ./venv/lib/python3.12/site-packages (from rich->bandit==1.7.5->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 34)) (2.19.2)
+Requirement already satisfied: mdurl~=0.1 in ./venv/lib/python3.12/site-packages (from markdown-it-py>=2.2.0->rich->bandit==1.7.5->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 34)) (0.1.2)
+Requirement already satisfied: mpmath<1.4,>=1.1.0 in ./venv/lib/python3.12/site-packages (from sympy->torch==2.4.0->-r /home/sigmoid/test-repos/clinic/requirements.txt (line 7)) (1.3.0)
+
+📂 Copying manual tests to local folder: ./tests/manual
+
+✅ Manual test files copied to ./tests/manual
+📄 Files:
+./tests/manual/test_middleware.py
+./tests/manual/test_api.py
+./tests/manual/test_model.py
+./tests/manual/test_auth.py
+
+🧪 Running manual tests from local directory with coverage analysis: ./tests/manual
+
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-7.4.3, pluggy-1.6.0 -- /home/sigmoid/TECH_DEMO/new-tech-demo/venv/bin/python3
+cachedir: .pytest_cache
+metadata: {'Python': '3.12.3', 'Platform': 'Linux-6.14.0-33-generic-x86_64-with-glibc2.39', 'Packages': {'pytest': '7.4.3', 'pluggy': '1.6.0'}, 'Plugins': {'html': '4.1.1', 'django': '4.11.1', 'asyncio': '0.21.1', 'mock': '3.15.1', 'anyio': '3.7.1', 'metadata': '3.1.1', 'cov': '4.1.0'}}
+rootdir: /home/sigmoid/TECH_DEMO/new-tech-demo
+configfile: pytest.ini
+plugins: html-4.1.1, django-4.11.1, asyncio-0.21.1, mock-3.15.1, anyio-3.7.1, metadata-3.1.1, cov-4.1.0
+asyncio: mode=Mode.AUTO
+collecting ... collected 88 items
+
+tests/manual/test_api.py::TestHealthEndpoint::test_health_check_success PASSED [  1%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_success PASSED [  2%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_empty_sentence PASSED [  3%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_various_sentences[The patient denies chest pain.] PASSED [  4%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_various_sentences[He has a history of hypertension.] PASSED [  5%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_various_sentences[No signs of pneumonia were observed.] PASSED [  6%]
+tests/manual/test_api.py::TestBatchPredictionEndpoint::test_batch_predict_success PASSED [  7%]
+tests/manual/test_api.py::TestBatchPredictionEndpoint::test_batch_predict_empty_list PASSED [  9%]
+tests/manual/test_api.py::TestRootEndpoint::test_root_endpoint PASSED    [ 10%]
+tests/manual/test_api.py::TestHybridPipeline::test_apply_hybrid_pipeline_conditional PASSED [ 11%]
+tests/manual/test_api.py::TestHybridPipeline::test_apply_hybrid_pipeline_uncertainty PASSED [ 12%]
+tests/manual/test_api.py::TestHybridPipeline::test_apply_hybrid_pipeline_no_rule PASSED [ 13%]
+tests/manual/test_api.py::TestHybridPipeline::test_apply_hybrid_pipeline_multiple_sentences PASSED [ 14%]
+tests/manual/test_api.py::TestUtilityFunctions::test_detect_conditional_phrases_positive PASSED [ 15%]
+tests/manual/test_api.py::TestUtilityFunctions::test_detect_conditional_phrases_negative PASSED [ 17%]
+tests/manual/test_api.py::TestUtilityFunctions::test_detect_uncertainty_phrases_positive PASSED [ 18%]
+tests/manual/test_api.py::TestUtilityFunctions::test_detect_uncertainty_phrases_negative PASSED [ 19%]
+tests/manual/test_api.py::TestEnhancedPredictionEndpoints::test_predict_with_hybrid_pipeline PASSED [ 20%]
+tests/manual/test_api.py::TestEnhancedPredictionEndpoints::test_batch_predict_with_hybrid_pipeline PASSED [ 21%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_init_no_api_keys PASSED  [ 22%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_init_with_api_keys PASSED [ 23%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_init_with_whitespace_api_keys PASSED [ 25%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_verify_key_no_keys_required PASSED [ 26%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_verify_key_valid PASSED  [ 27%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_verify_key_invalid PASSED [ 28%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_health_endpoint FAILED [ 29%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_root_endpoint PASSED [ 30%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_metrics_endpoint PASSED [ 31%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_no_keys_required FAILED [ 32%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_missing_from_request FAILED [ 34%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_invalid FAILED [ 35%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_bearer FAILED [ 36%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_header FAILED [ 37%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_query_param FAILED [ 38%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_logging_invalid_key FAILED [ 39%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_multiple_keys PASSED [ 40%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_empty_key_string PASSED [ 42%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_whitespace_only PASSED [ 43%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_special_characters PASSED [ 44%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_case_sensitive PASSED [ 45%]
+tests/manual/test_middleware.py::TestSecurityHeadersMiddleware::test_init PASSED [ 46%]
+tests/manual/test_middleware.py::TestSecurityHeadersMiddleware::test_init_with_csp PASSED [ 47%]
+tests/manual/test_middleware.py::TestSecurityHeadersMiddleware::test_dispatch_no_csp_http PASSED [ 48%]
+tests/manual/test_middleware.py::TestSecurityHeadersMiddleware::test_dispatch_with_csp_https PASSED [ 50%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_init PASSED [ 51%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_get_client_id_with_x_forwarded_for PASSED [ 52%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_get_client_id_with_client PASSED [ 53%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_get_client_id_unknown PASSED [ 54%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_dispatch_health_endpoint PASSED [ 55%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_dispatch_under_limit PASSED [ 56%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_dispatch_over_limit PASSED [ 57%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_init PASSED [ 59%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_get_client_id_with_x_forwarded_for PASSED [ 60%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_get_client_id_with_client PASSED [ 61%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_get_client_id_unknown PASSED [ 62%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_dispatch_success PASSED [ 63%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_dispatch_with_exception FAILED [ 64%]
+tests/manual/test_middleware.py::TestMetricsMiddleware::test_init PASSED [ 65%]
+tests/manual/test_middleware.py::TestMetricsMiddleware::test_dispatch_success PASSED [ 67%]
+tests/manual/test_middleware.py::TestMetricsMiddleware::test_dispatch_error PASSED [ 68%]
+tests/manual/test_middleware.py::TestMetricsMiddleware::test_dispatch_exception PASSED [ 69%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_init PASSED [ 70%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_is_loaded_not_loaded PASSED [ 71%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_is_loaded_after_init PASSED [ 72%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_is_loaded_no_model PASSED [ 73%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_device_cuda_available PASSED [ 75%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_device_cuda_not_available PASSED [ 76%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_load_model_success FAILED [ 77%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_load_model_tokenizer_failure PASSED [ 78%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_load_model_model_failure PASSED [ 79%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_not_loaded PASSED [ 80%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_not_loaded PASSED [ 81%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_success FAILED [ 82%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_pipeline_error PASSED [ 84%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_success PASSED [ 85%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_list_result PASSED [ 86%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_nested_list_result PASSED [ 87%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_unexpected_result_type PASSED [ 88%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_success FAILED [ 89%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_sync_success PASSED [ 90%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_sync_single_result PASSED [ 92%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_get_model_info PASSED [ 93%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_get_model_info_cuda_available PASSED [ 94%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_empty_result PASSED [ 95%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_none_result PASSED [ 96%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_sync_empty_results PASSED [ 97%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_sync_mixed_result_types PASSED [ 98%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_unknown_label PASSED [100%]
+
+=================================== FAILURES ===================================
+_____________ TestVerifyAPIKey.test_verify_api_key_health_endpoint _____________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x701344139f70>
+auth_client = <starlette.testclient.TestClient object at 0x7012799ffb90>
+
+    def test_verify_api_key_health_endpoint(self, auth_client):
+        """Test that health endpoint doesn't require API key"""
+        response = auth_client.get("/health")
+>       assert response.status_code == 200
+E       assert 503 == 200
+E        +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:55: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.main:main.py:229 Health check failed:
+____________ TestVerifyAPIKey.test_verify_api_key_no_keys_required _____________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x701344148170>
+auth_client = <starlette.testclient.TestClient object at 0x7012799aaed0>
+
+    def test_verify_api_key_no_keys_required(self, auth_client):
+        """Test endpoints when no API keys are required"""
+        with patch.dict(os.environ, {"API_KEYS": "", "REQUIRE_API_KEY": "false"}):
+            response = auth_client.get("/model/info")
+>           assert response.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:71: AssertionError
+__________ TestVerifyAPIKey.test_verify_api_key_missing_from_request ___________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x701344149280>
+auth_client = <starlette.testclient.TestClient object at 0x7012799a8c80>
+
+    def test_verify_api_key_missing_from_request(self, auth_client):
+        """Test API key verification when key is missing"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get("/model/info")
+>           assert response.status_code == 401
+E           assert 503 == 401
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:79: AssertionError
+_________________ TestVerifyAPIKey.test_verify_api_key_invalid _________________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x701343f631d0>
+auth_client = <starlette.testclient.TestClient object at 0x7012799ac590>
+
+    def test_verify_api_key_invalid(self, auth_client):
+        """Test API key verification with invalid key"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get(
+                "/model/info", headers={"Authorization": "Bearer invalid_key"}
+            )
+>           assert response.status_code == 401
+E           assert 503 == 401
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:91: AssertionError
+______________ TestVerifyAPIKey.test_verify_api_key_valid_bearer _______________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x701344ef8320>
+auth_client = <starlette.testclient.TestClient object at 0x7012799fd490>
+
+    def test_verify_api_key_valid_bearer(self, auth_client):
+        """Test API key verification with valid Bearer token"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get(
+                "/model/info", headers={"Authorization": "Bearer test_key"}
+            )
+>           assert response.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:103: AssertionError
+______________ TestVerifyAPIKey.test_verify_api_key_valid_header _______________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x701344f825a0>
+auth_client = <starlette.testclient.TestClient object at 0x70127971f020>
+
+    def test_verify_api_key_valid_header(self, auth_client):
+        """Test API key verification with valid X-API-Key header"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get("/model/info", headers={"X-API-Key": "test_key"})
+>           assert response.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:111: AssertionError
+____________ TestVerifyAPIKey.test_verify_api_key_valid_query_param ____________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x701344ef80b0>
+auth_client = <starlette.testclient.TestClient object at 0x7012797242f0>
+
+    def test_verify_api_key_valid_query_param(self, auth_client):
+        """Test API key verification with valid query parameter"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get("/model/info?api_key=test_key")
+>           assert response.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:119: AssertionError
+___________ TestVerifyAPIKey.test_verify_api_key_logging_invalid_key ___________
+
+self = <MagicMock name='logger.warning' id='123224651911520'>
+
+    def assert_called(self):
+        """assert that the mock was called at least once
+        """
+        if self.call_count == 0:
+            msg = ("Expected '%s' to have been called." %
+                   (self._mock_name or 'mock'))
+>           raise AssertionError(msg)
+E           AssertionError: Expected 'warning' to have been called.
+
+/usr/lib/python3.12/unittest/mock.py:913: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x701344148230>
+
+    def test_verify_api_key_logging_invalid_key(self):
+        """Test that invalid API key attempts are logged"""
+        # Standard library imports
+        from unittest.mock import Mock
+    
+        from app.auth import verify_api_key
+    
+        with patch.dict(
+            os.environ, {"API_KEYS": "valid_key", "REQUIRE_API_KEY": "true"}
+        ), patch("app.auth.logger") as mock_logger:
+            mock_request = Mock()
+            mock_request.url.path = "/api/test"
+            mock_request.client = Mock()
+            mock_request.client.host = "192.168.1.1"
+            mock_request.headers = {}
+            mock_request.query_params = {}
+    
+            # This should raise an exception and log the invalid attempt
+            try:
+                verify_api_key(mock_request, None)
+            except Exception:
+                pass
+    
+            # Verify that warning was logged for invalid key attempt
+>           mock_logger.warning.assert_called()
+E           AssertionError: Expected 'warning' to have been called.
+
+tests/manual/test_auth.py:145: AssertionError
+__________ TestRequestLoggingMiddleware.test_dispatch_with_exception ___________
+
+request = <Mock id='123224640373728'>
+
+    async def failing_call_next(request):
+>       raise Exception("Test error")
+E       Exception: Test error
+
+tests/manual/test_middleware.py:248: Exception
+
+During handling of the above exception, another exception occurred:
+
+self = <app.middleware.RequestLoggingMiddleware object at 0x701278eac2c0>
+request = <Mock id='123224640373728'>
+call_next = <function TestRequestLoggingMiddleware.test_dispatch_with_exception.<locals>.failing_call_next at 0x701278c5cea0>
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        start_time = time.time()
+        request_id = request.headers.get(
+            "X-Request-ID", f"req-{int(start_time * 1000)}"
+        )
+    
+        logger.info(
+            json.dumps(
+                {
+                    "event": "request_started",
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "client_ip": self.get_client_id(request),
+                    "timestamp": start_time,
+                }
+            )
+        )
+    
+        try:
+            response = await call_next(request)
+    
+            duration = time.time() - start_time
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "request_completed",
+                        "request_id": request_id,
+                        "status_code": response.status_code,
+                        "duration_ms": duration * 1000,
+                        "timestamp": time.time(),
+                    }
+                )
+            )
+    
+            response.headers["X-Request-ID"] = request_id
+            return response
+    
+        except Exception as e:
+            duration = time.time() - start_time
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "request_failed",
+                        "request_id": request_id,
+                        "error": str(e),
+                        "duration_ms": duration * 1000,
+>                       "timestamp": time.time(),
+                    }
+                )
+            )
+
+../../test-repos/clinic/app/middleware.py:155: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.12/unittest/mock.py:1134: in __call__
+    return self._mock_call(*args, **kwargs)
+/usr/lib/python3.12/unittest/mock.py:1138: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='time' id='123224640373968'>, args = (), kwargs = {}
+effect = <list_iterator object at 0x701279937d30>
+
+    def _execute_mock_call(self, /, *args, **kwargs):
+        # separate from _increment_mock_call so that awaited functions are
+        # executed separately from their call, also AsyncMock overrides this method
+    
+        effect = self.side_effect
+        if effect is not None:
+            if _is_exception(effect):
+                raise effect
+            elif not _callable(effect):
+>               result = next(effect)
+E               StopIteration
+
+/usr/lib/python3.12/unittest/mock.py:1195: StopIteration
+
+The above exception was the direct cause of the following exception:
+
+self = <manual.test_middleware.TestRequestLoggingMiddleware object at 0x701343e74110>
+middleware = <app.middleware.RequestLoggingMiddleware object at 0x701278eac2c0>
+
+    @pytest.mark.asyncio
+    async def test_dispatch_with_exception(self, middleware):
+        """Test request dispatch with exception"""
+        mock_request = Mock()
+        mock_request.method = "POST"
+        mock_request.url.path = "/api/test"
+        mock_request.headers = {}
+        mock_request.client = None
+    
+        async def failing_call_next(request):
+            raise Exception("Test error")
+    
+        with patch("time.time", side_effect=[1000.0, 1000.3]), patch(
+            "app.middleware.logger"
+        ) as mock_logger:
+            with pytest.raises(Exception, match="Test error"):
+>               await middleware.dispatch(mock_request, failing_call_next)
+E               RuntimeError: coroutine raised StopIteration
+
+tests/manual/test_middleware.py:254: RuntimeError
+
+During handling of the above exception, another exception occurred:
+
+self = <manual.test_middleware.TestRequestLoggingMiddleware object at 0x701343e74110>
+middleware = <app.middleware.RequestLoggingMiddleware object at 0x701278eac2c0>
+
+    @pytest.mark.asyncio
+    async def test_dispatch_with_exception(self, middleware):
+        """Test request dispatch with exception"""
+        mock_request = Mock()
+        mock_request.method = "POST"
+        mock_request.url.path = "/api/test"
+        mock_request.headers = {}
+        mock_request.client = None
+    
+        async def failing_call_next(request):
+            raise Exception("Test error")
+    
+        with patch("time.time", side_effect=[1000.0, 1000.3]), patch(
+            "app.middleware.logger"
+        ) as mock_logger:
+>           with pytest.raises(Exception, match="Test error"):
+E           AssertionError: Regex pattern did not match.
+E            Regex: 'Test error'
+E            Input: 'coroutine raised StopIteration'
+
+tests/manual/test_middleware.py:253: AssertionError
+______________ TestClinicalAssertionModel.test_load_model_success ______________
+
+self = <manual.test_model.TestClinicalAssertionModel object at 0x701279de8aa0>
+mock_cuda = <MagicMock name='is_available' id='123224639833152'>
+mock_pipeline = <MagicMock name='TextClassificationPipeline' id='123224639841456'>
+mock_model_class = <MagicMock name='from_pretrained' id='123224651429600'>
+mock_tokenizer = <MagicMock name='from_pretrained' id='123224649255488'>
+model = <app.model.ClinicalAssertionModel object at 0x701278e28230>
+
+    @pytest.mark.asyncio
+    @patch("app.model.AutoTokenizer.from_pretrained")
+    @patch("app.model.AutoModelForSequenceClassification.from_pretrained")
+    @patch("app.model.TextClassificationPipeline")
+    @patch("torch.cuda.is_available")
+    async def test_load_model_success(
+        self, mock_cuda, mock_pipeline, mock_model_class, mock_tokenizer, model
+    ):
+        """Test successful model loading"""
+        mock_cuda.return_value = False
+    
+        # Mock the model and tokenizer
+        mock_model_instance = Mock()
+        mock_model_class.return_value = mock_model_instance
+        mock_tokenizer_instance = Mock()
+        mock_tokenizer.return_value = mock_tokenizer_instance
+        mock_pipeline_instance = Mock()
+        mock_pipeline.return_value = mock_pipeline_instance
+    
+        await model.load_model()
+    
+        assert model.tokenizer == mock_tokenizer_instance
+>       assert model.model == mock_model_instance
+E       AssertionError: assert <Mock name='from_pretrained().to().to()' id='123224649264272'> == <Mock name='from_pretrained()' id='123224649259520'>
+E        +  where <Mock name='from_pretrained().to().to()' id='123224649264272'> = <app.model.ClinicalAssertionModel object at 0x701278e28230>.model
+
+tests/manual/test_model.py:82: AssertionError
+_______________ TestClinicalAssertionModel.test_predict_success ________________
+
+self = <manual.test_model.TestClinicalAssertionModel object at 0x701279dec260>
+mock_loop = <MagicMock name='get_event_loop' id='123224654383872'>
+model = <app.model.ClinicalAssertionModel object at 0x701279c08d70>
+
+    @pytest.mark.asyncio
+    @patch("asyncio.get_event_loop")
+    async def test_predict_success(self, mock_loop, model):
+        """Test successful prediction"""
+        # Setup model as loaded
+        model._loaded = True
+        model.model = Mock()
+        model.pipeline = Mock()
+    
+        # Mock the pipeline result
+        mock_result = {"label": "LABEL_0", "score": 0.95}
+        model.pipeline.return_value = [mock_result]
+    
+        # Mock asyncio loop
+        mock_loop_instance = Mock()
+        mock_loop.return_value = mock_loop_instance
+        mock_loop_instance.run_in_executor = AsyncMock(return_value=mock_result)
+    
+        result = await model.predict("test sentence")
+    
+>       assert result == {"label": "PRESENT", "score": 0.95}
+E       AssertionError: assert {'label': 'LA...'score': 0.95} == {'label': 'PR...'score': 0.95}
+E         Omitting 1 identical items, use -vv to show
+E         Differing items:
+E         {'label': 'LABEL_0'} != {'label': 'PRESENT'}
+E         Full diff:
+E         - {'label': 'PRESENT', 'score': 0.95}
+E         ?            ^^ ^^^^
+E         + {'label': 'LABEL_0', 'score': 0.95}
+E         ?            ^^^ ^^^
+
+tests/manual/test_model.py:145: AssertionError
+____________ TestClinicalAssertionModel.test_predict_batch_success _____________
+
+self = <manual.test_model.TestClinicalAssertionModel object at 0x701279df5640>
+mock_loop = <MagicMock name='get_event_loop' id='123224651917184'>
+model = <app.model.ClinicalAssertionModel object at 0x7012799ad790>
+
+    @pytest.mark.asyncio
+    @patch("asyncio.get_event_loop")
+    async def test_predict_batch_success(self, mock_loop, model):
+        """Test successful batch prediction"""
+        # Setup model as loaded
+        model._loaded = True
+        model.model = Mock()
+        model.pipeline = Mock()
+    
+        # Mock batch results
+        mock_results = [
+            [{"label": "LABEL_0", "score": 0.95}],
+            [{"label": "LABEL_1", "score": 0.87}],
+        ]
+        model.pipeline.return_value = mock_results
+    
+        # Mock asyncio loop
+        mock_loop_instance = Mock()
+        mock_loop.return_value = mock_loop_instance
+        mock_loop_instance.run_in_executor = AsyncMock(return_value=mock_results)
+    
+        result = await model.predict_batch(["sentence 1", "sentence 2"])
+    
+        expected = [
+            {"label": "PRESENT", "score": 0.95},
+            {"label": "ABSENT", "score": 0.87},
+        ]
+>       assert result == expected
+E       AssertionError: assert [[{'label': '...core': 0.87}]] == [{'label': 'P...score': 0.87}]
+E         At index 0 diff: [{'label': 'LABEL_0', 'score': 0.95}] != {'label': 'PRESENT', 'score': 0.95}
+E         Full diff:
+E         - [{'label': 'PRESENT', 'score': 0.95}, {'label': 'ABSENT', 'score': 0.87}]
+E         ?             ^^ ^^^^                                - ^^
+E         + [[{'label': 'LABEL_0', 'score': 0.95}], [{'label': 'LABEL_1', 'score': 0.87}]]
+E         ? +            ^^^ ^^^                 +  +           +   ^^^                  +
+
+tests/manual/test_model.py:237: AssertionError
+=============================== warnings summary ===============================
+venv/lib/python3.12/site-packages/transformers/utils/generic.py:441
+  /home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/transformers/utils/generic.py:441: FutureWarning: `torch.utils._pytree._register_pytree_node` is deprecated. Please use `torch.utils._pytree.register_pytree_node` instead.
+    _torch_pytree._register_pytree_node(
+
+venv/lib/python3.12/site-packages/transformers/utils/generic.py:309
+  /home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/transformers/utils/generic.py:309: FutureWarning: `torch.utils._pytree._register_pytree_node` is deprecated. Please use `torch.utils._pytree.register_pytree_node` instead.
+    _torch_pytree._register_pytree_node(
+
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_logging_invalid_key
+  /home/sigmoid/TECH_DEMO/new-tech-demo/tests/manual/test_auth.py:140: RuntimeWarning: coroutine 'verify_api_key' was never awaited
+    verify_api_key(mock_request, None)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+
+---------- coverage: platform linux, python 3.12.3-final-0 -----------
+Name                                                Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------------------------
+/home/sigmoid/test-repos/clinic/app/__init__.py         1      0      0      0   100%
+/home/sigmoid/test-repos/clinic/app/auth.py            39     15     18      2    53%   42, 47-70
+/home/sigmoid/test-repos/clinic/app/main.py           154     40     16      5    72%   73-100, 160, 176-178, 257, 277-278, 333-336, 358, 365, 432-437, 454-457, 536-542
+/home/sigmoid/test-repos/clinic/app/middleware.py      92      1     14      0    99%   159
+/home/sigmoid/test-repos/clinic/app/model.py           82      3     14      1    96%   45->48, 117-119
+/home/sigmoid/test-repos/clinic/app/schemas.py         70      4     10      4    90%   37, 86, 90, 94
+/home/sigmoid/test-repos/clinic/app/utils.py           49     10     12      3    79%   15-28, 39, 55, 104->108
+-----------------------------------------------------------------------------------------------
+TOTAL                                                 487     73     84     15    82%
+Coverage HTML written to dir htmlcov
+Coverage XML written to file coverage.xml
+
+=========================== short test summary info ============================
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_health_endpoint
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_no_keys_required
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_missing_from_request
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_invalid
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_bearer
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_header
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_query_param
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_logging_invalid_key
+FAILED tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_dispatch_with_exception
+FAILED tests/manual/test_model.py::TestClinicalAssertionModel::test_load_model_success
+FAILED tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_success
+FAILED tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_success
+================== 12 failed, 76 passed, 3 warnings in 24.60s ==================
+📊 Coverage report generated
+Name                                                Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------------------------
+/home/sigmoid/test-repos/clinic/app/__init__.py         1      0      0      0   100%
+/home/sigmoid/test-repos/clinic/app/auth.py            39     15     18      2    53%   42, 47-70
+/home/sigmoid/test-repos/clinic/app/main.py           157     42     18      6    71%   73-100, 160, 176-178, 257, 277-278, 333-336, 358, 365, 432-437, 454-457, 536-542, 558-559
+/home/sigmoid/test-repos/clinic/app/middleware.py      92      1     14      0    99%   159
+/home/sigmoid/test-repos/clinic/app/model.py           82      3     14      1    96%   45->48, 117-119
+/home/sigmoid/test-repos/clinic/app/schemas.py         70      4     10      4    90%   37, 86, 90, 94
+/home/sigmoid/test-repos/clinic/app/utils.py           49     10     12      3    79%   15-28, 39, 55, 104->108
+-----------------------------------------------------------------------------------------------
+TOTAL                                                 490     75     86     16    82%
+
+✅ Pytest completed for manual tests.
+
+✅ Manual Test Coverage: 85.01%
+
+📊 Coverage Summary:
+  app/__init__.py: 100.0%
+  app/auth.py: 61.5%
+  app/main.py: 74.0%
+  app/middleware.py: 98.9%
+  app/model.py: 96.3%
+  app/schemas.py: 94.3%
+  app/utils.py: 79.6%
+
+= =4.2 backend_code.log clinic1.log clinic.log coverage_gaps.json coverage.xml feature.log flask-high-coverage-repo.log gap_based.log htmlcov local_artifacts local_pipeline-1.sh manual_test_result.json output_combined.log output.log PIPELINE_SUMMARY.md pytest.ini QUALITY_GATE_SUMMARY.md requirements.txt src test.db tests venv 80
+COVERAGE ANALYSIS PHASE
+= =4.2 backend_code.log clinic1.log clinic.log coverage_gaps.json coverage.xml feature.log flask-high-coverage-repo.log gap_based.log htmlcov local_artifacts local_pipeline-1.sh manual_test_result.json output_combined.log output.log PIPELINE_SUMMARY.md pytest.ini QUALITY_GATE_SUMMARY.md requirements.txt src test.db tests venv 80
+hello
+🔍 Analyzing coverage gaps...
+🔍 Analyzing coverage gaps...
+================================================================================
+COVERAGE GAP ANALYSIS REPORT
+================================================================================
+
+Overall Coverage: 85.01%
+Total Statements: 487
+Covered Statements: 414
+Missing Statements: 73
+AI Generation Needed: YES
+
+FILES WITH COVERAGE GAPS:
+--------------------------------------------------------------------------------
+
+📁 app/auth.py
+   Coverage: 61.54%
+   Missing Lines: 15
+   Uncovered: 42, 47, 49-50, 52-53, 55-56, 58-59, 63-66, 70
+
+📁 app/main.py
+   Coverage: 74.03%
+   Missing Lines: 40
+   Uncovered: 73-75, 77, 79-80, 83-84, 86-87, 89-91, 93, 96-97, 99-100, 160, 176, 178, 257, 277-278, 333-336, 358, 365, 432-433, 436-437, 454-455, 457, 536, 540, 542
+
+📁 app/middleware.py
+   Coverage: 98.91%
+   Missing Lines: 1
+   Uncovered: 159
+
+📁 app/model.py
+   Coverage: 96.34%
+   Missing Lines: 3
+   Uncovered: 117-119
+
+📁 app/schemas.py
+   Coverage: 94.29%
+   Missing Lines: 4
+   Uncovered: 37, 86, 90, 94
+
+📁 app/utils.py
+   Coverage: 79.59%
+   Missing Lines: 10
+   Uncovered: 15-18, 20, 26-28, 39, 55
+
+
+
+================================================================================
+✅ Coverage gap analysis saved to: /home/sigmoid/TECH_DEMO/new-tech-demo/coverage_gaps.json
+
+⚠️  Coverage is below 90% (85.01%)
+🤖 AI test generation recommended for uncovered code
+
+⚠️  Coverage is below 90%
+🤖 Initiating Gap-Based AI Test Generation...
+
+= =4.2 backend_code.log clinic1.log clinic.log coverage_gaps.json coverage.xml feature.log flask-high-coverage-repo.log gap_based.log htmlcov local_artifacts local_pipeline-1.sh manual_test_result.json output_combined.log output.log PIPELINE_SUMMARY.md pytest.ini QUALITY_GATE_SUMMARY.md requirements.txt src test.db tests venv 80
+GAP-BASED AI TEST GENERATION (Using Full AI Workflow)
+= =4.2 backend_code.log clinic1.log clinic.log coverage_gaps.json coverage.xml feature.log flask-high-coverage-repo.log gap_based.log htmlcov local_artifacts local_pipeline-1.sh manual_test_result.json output_combined.log output.log PIPELINE_SUMMARY.md pytest.ini QUALITY_GATE_SUMMARY.md requirements.txt src test.db tests venv 80
+
+Warning: postprocess import failed: cannot import name 'extract_python_only' from 'src.gen.postprocess' (/home/sigmoid/TECH_DEMO/new-tech-demo/src/gen/postprocess.py); using fallbacks
+🎯 Gap-focused mode enabled via --coverage-mode argument
+Found 14 Python files in target directory
+Project structure: Universal compatibility enabled
+UNIVERSAL analysis for ANY PROJECT STRUCTURE in: /home/sigmoid/test-repos/clinic
+Analyzing 8 Python files in project...
+[framework_manager] Detection error in django: 'str' object has no attribute 'get'
+[framework_manager] Framework(s) detected: ['fastapi', 'universal'] -> selected: fastapi
+UNIVERSAL ANALYSIS COMPLETE:
+   Files analyzed: 8
+   Functions: 42 (top-level)
+   Nested Functions: 23
+   Classes: 28
+   Methods: 23
+   Routes: 8
+   FastAPI Routes: 10
+   Properties: 0
+   Async functions: 39
+   Imports tracked: 104
+   Django models: 0
+   Serializers: 0
+   Views/ViewSets: 0
+   Forms: 0
+   Admin: 0
+   Project packages: 2
+   Detected Framework: fastapi
+Starting UNIVERSAL test generation with gap-focused coverage mode...
+UNIVERSAL test generation for ANY PROJECT STRUCTURE...
+
+🎯 GAP-FOCUSED MODE: Analyzing coverage gaps...
+
+================================================================================
+GAP-FOCUSED MODE ACTIVE
+================================================================================
+Filtering analysis to target only uncovered code...
+✅ Loaded coverage gaps analysis from: /home/sigmoid/TECH_DEMO/new-tech-demo/coverage_gaps.json
+   Current Coverage: 85.01%
+   Uncovered Functions: 0
+   Uncovered Classes: 0
+   Files with Gaps: 6
+
+🎯 Filtering analysis to focus on coverage gaps...
+
+📊 Gap-Focused Analysis Results:
+   Original Functions: 42 → Uncovered: 0
+   Original Classes: 28 → Uncovered: 0
+   Original Methods: 23 → Uncovered: 0
+   Original Routes: 8 → Uncovered: 8
+   Total Reduction: 100.0% (focusing only on gaps)
+
+✅ Gap-focused analysis prepared
+   Targeting 73 uncovered statements
+================================================================================
+
+✅ Gap analysis complete: Targeting 0 uncovered functions, 0 uncovered classes, 0 uncovered methods
+✅ Successfully wrote: tests/generated/conftest.py
+Created universal conftest: tests/generated/conftest.py
+TESTGEN_FORCE environment variable: 'true'
+🚀 Force generation enabled - will regenerate all tests
+Found 8 source files for force generation:
+  - app/__init__.py
+  - app/auth.py
+  - app/main.py
+  - app/middleware.py
+  - app/model.py
+  - app/schemas.py
+  - app/utils.py
+  - scripts/health-check.py
+🧹 Force mode: Cleaning up all existing generated tests
+Cleaned up 0 existing test files
+UNIVERSAL TARGET INCLUSION:
+   Functions: 4 (including 4 nested)
+   Classes: 0
+   Methods: 0
+   Routes: 18
+   Project Packages: 2
+Using universal targeting - all targets included
+Analyzing required packages...
+   auth: Local module (skipped pip install)
+   middleware: Local module (skipped pip install)
+   model: Local module (skipped pip install)
+   schemas: Local module (skipped pip install)
+   utils: Local module (skipped pip install)
+Inferred 9 external packages: fastapi, httpx, prometheus_client, psutil, pydantic, starlette, torch, transformers, uvicorn
+Installing 9 external packages...
+Installing packages: fastapi, httpx, prometheus_client, psutil, pydantic, starlette, torch, transformers, uvicorn
+   fastapi
+   httpx
+   prometheus_client
+   psutil
+   pydantic
+   starlette
+   torch
+   transformers
+   uvicorn
+Successfully installed 9 packages.
+UNIVERSAL COVERAGE TARGETS:
+   Functions: 4
+   Classes: 0
+   Methods: 0
+   Routes: 18
+   Total Targets: 22
+   Expected Coverage: Maximum
+   Project Structure: Universal compatibility
+Generating 1 UNIT test files for universal compatibility...
+Generating unit test 1/1 for 4 targets
+✅ Loaded coverage gaps analysis from: /home/sigmoid/TECH_DEMO/new-tech-demo/coverage_gaps.json
+   Current Coverage: 85.01%
+   Uncovered Functions: 0
+   Uncovered Classes: 0
+   Files with Gaps: 6
+✅ Loaded coverage gaps analysis from: /home/sigmoid/TECH_DEMO/new-tech-demo/coverage_gaps.json
+   Current Coverage: 85.01%
+   Uncovered Functions: 0
+   Uncovered Classes: 0
+   Files with Gaps: 6
+   📊 Added 1691 chars of gap-focused context to prompt
+⚠️ Syntax error in generated code for tests/generated/test_unit_20251113_164113_01.py: expected an indented block after 'if' statement on line 24 (<unknown>, line 27)
+✅ Fixed syntax errors in tests/generated/test_unit_20251113_164113_01.py
+✅ Successfully wrote: tests/generated/test_unit_20251113_164113_01.py
+  test_unit_20251113_164113_01.py - 4 targets
+Generating 1 INTEG test files for universal compatibility...
+Generating integ test 1/1 for 18 targets
+✅ Loaded coverage gaps analysis from: /home/sigmoid/TECH_DEMO/new-tech-demo/coverage_gaps.json
+   Current Coverage: 85.01%
+   Uncovered Functions: 0
+   Uncovered Classes: 0
+   Files with Gaps: 6
+✅ Loaded coverage gaps analysis from: /home/sigmoid/TECH_DEMO/new-tech-demo/coverage_gaps.json
+   Current Coverage: 85.01%
+   Uncovered Functions: 0
+   Uncovered Classes: 0
+   Files with Gaps: 6
+   📊 Added 1691 chars of gap-focused context to prompt
+⚠️ Syntax error in generated code for tests/generated/test_integ_20251113_164113_01.py: expected an indented block after 'if' statement on line 21 (<unknown>, line 24)
+✅ Fixed syntax errors in tests/generated/test_integ_20251113_164113_01.py
+✅ Successfully wrote: tests/generated/test_integ_20251113_164113_01.py
+  test_integ_20251113_164113_01.py - 18 targets
+Generating 1 E2E test files for universal compatibility...
+Generating e2e test 1/1 for 18 targets
+✅ Loaded coverage gaps analysis from: /home/sigmoid/TECH_DEMO/new-tech-demo/coverage_gaps.json
+   Current Coverage: 85.01%
+   Uncovered Functions: 0
+   Uncovered Classes: 0
+   Files with Gaps: 6
+✅ Loaded coverage gaps analysis from: /home/sigmoid/TECH_DEMO/new-tech-demo/coverage_gaps.json
+   Current Coverage: 85.01%
+   Uncovered Functions: 0
+   Uncovered Classes: 0
+   Files with Gaps: 6
+   📊 Added 1691 chars of gap-focused context to prompt
+⚠️ Syntax error in generated code for tests/generated/test_e2e_20251113_164113_01.py: expected an indented block after 'if' statement on line 23 (<unknown>, line 26)
+✅ Fixed syntax errors in tests/generated/test_e2e_20251113_164113_01.py
+✅ Successfully wrote: tests/generated/test_e2e_20251113_164113_01.py
+  test_e2e_20251113_164113_01.py - 18 targets
+Updated test mapping for 8 source files
+Generation completed: 3 test files for 8 source files
+📊 Updated test manifest: tests/generated/_manifest.json
+UNIVERSAL GENERATION COMPLETE: 3 test files
+Expected Coverage: Maximum with REAL IMPORTS
+Universal Compatibility: ENABLED
+Targets Covered: 22
+Project Structure: 2 packages detected
+UNIVERSAL TEST GENERATION SUCCESSFUL!
+UNIVERSAL Results:
+   Generated: 3 test files
+   Coverage Mode: gap-focused
+   Universal Compatibility: ENABLED
+   Targets Covered: 101
+   Project Structure: Universal handling enabled
+Run UNIVERSAL Tests:
+   Basic: python -m pytest ./tests/generated -v
+   Coverage: python -m pytest ./tests/generated --cov=. --cov-report=html
+   Universal: PYTHONPATH=/home/sigmoid/test-repos/clinic python -m pytest ./tests/generated
+=== AI Test Generation Completed ===
+🧩 Total AI-generated test files: 3
+./tests/generated/test_e2e_20251113_164113_01.py
+./tests/generated/test_unit_20251113_164113_01.py
+./tests/generated/test_integ_20251113_164113_01.py
+
+✅ Gap-based AI test generation completed successfully
+
+= =4.2 backend_code.log clinic1.log clinic.log coverage_gaps.json coverage.xml feature.log flask-high-coverage-repo.log gap_based.log htmlcov local_artifacts local_pipeline-1.sh manual_test_result.json output_combined.log output.log PIPELINE_SUMMARY.md pytest.ini QUALITY_GATE_SUMMARY.md requirements.txt src test.db tests venv 80
+RUNNING COMBINED TESTS (Manual + AI Generated)
+= =4.2 backend_code.log clinic1.log clinic.log coverage_gaps.json coverage.xml feature.log flask-high-coverage-repo.log gap_based.log htmlcov local_artifacts local_pipeline-1.sh manual_test_result.json output_combined.log output.log PIPELINE_SUMMARY.md pytest.ini QUALITY_GATE_SUMMARY.md requirements.txt src test.db tests venv 80
+
+📦 Installing project dependencies...
+🧪 Running combined test suite...
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-7.4.3, pluggy-1.6.0 -- /home/sigmoid/TECH_DEMO/new-tech-demo/venv/bin/python3
+cachedir: .pytest_cache
+django: version: 5.2.8
+metadata: {'Python': '3.12.3', 'Platform': 'Linux-6.14.0-33-generic-x86_64-with-glibc2.39', 'Packages': {'pytest': '7.4.3', 'pluggy': '1.6.0'}, 'Plugins': {'html': '4.1.1', 'django': '4.11.1', 'asyncio': '0.21.1', 'mock': '3.15.1', 'anyio': '3.7.1', 'metadata': '3.1.1', 'cov': '4.1.0'}}
+rootdir: /home/sigmoid/TECH_DEMO/new-tech-demo
+configfile: pytest.ini
+plugins: html-4.1.1, django-4.11.1, asyncio-0.21.1, mock-3.15.1, anyio-3.7.1, metadata-3.1.1, cov-4.1.0
+asyncio: mode=Mode.AUTO
+collecting ... collected 137 items
+
+tests/generated/test_e2e_20251113_164113_01.py::test_service_status_returns_running_and_uptime PASSED [  0%]
+tests/generated/test_e2e_20251113_164113_01.py::test_health_check_when_model_missing_returns_503 FAILED [  1%]
+tests/generated/test_e2e_20251113_164113_01.py::test_health_check_when_model_loaded_returns_healthy PASSED [  2%]
+tests/generated/test_e2e_20251113_164113_01.py::test_metrics_endpoint_returns_prometheus_content_type FAILED [  2%]
+tests/generated/test_e2e_20251113_164113_01.py::test_model_info_unavailable_when_model_not_loaded FAILED [  3%]
+tests/generated/test_e2e_20251113_164113_01.py::test_model_info_returns_model_metadata_when_loaded FAILED [  4%]
+tests/generated/test_e2e_20251113_164113_01.py::test_predict_assertion_success_and_sanitization[Patient is well-200] PASSED [  5%]
+tests/generated/test_e2e_20251113_164113_01.py::test_predict_assertion_success_and_sanitization[-200] FAILED [  5%]
+tests/generated/test_e2e_20251113_164113_01.py::test_predict_assertion_when_model_not_loaded_returns_503 PASSED [  6%]
+tests/generated/test_e2e_20251113_164113_01.py::test_predict_assertion_internal_error_triggers_500 FAILED [  7%]
+tests/generated/test_e2e_20251113_164113_01.py::test_predict_batch_success_and_metrics PASSED [  8%]
+tests/generated/test_e2e_20251113_164113_01.py::test_predict_batch_exceeds_max_batch_size_returns_400 FAILED [  8%]
+tests/generated/test_e2e_20251113_164113_01.py::test_predict_batch_internal_error_triggers_500 FAILED [  9%]
+tests/generated/test_e2e_20251113_164113_01.py::test_system_metrics_reflects_prediction_count_and_model_state PASSED [ 10%]
+tests/generated/test_e2e_20251113_164113_01.py::test_root_endpoint_contains_expected_keys_and_status PASSED [ 10%]
+tests/generated/test_e2e_20251113_164113_01.py::test_validate_sentence_and_validate_sentences_variants[Simple sentence.-dict] PASSED [ 11%]
+tests/generated/test_e2e_20251113_164113_01.py::test_validate_sentence_and_validate_sentences_variants[-dict] PASSED [ 12%]
+tests/generated/test_e2e_20251113_164113_01.py::test_validate_sentence_and_validate_sentences_variants[None-expected_type2] PASSED [ 13%]
+tests/generated/test_e2e_20251113_164113_01.py::test_verify_api_key_rejects_missing_authorization_header FAILED [ 13%]
+tests/generated/test_e2e_20251113_164113_01.py::test_verify_api_key_accepts_valid_key_if_env_set PASSED [ 14%]
+tests/generated/test_e2e_20251113_164113_01.py::test_request_middleware_dispatch_line_trigger PASSED [ 15%]
+tests/generated/test_integ_20251113_164113_01.py::test_service_status_and_root_contains_expected_fields PASSED [ 16%]
+tests/generated/test_integ_20251113_164113_01.py::test_health_check_raises_when_model_not_loaded PASSED [ 16%]
+tests/generated/test_integ_20251113_164113_01.py::test_model_info_raises_and_http_exception_handler_produces_jsonresponse PASSED [ 17%]
+tests/generated/test_integ_20251113_164113_01.py::test_predict_assertion_raises_503_when_model_missing PASSED [ 18%]
+tests/generated/test_integ_20251113_164113_01.py::test_predict_batch_raises_503_when_model_missing PASSED [ 18%]
+tests/generated/test_integ_20251113_164113_01.py::test_predict_batch_rejects_when_exceeds_max_batch_size PASSED [ 19%]
+tests/generated/test_integ_20251113_164113_01.py::test_predict_assertion_success_flow_updates_counters_and_returns_prediction PASSED [ 20%]
+tests/generated/test_integ_20251113_164113_01.py::test_predict_batch_success_flow_returns_expected_batch_response PASSED [ 21%]
+tests/generated/test_integ_20251113_164113_01.py::test_system_metrics_reflects_model_loaded_flag PASSED [ 21%]
+tests/generated/test_integ_20251113_164113_01.py::test_general_exception_handler_returns_internal_error_structure PASSED [ 22%]
+tests/generated/test_integ_20251113_164113_01.py::test_validate_sentence_variants[Normal sentence.-True] SKIPPED [ 23%]
+tests/generated/test_integ_20251113_164113_01.py::test_validate_sentence_variants[-False] SKIPPED [ 24%]
+tests/generated/test_integ_20251113_164113_01.py::test_validate_sentence_variants[None-False] SKIPPED [ 24%]
+tests/generated/test_integ_20251113_164113_01.py::test_validate_sentences_variants[sentences0-True] SKIPPED [ 25%]
+tests/generated/test_integ_20251113_164113_01.py::test_validate_sentences_variants[sentences1-False] SKIPPED [ 26%]
+tests/generated/test_integ_20251113_164113_01.py::test_validate_sentences_variants[sentences2-False] SKIPPED [ 27%]
+tests/generated/test_integ_20251113_164113_01.py::test_utils_sanitize_and_hybrid_and_system_metrics_behavior FAILED [ 27%]
+tests/generated/test_integ_20251113_164113_01.py::test_app_model_predict_batch_async_signature_if_present PASSED [ 28%]
+tests/generated/test_unit_20251113_164113_01.py::test_dispatch_success_and_exception_paths FAILED [ 29%]
+tests/generated/test_unit_20251113_164113_01.py::test_model_predict_batch_success_and_failure PASSED [ 29%]
+tests/generated/test_unit_20251113_164113_01.py::test_validate_sentence_via_prediction_request[valid-This is a valid clinical sentence.-True] PASSED [ 30%]
+tests/generated/test_unit_20251113_164113_01.py::test_validate_sentence_via_prediction_request[empty_string--False] PASSED [ 31%]
+tests/generated/test_unit_20251113_164113_01.py::test_validate_sentence_via_prediction_request[none_value-None-False] PASSED [ 32%]
+tests/generated/test_unit_20251113_164113_01.py::test_validate_sentence_via_prediction_request[whitespace-   -False] PASSED [ 32%]
+tests/generated/test_unit_20251113_164113_01.py::test_validate_sentences_via_batch_request[valid_batch-sentences0-True] PASSED [ 33%]
+tests/generated/test_unit_20251113_164113_01.py::test_validate_sentences_via_batch_request[empty_list-sentences1-False] PASSED [ 34%]
+tests/generated/test_unit_20251113_164113_01.py::test_validate_sentences_via_batch_request[contains_none-sentences2-False] PASSED [ 35%]
+tests/generated/test_unit_20251113_164113_01.py::test_validate_sentences_via_batch_request[contains_empty-sentences3-False] PASSED [ 35%]
+tests/manual/test_api.py::TestHealthEndpoint::test_health_check_success PASSED [ 36%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_success PASSED [ 37%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_empty_sentence PASSED [ 37%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_various_sentences[The patient denies chest pain.] PASSED [ 38%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_various_sentences[He has a history of hypertension.] PASSED [ 39%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_various_sentences[No signs of pneumonia were observed.] PASSED [ 40%]
+tests/manual/test_api.py::TestBatchPredictionEndpoint::test_batch_predict_success PASSED [ 40%]
+tests/manual/test_api.py::TestBatchPredictionEndpoint::test_batch_predict_empty_list PASSED [ 41%]
+tests/manual/test_api.py::TestRootEndpoint::test_root_endpoint PASSED    [ 42%]
+tests/manual/test_api.py::TestHybridPipeline::test_apply_hybrid_pipeline_conditional PASSED [ 43%]
+tests/manual/test_api.py::TestHybridPipeline::test_apply_hybrid_pipeline_uncertainty PASSED [ 43%]
+tests/manual/test_api.py::TestHybridPipeline::test_apply_hybrid_pipeline_no_rule PASSED [ 44%]
+tests/manual/test_api.py::TestHybridPipeline::test_apply_hybrid_pipeline_multiple_sentences PASSED [ 45%]
+tests/manual/test_api.py::TestUtilityFunctions::test_detect_conditional_phrases_positive PASSED [ 45%]
+tests/manual/test_api.py::TestUtilityFunctions::test_detect_conditional_phrases_negative PASSED [ 46%]
+tests/manual/test_api.py::TestUtilityFunctions::test_detect_uncertainty_phrases_positive PASSED [ 47%]
+tests/manual/test_api.py::TestUtilityFunctions::test_detect_uncertainty_phrases_negative PASSED [ 48%]
+tests/manual/test_api.py::TestEnhancedPredictionEndpoints::test_predict_with_hybrid_pipeline PASSED [ 48%]
+tests/manual/test_api.py::TestEnhancedPredictionEndpoints::test_batch_predict_with_hybrid_pipeline PASSED [ 49%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_init_no_api_keys PASSED  [ 50%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_init_with_api_keys PASSED [ 51%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_init_with_whitespace_api_keys PASSED [ 51%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_verify_key_no_keys_required PASSED [ 52%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_verify_key_valid PASSED  [ 53%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_verify_key_invalid PASSED [ 54%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_health_endpoint FAILED [ 54%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_root_endpoint PASSED [ 55%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_metrics_endpoint PASSED [ 56%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_no_keys_required FAILED [ 56%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_missing_from_request FAILED [ 57%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_invalid FAILED [ 58%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_bearer FAILED [ 59%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_header FAILED [ 59%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_query_param FAILED [ 60%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_logging_invalid_key FAILED [ 61%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_multiple_keys PASSED [ 62%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_empty_key_string PASSED [ 62%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_whitespace_only PASSED [ 63%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_special_characters PASSED [ 64%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_case_sensitive PASSED [ 64%]
+tests/manual/test_middleware.py::TestSecurityHeadersMiddleware::test_init PASSED [ 65%]
+tests/manual/test_middleware.py::TestSecurityHeadersMiddleware::test_init_with_csp PASSED [ 66%]
+tests/manual/test_middleware.py::TestSecurityHeadersMiddleware::test_dispatch_no_csp_http PASSED [ 67%]
+tests/manual/test_middleware.py::TestSecurityHeadersMiddleware::test_dispatch_with_csp_https PASSED [ 67%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_init PASSED [ 68%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_get_client_id_with_x_forwarded_for PASSED [ 69%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_get_client_id_with_client PASSED [ 70%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_get_client_id_unknown PASSED [ 70%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_dispatch_health_endpoint PASSED [ 71%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_dispatch_under_limit PASSED [ 72%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_dispatch_over_limit PASSED [ 72%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_init PASSED [ 73%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_get_client_id_with_x_forwarded_for PASSED [ 74%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_get_client_id_with_client PASSED [ 75%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_get_client_id_unknown PASSED [ 75%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_dispatch_success PASSED [ 76%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_dispatch_with_exception FAILED [ 77%]
+tests/manual/test_middleware.py::TestMetricsMiddleware::test_init PASSED [ 78%]
+tests/manual/test_middleware.py::TestMetricsMiddleware::test_dispatch_success PASSED [ 78%]
+tests/manual/test_middleware.py::TestMetricsMiddleware::test_dispatch_error PASSED [ 79%]
+tests/manual/test_middleware.py::TestMetricsMiddleware::test_dispatch_exception PASSED [ 80%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_init PASSED [ 81%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_is_loaded_not_loaded PASSED [ 81%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_is_loaded_after_init PASSED [ 82%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_is_loaded_no_model PASSED [ 83%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_device_cuda_available PASSED [ 83%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_device_cuda_not_available PASSED [ 84%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_load_model_success FAILED [ 85%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_load_model_tokenizer_failure PASSED [ 86%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_load_model_model_failure PASSED [ 86%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_not_loaded PASSED [ 87%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_not_loaded PASSED [ 88%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_success FAILED [ 89%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_pipeline_error PASSED [ 89%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_success PASSED [ 90%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_list_result PASSED [ 91%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_nested_list_result PASSED [ 91%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_unexpected_result_type PASSED [ 92%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_success FAILED [ 93%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_sync_success PASSED [ 94%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_sync_single_result PASSED [ 94%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_get_model_info PASSED [ 95%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_get_model_info_cuda_available PASSED [ 96%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_empty_result PASSED [ 97%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_none_result PASSED [ 97%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_sync_empty_results PASSED [ 98%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_sync_mixed_result_types PASSED [ 99%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_unknown_label PASSED [100%]
+
+=================================== FAILURES ===================================
+_______________ test_health_check_when_model_missing_returns_503 _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x763bc4fc2420>
+
+    def test_health_check_when_model_missing_returns_503(monkeypatch):
+        """UNIVERSAL test for maximum coverage."""
+        # Configure ClinicalAssertionModel to not be created during lifespan by setting model None
+        # Create a client but ensure global model is None before hitting endpoint
+        # Since lifespan created model on startup, we explicitly set it to None
+        client = TestClient(app_main.app)
+        # Ensure the global model is None and then call /health
+        monkeypatch.setattr(app_main, "model", None)
+        resp = client.get("/health")
+        # If model is None, the endpoint should raise HTTPException with 503
+        assert resp.status_code == 503
+>       assert "Model not loaded" in resp.json().get("detail", "") or "Health check failed" in resp.json().get("detail", "")
+E       AssertionError: assert ('Model not loaded' in '' or 'Health check failed' in '')
+E        +  where '' = <built-in method get of dict object at 0x763bc519c740>('detail', '')
+E        +    where <built-in method get of dict object at 0x763bc519c740> = {'error': 'Health check failed: ', 'path': '/health', 'status_code': 503, 'timestamp': 1763052366.4159615}.get
+E        +      where {'error': 'Health check failed: ', 'path': '/health', 'status_code': 503, 'timestamp': 1763052366.4159615} = <bound method Response.json of <Response [503 Service Unavailable]>>()
+E        +        where <bound method Response.json of <Response [503 Service Unavailable]>> = <Response [503 Service Unavailable]>.json
+E        +  and   '' = <built-in method get of dict object at 0x763bc508f980>('detail', '')
+E        +    where <built-in method get of dict object at 0x763bc508f980> = {'error': 'Health check failed: ', 'path': '/health', 'status_code': 503, 'timestamp': 1763052366.4159615}.get
+E        +      where {'error': 'Health check failed: ', 'path': '/health', 'status_code': 503, 'timestamp': 1763052366.4159615} = <bound method Response.json of <Response [503 Service Unavailable]>>()
+E        +        where <bound method Response.json of <Response [503 Service Unavailable]>> = <Response [503 Service Unavailable]>.json
+
+tests/generated/test_e2e_20251113_164113_01.py:160: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.main:main.py:229 Health check failed:
+____________ test_metrics_endpoint_returns_prometheus_content_type _____________
+
+    def test_metrics_endpoint_returns_prometheus_content_type():
+        """UNIVERSAL test for maximum coverage."""
+        client = TestClient(app_main.app)
+        resp = client.get("/metrics")
+        assert resp.status_code == 200
+        # Content type should match prometheus client default
+>       assert resp.headers.get("content-type") == app_main.CONTENT_TYPE_LATEST
+E       AssertionError: assert 'text/plain; ...charset=utf-8' == 'text/plain; ...charset=utf-8'
+E         - text/plain; version=0.0.4; charset=utf-8
+E         + text/plain; version=0.0.4; charset=utf-8; charset=utf-8
+E         ?                                         +++++++++++++++
+
+tests/generated/test_e2e_20251113_164113_01.py:185: AssertionError
+______________ test_model_info_unavailable_when_model_not_loaded _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x763bc5052960>
+
+    def test_model_info_unavailable_when_model_not_loaded(monkeypatch):
+        """UNIVERSAL test for maximum coverage."""
+        # Ensure model exists but is not loaded
+        monkeypatch.setattr(app_main, "model", StubClinicalModel(loaded=False))
+        client = TestClient(app_main.app)
+        resp = client.get("/model/info")
+        assert resp.status_code == 503
+>       assert "Model not loaded" in resp.json().get("detail", "") or resp.json().get("detail") is not None
+E       AssertionError: assert ('Model not loaded' in '' or None is not None)
+E        +  where '' = <built-in method get of dict object at 0x763bc519e680>('detail', '')
+E        +    where <built-in method get of dict object at 0x763bc519e680> = {'error': 'Model not loaded', 'path': '/model/info', 'status_code': 503, 'timestamp': 1763052366.6241584}.get
+E        +      where {'error': 'Model not loaded', 'path': '/model/info', 'status_code': 503, 'timestamp': 1763052366.6241584} = <bound method Response.json of <Response [503 Service Unavailable]>>()
+E        +        where <bound method Response.json of <Response [503 Service Unavailable]>> = <Response [503 Service Unavailable]>.json
+E        +  and   None = <built-in method get of dict object at 0x763bc510bf40>('detail')
+E        +    where <built-in method get of dict object at 0x763bc510bf40> = {'error': 'Model not loaded', 'path': '/model/info', 'status_code': 503, 'timestamp': 1763052366.6241584}.get
+E        +      where {'error': 'Model not loaded', 'path': '/model/info', 'status_code': 503, 'timestamp': 1763052366.6241584} = <bound method Response.json of <Response [503 Service Unavailable]>>()
+E        +        where <bound method Response.json of <Response [503 Service Unavailable]>> = <Response [503 Service Unavailable]>.json
+
+tests/generated/test_e2e_20251113_164113_01.py:199: AssertionError
+______________ test_model_info_returns_model_metadata_when_loaded ______________
+
+self = MemoryObjectReceiveStream(_state=MemoryObjectStreamState(max_buffer_size=0, buffer=deque([]), open_send_channels=0, open_receive_channels=1, waiting_receivers=OrderedDict(), waiting_senders=OrderedDict()), _closed=False)
+
+    async def receive(self) -> T_co:
+        await checkpoint()
+        try:
+>           return self.receive_nowait()
+
+venv/lib/python3.12/site-packages/anyio/streams/memory.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = MemoryObjectReceiveStream(_state=MemoryObjectStreamState(max_buffer_size=0, buffer=deque([]), open_send_channels=0, open_receive_channels=1, waiting_receivers=OrderedDict(), waiting_senders=OrderedDict()), _closed=False)
+
+    def receive_nowait(self) -> T_co:
+        """
+        Receive the next item if it can be done without waiting.
+    
+        :return: the received item
+        :raises ~anyio.ClosedResourceError: if this send stream has been closed
+        :raises ~anyio.EndOfStream: if the buffer is empty and this stream has been
+            closed from the sending end
+        :raises ~anyio.WouldBlock: if there are no items in the buffer and no tasks
+            waiting to send
+    
+        """
+        if self._closed:
+            raise ClosedResourceError
+    
+        if self._state.waiting_senders:
+            # Get the item from the next sender
+            send_event, item = self._state.waiting_senders.popitem(last=False)
+            self._state.buffer.append(item)
+            send_event.set()
+    
+        if self._state.buffer:
+            return self._state.buffer.popleft()
+        elif not self._state.open_send_channels:
+            raise EndOfStream
+    
+>       raise WouldBlock
+E       anyio.WouldBlock
+
+venv/lib/python3.12/site-packages/anyio/streams/memory.py:93: WouldBlock
+
+During handling of the above exception, another exception occurred:
+
+request = <starlette.requests.Request object at 0x763bc50503b0>
+
+    async def call_next(request: Request) -> Response:
+        app_exc: typing.Optional[Exception] = None
+        send_stream, recv_stream = anyio.create_memory_object_stream()
+    
+        async def receive_or_disconnect() -> Message:
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+    
+            async with anyio.create_task_group() as task_group:
+    
+                async def wrap(func: typing.Callable[[], typing.Awaitable[T]]) -> T:
+                    result = await func()
+                    task_group.cancel_scope.cancel()
+                    return result
+    
+                task_group.start_soon(wrap, response_sent.wait)
+                message = await wrap(request.receive)
+    
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+    
+            return message
+    
+        async def close_recv_stream_on_response_sent() -> None:
+            await response_sent.wait()
+            recv_stream.close()
+    
+        async def send_no_error(message: Message) -> None:
+            try:
+                await send_stream.send(message)
+            except anyio.BrokenResourceError:
+                # recv_stream has been closed, i.e. response_sent has been set.
+                return
+    
+        async def coro() -> None:
+            nonlocal app_exc
+    
+            async with send_stream:
+                try:
+                    await self.app(scope, receive_or_disconnect, send_no_error)
+                except Exception as exc:
+                    app_exc = exc
+    
+        task_group.start_soon(close_recv_stream_on_response_sent)
+        task_group.start_soon(coro)
+    
+        try:
+>           message = await recv_stream.receive()
+
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:78: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = MemoryObjectReceiveStream(_state=MemoryObjectStreamState(max_buffer_size=0, buffer=deque([]), open_send_channels=0, open_receive_channels=1, waiting_receivers=OrderedDict(), waiting_senders=OrderedDict()), _closed=False)
+
+    async def receive(self) -> T_co:
+        await checkpoint()
+        try:
+            return self.receive_nowait()
+        except WouldBlock:
+            # Add ourselves in the queue
+            receive_event = Event()
+            container: list[T_co] = []
+            self._state.waiting_receivers[receive_event] = container
+    
+            try:
+                await receive_event.wait()
+            except get_cancelled_exc_class():
+                # Ignore the immediate cancellation if we already received an item, so as not to
+                # lose it
+                if not container:
+                    raise
+            finally:
+                self._state.waiting_receivers.pop(receive_event, None)
+    
+            if container:
+                return container[0]
+            else:
+>               raise EndOfStream
+E               anyio.EndOfStream
+
+venv/lib/python3.12/site-packages/anyio/streams/memory.py:118: EndOfStream
+
+During handling of the above exception, another exception occurred:
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x763bc4f83b00>
+
+    def test_model_info_returns_model_metadata_when_loaded(monkeypatch):
+        """UNIVERSAL test for maximum coverage."""
+        stub = StubClinicalModel(loaded=True)
+        monkeypatch.setattr(app_main, "model", stub)
+        client = TestClient(app_main.app)
+>       resp = client.get("/model/info")
+
+tests/generated/test_e2e_20251113_164113_01.py:207: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+venv/lib/python3.12/site-packages/starlette/testclient.py:499: in get
+    return super().get(
+venv/lib/python3.12/site-packages/httpx/_client.py:1041: in get
+    return self.request(
+venv/lib/python3.12/site-packages/starlette/testclient.py:465: in request
+    return super().request(
+venv/lib/python3.12/site-packages/httpx/_client.py:814: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+venv/lib/python3.12/site-packages/httpx/_client.py:901: in send
+    response = self._send_handling_auth(
+venv/lib/python3.12/site-packages/httpx/_client.py:929: in _send_handling_auth
+    response = self._send_handling_redirects(
+venv/lib/python3.12/site-packages/httpx/_client.py:966: in _send_handling_redirects
+    response = self._send_single_request(request)
+venv/lib/python3.12/site-packages/httpx/_client.py:1002: in _send_single_request
+    response = transport.handle_request(request)
+venv/lib/python3.12/site-packages/starlette/testclient.py:342: in handle_request
+    raise exc
+venv/lib/python3.12/site-packages/starlette/testclient.py:339: in handle_request
+    portal.call(self.app, scope, receive, send)
+venv/lib/python3.12/site-packages/anyio/from_thread.py:277: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+/usr/lib/python3.12/concurrent/futures/_base.py:456: in result
+    return self.__get_result()
+/usr/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+venv/lib/python3.12/site-packages/anyio/from_thread.py:217: in _call_func
+    retval = await retval
+venv/lib/python3.12/site-packages/fastapi/applications.py:1106: in __call__
+    await super().__call__(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/applications.py:122: in __call__
+    await self.middleware_stack(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/middleware/errors.py:184: in __call__
+    raise exc
+venv/lib/python3.12/site-packages/starlette/middleware/errors.py:162: in __call__
+    await self.app(scope, receive, _send)
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:108: in __call__
+    response = await self.dispatch_func(request, call_next)
+../../test-repos/clinic/app/middleware.py:176: in dispatch
+    response = await call_next(request)
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:84: in call_next
+    raise app_exc
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:70: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:108: in __call__
+    response = await self.dispatch_func(request, call_next)
+../../test-repos/clinic/app/middleware.py:128: in dispatch
+    response = await call_next(request)
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:84: in call_next
+    raise app_exc
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:70: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+venv/lib/python3.12/site-packages/starlette/middleware/gzip.py:24: in __call__
+    await responder(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/middleware/gzip.py:44: in __call__
+    await self.app(scope, receive, self.send_with_gzip)
+venv/lib/python3.12/site-packages/starlette/middleware/cors.py:83: in __call__
+    await self.app(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/middleware/trustedhost.py:34: in __call__
+    await self.app(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:108: in __call__
+    response = await self.dispatch_func(request, call_next)
+../../test-repos/clinic/app/middleware.py:30: in dispatch
+    response = await call_next(request)
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:84: in call_next
+    raise app_exc
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:70: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:79: in __call__
+    raise exc
+venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:68: in __call__
+    await self.app(scope, receive, sender)
+venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:20: in __call__
+    raise e
+venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:17: in __call__
+    await self.app(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/routing.py:718: in __call__
+    await route.handle(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/routing.py:276: in handle
+    await self.app(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/routing.py:66: in app
+    response = await func(request)
+venv/lib/python3.12/site-packages/fastapi/routing.py:274: in app
+    raw_response = await run_endpoint_function(
+venv/lib/python3.12/site-packages/fastapi/routing.py:191: in run_endpoint_function
+    return await dependant.call(**values)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    @app.get(
+        "/model/info",
+        response_model=ModelInfoResponse,
+        tags=["Model"],
+        dependencies=[Depends(verify_api_key)] if os.getenv("REQUIRE_API_KEY") else [],
+    )
+    async def model_info() -> ModelInfoResponse:
+        """Get detailed model information"""
+        if not model or not model.is_loaded():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model not loaded"
+            )
+    
+>       return ModelInfoResponse(**model.get_model_info())
+E       pydantic_core._pydantic_core.ValidationError: 4 validation errors for ModelInfoResponse
+E       model_name
+E         Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.5/v/missing
+E       device
+E         Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.5/v/missing
+E       loaded
+E         Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.5/v/missing
+E       cuda_available
+E         Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.5/v/missing
+
+../../test-repos/clinic/app/main.py:257: ValidationError
+------------------------------ Captured log call -------------------------------
+ERROR    app.middleware:middleware.py:148 {"event": "request_failed", "request_id": "req-1763052366662", "error": "4 validation errors for ModelInfoResponse\nmodel_name\n  Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.5/v/missing\ndevice\n  Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.5/v/missing\nloaded\n  Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.5/v/missing\ncuda_available\n  Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.5/v/missing", "duration_ms": 1.3203620910644531, "timestamp": 1763052366.6642427}
+ERROR    app.main:main.py:540 Unhandled exception: 4 validation errors for ModelInfoResponse
+model_name
+  Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+device
+  Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+loaded
+  Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+cuda_available
+  Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+Traceback (most recent call last):
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/anyio/streams/memory.py", line 98, in receive
+    return self.receive_nowait()
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/anyio/streams/memory.py", line 93, in receive_nowait
+    raise WouldBlock
+anyio.WouldBlock
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 78, in call_next
+    message = await recv_stream.receive()
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/anyio/streams/memory.py", line 118, in receive
+    raise EndOfStream
+anyio.EndOfStream
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 162, in __call__
+    await self.app(scope, receive, _send)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 108, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/test-repos/clinic/app/middleware.py", line 176, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 84, in call_next
+    raise app_exc
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 70, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 108, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/test-repos/clinic/app/middleware.py", line 128, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 84, in call_next
+    raise app_exc
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 70, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/gzip.py", line 24, in __call__
+    await responder(scope, receive, send)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/gzip.py", line 44, in __call__
+    await self.app(scope, receive, self.send_with_gzip)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 83, in __call__
+    await self.app(scope, receive, send)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/trustedhost.py", line 34, in __call__
+    await self.app(scope, receive, send)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 108, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/test-repos/clinic/app/middleware.py", line 30, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 84, in call_next
+    raise app_exc
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 70, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 79, in __call__
+    raise exc
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 68, in __call__
+    await self.app(scope, receive, sender)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 20, in __call__
+    raise e
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 17, in __call__
+    await self.app(scope, receive, send)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/routing.py", line 718, in __call__
+    await route.handle(scope, receive, send)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/routing.py", line 66, in app
+    response = await func(request)
+               ^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/fastapi/routing.py", line 274, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/fastapi/routing.py", line 191, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/test-repos/clinic/app/main.py", line 257, in model_info
+    return ModelInfoResponse(**model.get_model_info())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/pydantic/main.py", line 164, in __init__
+    __pydantic_self__.__pydantic_validator__.validate_python(data, self_instance=__pydantic_self__)
+pydantic_core._pydantic_core.ValidationError: 4 validation errors for ModelInfoResponse
+model_name
+  Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+device
+  Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+loaded
+  Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+cuda_available
+  Field required [type=missing, input_value={'name': 'stub-clinical-m..., 'ABSENT', 'POSSIBLE']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+____________ test_predict_assertion_success_and_sanitization[-200] _____________
+
+sentence = '', expect_status = 200
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x763bc46c00b0>
+
+    @pytest.mark.parametrize("sentence, expect_status", [("Patient is well", 200), ("", 200)])
+    def test_predict_assertion_success_and_sanitization(sentence, expect_status, monkeypatch):
+        """UNIVERSAL test for maximum coverage."""
+        # Patch model to be loaded and deterministic
+        stub = StubClinicalModel(loaded=True, predict_result={"label": "ABSENT", "model_label": "ABSENT", "score": 0.1234})
+        monkeypatch.setattr(app_main, "ClinicalAssertionModel", lambda *a, **k: stub)
+        # Ensure the global model is the stub (simulate previously started app)
+        monkeypatch.setattr(app_main, "model", stub)
+        # apply_hybrid_pipeline returns same model result by default due to earlier fixture
+        client = TestClient(app_main.app)
+        resp = client.post("/predict", json={"sentence": sentence})
+>       assert resp.status_code == expect_status
+E       assert 422 == 200
+E        +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+
+tests/generated/test_e2e_20251113_164113_01.py:226: AssertionError
+______________ test_predict_assertion_internal_error_triggers_500 ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x763bc51aa720>
+
+    def test_predict_assertion_internal_error_triggers_500(monkeypatch):
+        """UNIVERSAL test for maximum coverage."""
+        # Create a model that raises during predict
+        stub = StubClinicalModel(loaded=True, raise_on_predict=True)
+        monkeypatch.setattr(app_main, "model", stub)
+        client = TestClient(app_main.app)
+        resp = client.post("/predict", json={"sentence": "trigger error"})
+        assert resp.status_code == 500
+        body = resp.json()
+>       assert "Prediction failed" in body.get("detail", "") or "Internal server error" in body.get("error", "")
+E       AssertionError: assert ('Prediction failed' in '' or 'Internal server error' in 'Prediction failed: predict failure')
+E        +  where '' = <built-in method get of dict object at 0x763bbf8da080>('detail', '')
+E        +    where <built-in method get of dict object at 0x763bbf8da080> = {'error': 'Prediction failed: predict failure', 'path': '/predict', 'status_code': 500, 'timestamp': 1763052367.5511143}.get
+E        +  and   'Prediction failed: predict failure' = <built-in method get of dict object at 0x763bbf8da080>('error', '')
+E        +    where <built-in method get of dict object at 0x763bbf8da080> = {'error': 'Prediction failed: predict failure', 'path': '/predict', 'status_code': 500, 'timestamp': 1763052367.5511143}.get
+
+tests/generated/test_e2e_20251113_164113_01.py:255: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.main:main.py:335 Prediction failed e8aa08fe-f142-48f4-a1e8-b98594ce7391: predict failure
+____________ test_predict_batch_exceeds_max_batch_size_returns_400 _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x763bc46cd850>
+
+    def test_predict_batch_exceeds_max_batch_size_returns_400(monkeypatch):
+        """UNIVERSAL test for maximum coverage."""
+        monkeypatch.setenv("MAX_BATCH_SIZE", "1")
+        stub = StubClinicalModel(loaded=True)
+        monkeypatch.setattr(app_main, "model", stub)
+        client = TestClient(app_main.app)
+        resp = client.post("/predict/batch", json={"sentences": ["a", "b"]})
+        assert resp.status_code == 400
+        content = resp.json()
+>       assert "Batch size cannot exceed" in content.get("detail", "") or "cannot exceed" in content.get("detail", "")
+E       AssertionError: assert ('Batch size cannot exceed' in '' or 'cannot exceed' in '')
+E        +  where '' = <built-in method get of dict object at 0x763bbfc17100>('detail', '')
+E        +    where <built-in method get of dict object at 0x763bbfc17100> = {'error': 'Batch size cannot exceed 1 sentences', 'path': '/predict/batch', 'status_code': 400, 'timestamp': 1763052367.6076567}.get
+E        +  and   '' = <built-in method get of dict object at 0x763bbfc17100>('detail', '')
+E        +    where <built-in method get of dict object at 0x763bbfc17100> = {'error': 'Batch size cannot exceed 1 sentences', 'path': '/predict/batch', 'status_code': 400, 'timestamp': 1763052367.6076567}.get
+
+tests/generated/test_e2e_20251113_164113_01.py:286: AssertionError
+________________ test_predict_batch_internal_error_triggers_500 ________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x763bc46c48c0>
+
+    def test_predict_batch_internal_error_triggers_500(monkeypatch):
+        """UNIVERSAL test for maximum coverage."""
+        stub = StubClinicalModel(loaded=True, raise_on_batch=True)
+        monkeypatch.setattr(app_main, "model", stub)
+        monkeypatch.setenv("MAX_BATCH_SIZE", "10")
+        client = TestClient(app_main.app)
+        resp = client.post("/predict/batch", json={"sentences": ["x", "y"]})
+        assert resp.status_code == 500
+        body = resp.json()
+>       assert "Batch prediction failed" in body.get("detail", "") or "Internal server error" in body.get("error", "")
+E       AssertionError: assert ('Batch prediction failed' in '' or 'Internal server error' in 'Batch prediction failed: predict_batch failure')
+E        +  where '' = <built-in method get of dict object at 0x763bbfdcd3c0>('detail', '')
+E        +    where <built-in method get of dict object at 0x763bbfdcd3c0> = {'error': 'Batch prediction failed: predict_batch failure', 'path': '/predict/batch', 'status_code': 500, 'timestamp': 1763052367.6464076}.get
+E        +  and   'Batch prediction failed: predict_batch failure' = <built-in method get of dict object at 0x763bbfdcd3c0>('error', '')
+E        +    where <built-in method get of dict object at 0x763bbfdcd3c0> = {'error': 'Batch prediction failed: predict_batch failure', 'path': '/predict/batch', 'status_code': 500, 'timestamp': 1763052367.6464076}.get
+
+tests/generated/test_e2e_20251113_164113_01.py:298: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.main:main.py:436 Batch prediction failed 9b173abd-39da-45e4-b144-33f8968c5b37: predict_batch failure
+___________ test_verify_api_key_rejects_missing_authorization_header ___________
+
+    def test_verify_api_key_rejects_missing_authorization_header():
+        """UNIVERSAL test for maximum coverage."""
+        # Try to call the verify_api_key dependency directly with a minimal Request-like object
+        verify = getattr(auth, "verify_api_key", None)
+        if verify is None or not callable(verify):
+            pytest.skip("verify_api_key not available")
+        # Build a minimal Starlette request scope without auth header
+        from starlette.requests import Request
+        scope = {"type": "http", "method": "GET", "path": "/", "headers": []}
+        request = Request(scope)
+        # verify might be async; handle both sync and async
+        try:
+            coro = verify(request)
+            if asyncio.iscoroutine(coro):
+>               with pytest.raises(Exception):
+E               Failed: DID NOT RAISE <class 'Exception'>
+
+tests/generated/test_e2e_20251113_164113_01.py:385: Failed
+__________ test_utils_sanitize_and_hybrid_and_system_metrics_behavior __________
+
+    def test_utils_sanitize_and_hybrid_and_system_metrics_behavior():
+        """UNIVERSAL test for maximum coverage."""
+        # sanitize_clinical_text should exist and return a string
+        sanitize = getattr(utils, "sanitize_clinical_text", None)
+        if sanitize is None:
+            pytest.skip("sanitize_clinical_text not in utils")
+        raw = "  Patient <script>alert(1)</script> has fever.  "
+        sanitized = sanitize(raw)
+        assert isinstance(sanitized, str)
+        assert len(sanitized) <= len(raw)
+        # apply_hybrid_pipeline: when available, should accept lists and return list
+        apply_hp = getattr(utils, "apply_hybrid_pipeline", None)
+        if apply_hp is not None:
+>           res = apply_hp([{"model_label": "X", "score": 0.7}], ["text"])
+
+tests/generated/test_integ_20251113_164113_01.py:388: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+predictions = [{'model_label': 'X', 'score': 0.7}], sentences = ['text']
+
+    def apply_hybrid_pipeline(predictions: list, sentences: list) -> list:
+        """
+        Apply rule-based post-processing to model predictions for hybrid classification.
+    
+        Args:
+            predictions: List of model prediction dicts with 'label' and 'score'
+            sentences: List of corresponding input sentences
+    
+        Returns:
+            List of enhanced predictions with 'label', 'model_label', 'score', and 'rule_applied'
+        """
+        results = []
+        conditional_triggers = re.compile(
+            r"\b(if|should|in case|unless|when)\b", re.IGNORECASE
+        )
+    
+        for pred, sentence in zip(predictions, sentences):
+>           model_label = pred["label"]
+E           KeyError: 'label'
+
+../../test-repos/clinic/app/utils.py:77: KeyError
+__________________ test_dispatch_success_and_exception_paths ___________________
+
+    @pytest.mark.asyncio
+    async def test_dispatch_success_and_exception_paths():
+        """UNIVERSAL test for maximum coverage."""
+        """
+        Test the middleware dispatch path for both a successful downstream call
+        and a failing downstream call to cover both normal and exception handling.
+        This targets uncovered exception-handling branches inside dispatch.
+        """
+        module = safe_import("app.middleware")
+        dispatch_callable, owner = _find_dispatch_callable(module)
+    
+        if dispatch_callable is None:
+            pytest.skip("No dispatch callable found in app.middleware")
+    
+        # Build an instance if dispatch is a method on a class
+        instance = None
+        if owner is not None:
+            cls = owner
+            # Attempt to construct the class with a minimal ASGI app and default params.
+            # Inspect __init__ signature to supply reasonable defaults.
+            sig = inspect.signature(cls.__init__)
+            init_kwargs = {}
+            for pname, p in list(sig.parameters.items())[1:]:  # skip self
+                if pname == "app":
+                    init_kwargs["app"] = (lambda scope: None)
+                elif p.default is not inspect._empty:
+                    # Use the default
+                    pass
+                else:
+                    # Provide sensible test values for common names
+                    if "policy" in pname or "csp" in pname or "header" in pname:
+                        init_kwargs[pname] = "default"
+                    elif "max_age" in pname or "age" in pname or "timeout" in pname:
+                        init_kwargs[pname] = 1
+                    elif "requests_per_minute" in pname or "rpm" in pname:
+                        init_kwargs[pname] = 100
+                    elif "allowed_hosts" in pname:
+                        init_kwargs[pname] = ["*"]
+                    else:
+                        # Generic fallback
+                        init_kwargs[pname] = None
+            try:
+                instance = cls(**init_kwargs)
+            except Exception:
+                # As a fallback, create a minimal stub instance with dispatch bound
+                instance = cls if inspect.isfunction(dispatch_callable) else None
+    
+        # Prepare a real Request object where possible
+        request = _build_request(path="/unittest/dispatch", method="POST")
+    
+        # Success path: call_next returns a normal Response
+        async def call_next_success(req):
+            try:
+                from starlette.responses import Response
+    
+                return Response(content=b"ok", status_code=200)
+            except Exception:
+                return types.SimpleNamespace(status_code=200, body=b"ok")
+    
+        # Exception path: call_next raises
+        async def call_next_fail(req):
+            raise RuntimeError("downstream failure")
+    
+        # Invoke success scenario
+        if instance is not None:
+            res = await dispatch_callable(instance, request, call_next_success)
+        else:
+            # top-level function dispatch(self, request, call_next) - provide dummy self
+            dummy_self = types.SimpleNamespace()
+            res = await dispatch_callable(dummy_self, request, call_next_success)
+    
+        # Validate success response shape and status
+        status_code = getattr(res, "status_code", None)
+        assert status_code in (200, 201, None) or getattr(res, "raw_status", None) in (200,)
+    
+        # Invoke failure scenario - ensure exception handling path provides an error response
+        if instance is not None:
+>           res2 = await dispatch_callable(instance, request, call_next_fail)
+
+tests/generated/test_unit_20251113_164113_01.py:195: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../test-repos/clinic/app/middleware.py:176: in dispatch
+    response = await call_next(request)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+req = <starlette.requests.Request object at 0x763bc46c7f80>
+
+    async def call_next_fail(req):
+>       raise RuntimeError("downstream failure")
+E       RuntimeError: downstream failure
+
+tests/generated/test_unit_20251113_164113_01.py:179: RuntimeError
+_____________ TestVerifyAPIKey.test_verify_api_key_health_endpoint _____________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x763c8ef7b860>
+auth_client = <starlette.testclient.TestClient object at 0x763bc44eb770>
+
+    def test_verify_api_key_health_endpoint(self, auth_client):
+        """Test that health endpoint doesn't require API key"""
+        response = auth_client.get("/health")
+>       assert response.status_code == 200
+E       assert 503 == 200
+E        +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:55: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.main:main.py:229 Health check failed:
+____________ TestVerifyAPIKey.test_verify_api_key_no_keys_required _____________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x763c8ef94380>
+auth_client = <starlette.testclient.TestClient object at 0x763bc4401f10>
+
+    def test_verify_api_key_no_keys_required(self, auth_client):
+        """Test endpoints when no API keys are required"""
+        with patch.dict(os.environ, {"API_KEYS": "", "REQUIRE_API_KEY": "false"}):
+            response = auth_client.get("/model/info")
+>           assert response.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:71: AssertionError
+__________ TestVerifyAPIKey.test_verify_api_key_missing_from_request ___________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x763c8ef946e0>
+auth_client = <starlette.testclient.TestClient object at 0x763bc4401a30>
+
+    def test_verify_api_key_missing_from_request(self, auth_client):
+        """Test API key verification when key is missing"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get("/model/info")
+>           assert response.status_code == 401
+E           assert 503 == 401
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:79: AssertionError
+_________________ TestVerifyAPIKey.test_verify_api_key_invalid _________________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x763c8ef94a40>
+auth_client = <starlette.testclient.TestClient object at 0x763bc518f950>
+
+    def test_verify_api_key_invalid(self, auth_client):
+        """Test API key verification with invalid key"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get(
+                "/model/info", headers={"Authorization": "Bearer invalid_key"}
+            )
+>           assert response.status_code == 401
+E           assert 503 == 401
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:91: AssertionError
+______________ TestVerifyAPIKey.test_verify_api_key_valid_bearer _______________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x763c8ef94da0>
+auth_client = <starlette.testclient.TestClient object at 0x763c905f0530>
+
+    def test_verify_api_key_valid_bearer(self, auth_client):
+        """Test API key verification with valid Bearer token"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get(
+                "/model/info", headers={"Authorization": "Bearer test_key"}
+            )
+>           assert response.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:103: AssertionError
+______________ TestVerifyAPIKey.test_verify_api_key_valid_header _______________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x763c8ef95100>
+auth_client = <starlette.testclient.TestClient object at 0x763bc44de150>
+
+    def test_verify_api_key_valid_header(self, auth_client):
+        """Test API key verification with valid X-API-Key header"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get("/model/info", headers={"X-API-Key": "test_key"})
+>           assert response.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:111: AssertionError
+____________ TestVerifyAPIKey.test_verify_api_key_valid_query_param ____________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x763c8ef95460>
+auth_client = <starlette.testclient.TestClient object at 0x763bc4498d70>
+
+    def test_verify_api_key_valid_query_param(self, auth_client):
+        """Test API key verification with valid query parameter"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get("/model/info?api_key=test_key")
+>           assert response.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:119: AssertionError
+___________ TestVerifyAPIKey.test_verify_api_key_logging_invalid_key ___________
+
+self = <MagicMock name='logger.warning' id='129999067687216'>
+
+    def assert_called(self):
+        """assert that the mock was called at least once
+        """
+        if self.call_count == 0:
+            msg = ("Expected '%s' to have been called." %
+                   (self._mock_name or 'mock'))
+>           raise AssertionError(msg)
+E           AssertionError: Expected 'warning' to have been called.
+
+/usr/lib/python3.12/unittest/mock.py:913: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x763c8ef957c0>
+
+    def test_verify_api_key_logging_invalid_key(self):
+        """Test that invalid API key attempts are logged"""
+        # Standard library imports
+        from unittest.mock import Mock
+    
+        from app.auth import verify_api_key
+    
+        with patch.dict(
+            os.environ, {"API_KEYS": "valid_key", "REQUIRE_API_KEY": "true"}
+        ), patch("app.auth.logger") as mock_logger:
+            mock_request = Mock()
+            mock_request.url.path = "/api/test"
+            mock_request.client = Mock()
+            mock_request.client.host = "192.168.1.1"
+            mock_request.headers = {}
+            mock_request.query_params = {}
+    
+            # This should raise an exception and log the invalid attempt
+            try:
+                verify_api_key(mock_request, None)
+            except Exception:
+                pass
+    
+            # Verify that warning was logged for invalid key attempt
+>           mock_logger.warning.assert_called()
+E           AssertionError: Expected 'warning' to have been called.
+
+tests/manual/test_auth.py:145: AssertionError
+__________ TestRequestLoggingMiddleware.test_dispatch_with_exception ___________
+
+request = <Mock id='129999079748576'>
+
+    async def failing_call_next(request):
+>       raise Exception("Test error")
+E       Exception: Test error
+
+tests/manual/test_middleware.py:248: Exception
+
+During handling of the above exception, another exception occurred:
+
+self = <app.middleware.RequestLoggingMiddleware object at 0x763bc4f82e10>
+request = <Mock id='129999079748576'>
+call_next = <function TestRequestLoggingMiddleware.test_dispatch_with_exception.<locals>.failing_call_next at 0x763bc45e9760>
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        start_time = time.time()
+        request_id = request.headers.get(
+            "X-Request-ID", f"req-{int(start_time * 1000)}"
+        )
+    
+        logger.info(
+            json.dumps(
+                {
+                    "event": "request_started",
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "client_ip": self.get_client_id(request),
+                    "timestamp": start_time,
+                }
+            )
+        )
+    
+        try:
+            response = await call_next(request)
+    
+            duration = time.time() - start_time
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "request_completed",
+                        "request_id": request_id,
+                        "status_code": response.status_code,
+                        "duration_ms": duration * 1000,
+                        "timestamp": time.time(),
+                    }
+                )
+            )
+    
+            response.headers["X-Request-ID"] = request_id
+            return response
+    
+        except Exception as e:
+            duration = time.time() - start_time
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "request_failed",
+                        "request_id": request_id,
+                        "error": str(e),
+                        "duration_ms": duration * 1000,
+>                       "timestamp": time.time(),
+                    }
+                )
+            )
+
+../../test-repos/clinic/app/middleware.py:155: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.12/unittest/mock.py:1134: in __call__
+    return self._mock_call(*args, **kwargs)
+/usr/lib/python3.12/unittest/mock.py:1138: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='time' id='129999079738064'>, args = (), kwargs = {}
+effect = <list_iterator object at 0x763bc417a650>
+
+    def _execute_mock_call(self, /, *args, **kwargs):
+        # separate from _increment_mock_call so that awaited functions are
+        # executed separately from their call, also AsyncMock overrides this method
+    
+        effect = self.side_effect
+        if effect is not None:
+            if _is_exception(effect):
+                raise effect
+            elif not _callable(effect):
+>               result = next(effect)
+E               StopIteration
+
+/usr/lib/python3.12/unittest/mock.py:1195: StopIteration
+
+The above exception was the direct cause of the following exception:
+
+self = <manual.test_middleware.TestRequestLoggingMiddleware object at 0x763c8efba9c0>
+middleware = <app.middleware.RequestLoggingMiddleware object at 0x763bc4f82e10>
+
+    @pytest.mark.asyncio
+    async def test_dispatch_with_exception(self, middleware):
+        """Test request dispatch with exception"""
+        mock_request = Mock()
+        mock_request.method = "POST"
+        mock_request.url.path = "/api/test"
+        mock_request.headers = {}
+        mock_request.client = None
+    
+        async def failing_call_next(request):
+            raise Exception("Test error")
+    
+        with patch("time.time", side_effect=[1000.0, 1000.3]), patch(
+            "app.middleware.logger"
+        ) as mock_logger:
+            with pytest.raises(Exception, match="Test error"):
+>               await middleware.dispatch(mock_request, failing_call_next)
+E               RuntimeError: coroutine raised StopIteration
+
+tests/manual/test_middleware.py:254: RuntimeError
+
+During handling of the above exception, another exception occurred:
+
+self = <manual.test_middleware.TestRequestLoggingMiddleware object at 0x763c8efba9c0>
+middleware = <app.middleware.RequestLoggingMiddleware object at 0x763bc4f82e10>
+
+    @pytest.mark.asyncio
+    async def test_dispatch_with_exception(self, middleware):
+        """Test request dispatch with exception"""
+        mock_request = Mock()
+        mock_request.method = "POST"
+        mock_request.url.path = "/api/test"
+        mock_request.headers = {}
+        mock_request.client = None
+    
+        async def failing_call_next(request):
+            raise Exception("Test error")
+    
+        with patch("time.time", side_effect=[1000.0, 1000.3]), patch(
+            "app.middleware.logger"
+        ) as mock_logger:
+>           with pytest.raises(Exception, match="Test error"):
+E           AssertionError: Regex pattern did not match.
+E            Regex: 'Test error'
+E            Input: 'coroutine raised StopIteration'
+
+tests/manual/test_middleware.py:253: AssertionError
+______________ TestClinicalAssertionModel.test_load_model_success ______________
+
+self = <manual.test_model.TestClinicalAssertionModel object at 0x763bc5253110>
+mock_cuda = <MagicMock name='is_available' id='129999069867248'>
+mock_pipeline = <MagicMock name='TextClassificationPipeline' id='129999068286224'>
+mock_model_class = <MagicMock name='from_pretrained' id='129999068291744'>
+mock_tokenizer = <MagicMock name='from_pretrained' id='129999068641376'>
+model = <app.model.ClinicalAssertionModel object at 0x763bc4617110>
+
+    @pytest.mark.asyncio
+    @patch("app.model.AutoTokenizer.from_pretrained")
+    @patch("app.model.AutoModelForSequenceClassification.from_pretrained")
+    @patch("app.model.TextClassificationPipeline")
+    @patch("torch.cuda.is_available")
+    async def test_load_model_success(
+        self, mock_cuda, mock_pipeline, mock_model_class, mock_tokenizer, model
+    ):
+        """Test successful model loading"""
+        mock_cuda.return_value = False
+    
+        # Mock the model and tokenizer
+        mock_model_instance = Mock()
+        mock_model_class.return_value = mock_model_instance
+        mock_tokenizer_instance = Mock()
+        mock_tokenizer.return_value = mock_tokenizer_instance
+        mock_pipeline_instance = Mock()
+        mock_pipeline.return_value = mock_pipeline_instance
+    
+        await model.load_model()
+    
+        assert model.tokenizer == mock_tokenizer_instance
+>       assert model.model == mock_model_instance
+E       AssertionError: assert <Mock name='from_pretrained().to().to()' id='129999069187392'> == <Mock name='from_pretrained()' id='129999069865664'>
+E        +  where <Mock name='from_pretrained().to().to()' id='129999069187392'> = <app.model.ClinicalAssertionModel object at 0x763bc4617110>.model
+
+tests/manual/test_model.py:82: AssertionError
+_______________ TestClinicalAssertionModel.test_predict_success ________________
+
+self = <manual.test_model.TestClinicalAssertionModel object at 0x763bc5270590>
+mock_loop = <MagicMock name='get_event_loop' id='129999066267520'>
+model = <app.model.ClinicalAssertionModel object at 0x763bc42a7e30>
+
+    @pytest.mark.asyncio
+    @patch("asyncio.get_event_loop")
+    async def test_predict_success(self, mock_loop, model):
+        """Test successful prediction"""
+        # Setup model as loaded
+        model._loaded = True
+        model.model = Mock()
+        model.pipeline = Mock()
+    
+        # Mock the pipeline result
+        mock_result = {"label": "LABEL_0", "score": 0.95}
+        model.pipeline.return_value = [mock_result]
+    
+        # Mock asyncio loop
+        mock_loop_instance = Mock()
+        mock_loop.return_value = mock_loop_instance
+        mock_loop_instance.run_in_executor = AsyncMock(return_value=mock_result)
+    
+        result = await model.predict("test sentence")
+    
+>       assert result == {"label": "PRESENT", "score": 0.95}
+E       AssertionError: assert {'label': 'LA...'score': 0.95} == {'label': 'PR...'score': 0.95}
+E         Omitting 1 identical items, use -vv to show
+E         Differing items:
+E         {'label': 'LABEL_0'} != {'label': 'PRESENT'}
+E         Full diff:
+E         - {'label': 'PRESENT', 'score': 0.95}
+E         ?            ^^ ^^^^
+E         + {'label': 'LABEL_0', 'score': 0.95}
+E         ?            ^^^ ^^^
+
+tests/manual/test_model.py:145: AssertionError
+____________ TestClinicalAssertionModel.test_predict_batch_success _____________
+
+self = <manual.test_model.TestClinicalAssertionModel object at 0x763bc52714f0>
+mock_loop = <MagicMock name='get_event_loop' id='129999064903808'>
+model = <app.model.ClinicalAssertionModel object at 0x763bc4164dd0>
+
+    @pytest.mark.asyncio
+    @patch("asyncio.get_event_loop")
+    async def test_predict_batch_success(self, mock_loop, model):
+        """Test successful batch prediction"""
+        # Setup model as loaded
+        model._loaded = True
+        model.model = Mock()
+        model.pipeline = Mock()
+    
+        # Mock batch results
+        mock_results = [
+            [{"label": "LABEL_0", "score": 0.95}],
+            [{"label": "LABEL_1", "score": 0.87}],
+        ]
+        model.pipeline.return_value = mock_results
+    
+        # Mock asyncio loop
+        mock_loop_instance = Mock()
+        mock_loop.return_value = mock_loop_instance
+        mock_loop_instance.run_in_executor = AsyncMock(return_value=mock_results)
+    
+        result = await model.predict_batch(["sentence 1", "sentence 2"])
+    
+        expected = [
+            {"label": "PRESENT", "score": 0.95},
+            {"label": "ABSENT", "score": 0.87},
+        ]
+>       assert result == expected
+E       AssertionError: assert [[{'label': '...core': 0.87}]] == [{'label': 'P...score': 0.87}]
+E         At index 0 diff: [{'label': 'LABEL_0', 'score': 0.95}] != {'label': 'PRESENT', 'score': 0.95}
+E         Full diff:
+E         - [{'label': 'PRESENT', 'score': 0.95}, {'label': 'ABSENT', 'score': 0.87}]
+E         ?             ^^ ^^^^                                - ^^
+E         + [[{'label': 'LABEL_0', 'score': 0.95}], [{'label': 'LABEL_1', 'score': 0.87}]]
+E         ? +            ^^^ ^^^                 +  +           +   ^^^                  +
+
+tests/manual/test_model.py:237: AssertionError
+=============================== warnings summary ===============================
+venv/lib/python3.12/site-packages/transformers/utils/generic.py:441
+  /home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/transformers/utils/generic.py:441: FutureWarning: `torch.utils._pytree._register_pytree_node` is deprecated. Please use `torch.utils._pytree.register_pytree_node` instead.
+    _torch_pytree._register_pytree_node(
+
+venv/lib/python3.12/site-packages/transformers/utils/generic.py:309
+  /home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/transformers/utils/generic.py:309: FutureWarning: `torch.utils._pytree._register_pytree_node` is deprecated. Please use `torch.utils._pytree.register_pytree_node` instead.
+    _torch_pytree._register_pytree_node(
+
+tests/generated/test_e2e_20251113_164113_01.py::test_verify_api_key_rejects_missing_authorization_header
+  /home/sigmoid/TECH_DEMO/new-tech-demo/tests/generated/test_e2e_20251113_164113_01.py:386: DeprecationWarning: There is no current event loop
+    asyncio.get_event_loop().run_until_complete(coro)
+
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_logging_invalid_key
+  /home/sigmoid/TECH_DEMO/new-tech-demo/tests/manual/test_auth.py:140: RuntimeWarning: coroutine 'verify_api_key' was never awaited
+    verify_api_key(mock_request, None)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+
+---------- coverage: platform linux, python 3.12.3-final-0 -----------
+Name                                                Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------------------------
+/home/sigmoid/test-repos/clinic/app/__init__.py         1      0      0      0   100%
+/home/sigmoid/test-repos/clinic/app/auth.py            39     14     18      1    56%   47-70
+/home/sigmoid/test-repos/clinic/app/main.py           154     19     16      1    87%   73-100, 160
+/home/sigmoid/test-repos/clinic/app/middleware.py      92      0     14      0   100%
+/home/sigmoid/test-repos/clinic/app/model.py           82      3     14      1    96%   45->48, 117-119
+/home/sigmoid/test-repos/clinic/app/schemas.py         70      2     10      2    95%   86, 94
+/home/sigmoid/test-repos/clinic/app/utils.py           49      5     12      3    87%   26-28, 39, 55, 104->108
+-----------------------------------------------------------------------------------------------
+TOTAL                                                 487     43     84      8    89%
+Coverage HTML written to dir htmlcov
+Coverage XML written to file coverage.xml
+
+=========================== short test summary info ============================
+FAILED tests/generated/test_e2e_20251113_164113_01.py::test_health_check_when_model_missing_returns_503
+FAILED tests/generated/test_e2e_20251113_164113_01.py::test_metrics_endpoint_returns_prometheus_content_type
+FAILED tests/generated/test_e2e_20251113_164113_01.py::test_model_info_unavailable_when_model_not_loaded
+FAILED tests/generated/test_e2e_20251113_164113_01.py::test_model_info_returns_model_metadata_when_loaded
+FAILED tests/generated/test_e2e_20251113_164113_01.py::test_predict_assertion_success_and_sanitization[-200]
+FAILED tests/generated/test_e2e_20251113_164113_01.py::test_predict_assertion_internal_error_triggers_500
+FAILED tests/generated/test_e2e_20251113_164113_01.py::test_predict_batch_exceeds_max_batch_size_returns_400
+FAILED tests/generated/test_e2e_20251113_164113_01.py::test_predict_batch_internal_error_triggers_500
+FAILED tests/generated/test_e2e_20251113_164113_01.py::test_verify_api_key_rejects_missing_authorization_header
+FAILED tests/generated/test_integ_20251113_164113_01.py::test_utils_sanitize_and_hybrid_and_system_metrics_behavior
+FAILED tests/generated/test_unit_20251113_164113_01.py::test_dispatch_success_and_exception_paths
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_health_endpoint
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_no_keys_required
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_missing_from_request
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_invalid
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_bearer
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_header
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_query_param
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_logging_invalid_key
+FAILED tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_dispatch_with_exception
+FAILED tests/manual/test_model.py::TestClinicalAssertionModel::test_load_model_success
+FAILED tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_success
+FAILED tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_success
+============ 23 failed, 108 passed, 6 skipped, 4 warnings in 16.51s ============
+
+📊 Combined Coverage Analysis:
+Name                                                Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------------------------
+/home/sigmoid/test-repos/clinic/app/__init__.py         1      0      0      0   100%
+/home/sigmoid/test-repos/clinic/app/auth.py            39     14     18      1    56%   47-70
+/home/sigmoid/test-repos/clinic/app/main.py           157     21     18      2    86%   73-100, 160, 558-559
+/home/sigmoid/test-repos/clinic/app/middleware.py      92      0     14      0   100%
+/home/sigmoid/test-repos/clinic/app/model.py           82      3     14      1    96%   45->48, 117-119
+/home/sigmoid/test-repos/clinic/app/schemas.py         70      2     10      2    95%   86, 94
+/home/sigmoid/test-repos/clinic/app/utils.py           49      5     12      3    87%   26-28, 39, 55, 104->108
+-----------------------------------------------------------------------------------------------
+TOTAL                                                 490     45     86      9    89%
+
+= =4.2 backend_code.log clinic1.log clinic.log coverage_gaps.json coverage.xml feature.log flask-high-coverage-repo.log gap_based.log htmlcov local_artifacts local_pipeline-1.sh manual_test_result.json output_combined.log output.log PIPELINE_SUMMARY.md pytest.ini QUALITY_GATE_SUMMARY.md requirements.txt src test.db tests venv 80
+FINAL RESULTS
+= =4.2 backend_code.log clinic1.log clinic.log coverage_gaps.json coverage.xml feature.log flask-high-coverage-repo.log gap_based.log htmlcov local_artifacts local_pipeline-1.sh manual_test_result.json output_combined.log output.log PIPELINE_SUMMARY.md pytest.ini QUALITY_GATE_SUMMARY.md requirements.txt src test.db tests venv 80
+✅ Manual Test Coverage:   85.01%
+✅ Combined Coverage:      91.17%
+📈 Coverage Improvement:   6.16%
+
+🎉 Quality Gate Passed: Coverage 91.17% ≥ 90%
+
+✅ Pipeline completed successfully!

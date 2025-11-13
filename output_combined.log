@@ -1,0 +1,1298 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-7.4.3, pluggy-1.6.0 -- /home/sigmoid/TECH_DEMO/new-tech-demo/venv/bin/python3
+cachedir: .pytest_cache
+django: version: 5.2.8
+metadata: {'Python': '3.12.3', 'Platform': 'Linux-6.14.0-33-generic-x86_64-with-glibc2.39', 'Packages': {'pytest': '7.4.3', 'pluggy': '1.6.0'}, 'Plugins': {'html': '4.1.1', 'django': '4.11.1', 'asyncio': '0.21.1', 'mock': '3.15.1', 'anyio': '3.7.1', 'metadata': '3.1.1', 'cov': '4.1.0'}}
+rootdir: /home/sigmoid/TECH_DEMO/new-tech-demo
+configfile: pytest.ini
+plugins: html-4.1.1, django-4.11.1, asyncio-0.21.1, mock-3.15.1, anyio-3.7.1, metadata-3.1.1, cov-4.1.0
+asyncio: mode=Mode.AUTO
+collecting ... collected 141 items
+
+tests/generated/test_e2e_20251113_120902_01.py::test_service_status_endpoint_reports_running_and_uptime PASSED [  0%]
+tests/generated/test_e2e_20251113_120902_01.py::test_health_check_when_model_not_loaded_returns_503 FAILED [  1%]
+tests/generated/test_e2e_20251113_120902_01.py::test_health_check_with_loaded_model_returns_health_response FAILED [  2%]
+tests/generated/test_e2e_20251113_120902_01.py::test_metrics_endpoint_returns_prometheus_metrics_and_content_type PASSED [  2%]
+tests/generated/test_e2e_20251113_120902_01.py::test_model_info_endpoint_when_model_not_loaded_returns_503 PASSED [  3%]
+tests/generated/test_e2e_20251113_120902_01.py::test_model_info_endpoint_returns_model_info_when_loaded FAILED [  4%]
+tests/generated/test_e2e_20251113_120902_01.py::test_predict_assertion_returns_503_if_model_missing PASSED [  4%]
+tests/generated/test_e2e_20251113_120902_01.py::test_predict_assertion_successful_prediction_and_metrics_increment FAILED [  5%]
+tests/generated/test_e2e_20251113_120902_01.py::test_predict_assertion_handles_inference_exception_and_returns_500 FAILED [  6%]
+tests/generated/test_e2e_20251113_120902_01.py::test_predict_batch_rejects_oversized_batches FAILED [  7%]
+tests/generated/test_e2e_20251113_120902_01.py::test_predict_batch_successful_batch_prediction FAILED [  7%]
+tests/generated/test_e2e_20251113_120902_01.py::test_predict_batch_handles_inference_error_and_returns_500 FAILED [  8%]
+tests/generated/test_e2e_20251113_120902_01.py::test_system_metrics_reports_memory_and_cpu_and_model_loaded_flag FAILED [  9%]
+tests/generated/test_e2e_20251113_120902_01.py::test_root_reports_correct_status_based_on_model[False-initializing] PASSED [  9%]
+tests/generated/test_e2e_20251113_120902_01.py::test_root_reports_correct_status_based_on_model[True-healthy] FAILED [ 10%]
+tests/generated/test_e2e_20251113_120902_01.py::test_validate_sentence_handles_none_and_empty_inputs_and_trims SKIPPED [ 11%]
+tests/generated/test_e2e_20251113_120902_01.py::test_validate_sentences_handles_various_list_inputs SKIPPED [ 12%]
+tests/generated/test_e2e_20251113_120902_01.py::test_model_module_predict_batch_async_callable_if_present SKIPPED [ 12%]
+tests/generated/test_integ_20251113_120902_01.py::test_service_status_endpoint_returns_running_and_timestamp PASSED [ 13%]
+tests/generated/test_integ_20251113_120902_01.py::test_health_check_fails_when_model_not_loaded FAILED [ 14%]
+tests/generated/test_integ_20251113_120902_01.py::test_health_check_success_when_model_loaded PASSED [ 14%]
+tests/generated/test_integ_20251113_120902_01.py::test_metrics_endpoint_returns_prometheus_payload PASSED [ 15%]
+tests/generated/test_integ_20251113_120902_01.py::test_model_info_endpoint_various_model_states FAILED [ 16%]
+tests/generated/test_integ_20251113_120902_01.py::test_predict_assertion_paths_success_and_failure PASSED [ 17%]
+tests/generated/test_integ_20251113_120902_01.py::test_predict_batch_various_paths PASSED [ 17%]
+tests/generated/test_integ_20251113_120902_01.py::test_system_metrics_and_root_reflect_model_state PASSED [ 18%]
+tests/generated/test_integ_20251113_120902_01.py::test_validate_sentence_various_inputs[Normal sentence.-True] SKIPPED [ 19%]
+tests/generated/test_integ_20251113_120902_01.py::test_validate_sentence_various_inputs[   trimmed   -True] SKIPPED [ 19%]
+tests/generated/test_integ_20251113_120902_01.py::test_validate_sentence_various_inputs[-False] SKIPPED [ 20%]
+tests/generated/test_integ_20251113_120902_01.py::test_validate_sentence_various_inputs[None-False] SKIPPED [ 21%]
+tests/generated/test_integ_20251113_120902_01.py::test_validate_sentences_handles_collections[sentences_list0-2] SKIPPED [ 21%]
+tests/generated/test_integ_20251113_120902_01.py::test_validate_sentences_handles_collections[sentences_list1-0] SKIPPED [ 22%]
+tests/generated/test_integ_20251113_120902_01.py::test_validate_sentences_handles_collections[sentences_list2-2] SKIPPED [ 23%]
+tests/generated/test_integ_20251113_120902_01.py::test_http_exception_handler_increments_metric_and_returns_json PASSED [ 24%]
+tests/generated/test_integ_20251113_120902_01.py::test_general_exception_handler_returns_500_and_logs FAILED [ 24%]
+tests/generated/test_integ_20251113_120902_01.py::test_main_lifespan_uses_clinical_model_without_heavy_init PASSED [ 25%]
+tests/generated/test_unit_20251113_120902_01.py::test_predict_batch_success[1] PASSED [ 26%]
+tests/generated/test_unit_20251113_120902_01.py::test_predict_batch_success[2] PASSED [ 26%]
+tests/generated/test_unit_20251113_120902_01.py::test_predict_batch_model_not_loaded PASSED [ 27%]
+tests/generated/test_unit_20251113_120902_01.py::test_predict_batch_batch_size_exceeded PASSED [ 28%]
+tests/generated/test_unit_20251113_120902_01.py::test_predict_batch_internal_error_during_inference PASSED [ 29%]
+tests/generated/test_unit_20251113_120902_01.py::test_validate_sentence_via_prediction_request[normal_case-A normal clinical sentence.-True] PASSED [ 29%]
+tests/generated/test_unit_20251113_120902_01.py::test_validate_sentence_via_prediction_request[empty_case--False] PASSED [ 30%]
+tests/generated/test_unit_20251113_120902_01.py::test_validate_sentence_via_prediction_request[none_case-None-False] PASSED [ 31%]
+tests/generated/test_unit_20251113_120902_01.py::test_validate_sentence_via_prediction_request[whitespace_case-   -False] PASSED [ 31%]
+tests/generated/test_unit_20251113_120902_01.py::test_validate_sentence_via_prediction_request[numeric_case-12345-True] PASSED [ 32%]
+tests/generated/test_unit_20251113_120902_01.py::test_validate_sentences_via_batch_request[single_normal-sentences0-True] PASSED [ 33%]
+tests/generated/test_unit_20251113_120902_01.py::test_validate_sentences_via_batch_request[multiple_normal-sentences1-True] PASSED [ 34%]
+tests/generated/test_unit_20251113_120902_01.py::test_validate_sentences_via_batch_request[contains_empty-sentences2-False] PASSED [ 34%]
+tests/generated/test_unit_20251113_120902_01.py::test_validate_sentences_via_batch_request[contains_none-sentences3-False] PASSED [ 35%]
+tests/generated/test_unit_20251113_120902_01.py::test_validate_sentences_via_batch_request[empty_list-sentences4-False] PASSED [ 36%]
+tests/generated/test_unit_20251113_120902_01.py::test_middleware_dispatch_handles_exceptions PASSED [ 36%]
+tests/generated/test_unit_20251113_120902_01.py::test_model_predict_batch_method_signature_and_basic_behavior PASSED [ 37%]
+tests/manual/test_api.py::TestHealthEndpoint::test_health_check_success PASSED [ 38%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_success PASSED [ 39%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_empty_sentence PASSED [ 39%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_various_sentences[The patient denies chest pain.] PASSED [ 40%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_various_sentences[He has a history of hypertension.] PASSED [ 41%]
+tests/manual/test_api.py::TestPredictionEndpoint::test_predict_various_sentences[No signs of pneumonia were observed.] PASSED [ 41%]
+tests/manual/test_api.py::TestBatchPredictionEndpoint::test_batch_predict_success PASSED [ 42%]
+tests/manual/test_api.py::TestBatchPredictionEndpoint::test_batch_predict_empty_list PASSED [ 43%]
+tests/manual/test_api.py::TestRootEndpoint::test_root_endpoint PASSED    [ 43%]
+tests/manual/test_api.py::TestHybridPipeline::test_apply_hybrid_pipeline_conditional PASSED [ 44%]
+tests/manual/test_api.py::TestHybridPipeline::test_apply_hybrid_pipeline_uncertainty PASSED [ 45%]
+tests/manual/test_api.py::TestHybridPipeline::test_apply_hybrid_pipeline_no_rule PASSED [ 46%]
+tests/manual/test_api.py::TestHybridPipeline::test_apply_hybrid_pipeline_multiple_sentences PASSED [ 46%]
+tests/manual/test_api.py::TestUtilityFunctions::test_detect_conditional_phrases_positive PASSED [ 47%]
+tests/manual/test_api.py::TestUtilityFunctions::test_detect_conditional_phrases_negative PASSED [ 48%]
+tests/manual/test_api.py::TestUtilityFunctions::test_detect_uncertainty_phrases_positive PASSED [ 48%]
+tests/manual/test_api.py::TestUtilityFunctions::test_detect_uncertainty_phrases_negative PASSED [ 49%]
+tests/manual/test_api.py::TestEnhancedPredictionEndpoints::test_predict_with_hybrid_pipeline PASSED [ 50%]
+tests/manual/test_api.py::TestEnhancedPredictionEndpoints::test_batch_predict_with_hybrid_pipeline PASSED [ 51%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_init_no_api_keys PASSED  [ 51%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_init_with_api_keys PASSED [ 52%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_init_with_whitespace_api_keys PASSED [ 53%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_verify_key_no_keys_required PASSED [ 53%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_verify_key_valid PASSED  [ 54%]
+tests/manual/test_auth.py::TestAPIKeyAuth::test_verify_key_invalid PASSED [ 55%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_health_endpoint FAILED [ 56%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_root_endpoint PASSED [ 56%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_metrics_endpoint PASSED [ 57%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_no_keys_required FAILED [ 58%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_missing_from_request FAILED [ 58%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_invalid FAILED [ 59%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_bearer FAILED [ 60%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_header FAILED [ 60%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_query_param FAILED [ 61%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_logging_invalid_key FAILED [ 62%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_multiple_keys PASSED [ 63%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_empty_key_string PASSED [ 63%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_whitespace_only PASSED [ 64%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_special_characters PASSED [ 65%]
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_case_sensitive PASSED [ 65%]
+tests/manual/test_middleware.py::TestSecurityHeadersMiddleware::test_init PASSED [ 66%]
+tests/manual/test_middleware.py::TestSecurityHeadersMiddleware::test_init_with_csp PASSED [ 67%]
+tests/manual/test_middleware.py::TestSecurityHeadersMiddleware::test_dispatch_no_csp_http PASSED [ 68%]
+tests/manual/test_middleware.py::TestSecurityHeadersMiddleware::test_dispatch_with_csp_https PASSED [ 68%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_init PASSED [ 69%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_get_client_id_with_x_forwarded_for PASSED [ 70%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_get_client_id_with_client PASSED [ 70%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_get_client_id_unknown PASSED [ 71%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_dispatch_health_endpoint PASSED [ 72%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_dispatch_under_limit PASSED [ 73%]
+tests/manual/test_middleware.py::TestRateLimitMiddleware::test_dispatch_over_limit PASSED [ 73%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_init PASSED [ 74%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_get_client_id_with_x_forwarded_for PASSED [ 75%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_get_client_id_with_client PASSED [ 75%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_get_client_id_unknown PASSED [ 76%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_dispatch_success PASSED [ 77%]
+tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_dispatch_with_exception FAILED [ 78%]
+tests/manual/test_middleware.py::TestMetricsMiddleware::test_init PASSED [ 78%]
+tests/manual/test_middleware.py::TestMetricsMiddleware::test_dispatch_success PASSED [ 79%]
+tests/manual/test_middleware.py::TestMetricsMiddleware::test_dispatch_error PASSED [ 80%]
+tests/manual/test_middleware.py::TestMetricsMiddleware::test_dispatch_exception PASSED [ 80%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_init PASSED [ 81%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_is_loaded_not_loaded PASSED [ 82%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_is_loaded_after_init PASSED [ 82%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_is_loaded_no_model PASSED [ 83%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_device_cuda_available PASSED [ 84%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_device_cuda_not_available PASSED [ 85%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_load_model_success FAILED [ 85%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_load_model_tokenizer_failure PASSED [ 86%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_load_model_model_failure PASSED [ 87%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_not_loaded PASSED [ 87%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_not_loaded PASSED [ 88%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_success FAILED [ 89%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_pipeline_error PASSED [ 90%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_success PASSED [ 90%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_list_result PASSED [ 91%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_nested_list_result PASSED [ 92%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_unexpected_result_type PASSED [ 92%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_success FAILED [ 93%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_sync_success PASSED [ 94%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_sync_single_result PASSED [ 95%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_get_model_info PASSED [ 95%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_get_model_info_cuda_available PASSED [ 96%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_empty_result PASSED [ 97%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_none_result PASSED [ 97%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_sync_empty_results PASSED [ 98%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_sync_mixed_result_types PASSED [ 99%]
+tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_sync_unknown_label PASSED [100%]
+
+=================================== FAILURES ===================================
+_____________ test_health_check_when_model_not_loaded_returns_503 ______________
+
+    def test_health_check_when_model_not_loaded_returns_503():
+        """UNIVERSAL test for maximum coverage."""
+        # Ensure model is None to hit uncovered branch where health_check raises HTTPException
+        main.model = None
+        client = TestClient(main.app)
+        resp = client.get("/health")
+        # custom HTTPException handler turns exception into JSONResponse with error field
+        assert resp.status_code == 503
+        data = resp.json()
+        # error message should reference model not loaded (substring check)
+>       assert "Model not loaded" in str(data.get("error", "")) or "Model not loaded" in str(data.get("detail", ""))
+E       AssertionError: assert ('Model not loaded' in 'Health check failed: ' or 'Model not loaded' in '')
+E        +  where 'Health check failed: ' = str('Health check failed: ')
+E        +    where 'Health check failed: ' = <built-in method get of dict object at 0x7cce0bfd9180>('error', '')
+E        +      where <built-in method get of dict object at 0x7cce0bfd9180> = {'error': 'Health check failed: ', 'path': '/health', 'status_code': 503, 'timestamp': 1763036090.6377316}.get
+E        +  and   '' = str('')
+E        +    where '' = <built-in method get of dict object at 0x7cce0bfd9180>('detail', '')
+E        +      where <built-in method get of dict object at 0x7cce0bfd9180> = {'error': 'Health check failed: ', 'path': '/health', 'status_code': 503, 'timestamp': 1763036090.6377316}.get
+
+tests/generated/test_e2e_20251113_120902_01.py:152: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.main:main.py:229 Health check failed:
+_________ test_health_check_with_loaded_model_returns_health_response __________
+
+    def test_health_check_with_loaded_model_returns_health_response():
+        """UNIVERSAL test for maximum coverage."""
+        # Create dummy model that reports loaded and has model info
+        dummy = DummyModel(loaded=True)
+        client = make_client_with_model(dummy)
+        try:
+            resp = client.get("/health")
+>           assert resp.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/generated/test_e2e_20251113_120902_01.py:162: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.main:main.py:229 Health check failed:
+___________ test_model_info_endpoint_returns_model_info_when_loaded ____________
+
+    def test_model_info_endpoint_returns_model_info_when_loaded():
+        """UNIVERSAL test for maximum coverage."""
+        dummy = DummyModel(loaded=True)
+        client = make_client_with_model(dummy)
+        try:
+            resp = client.get("/model/info")
+>           assert resp.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/generated/test_e2e_20251113_120902_01.py:205: AssertionError
+______ test_predict_assertion_successful_prediction_and_metrics_increment ______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7cce0c334620>
+
+    def test_predict_assertion_successful_prediction_and_metrics_increment(monkeypatch):
+        """UNIVERSAL test for maximum coverage."""
+        # Setup dummy model and patch utils to produce enhanced result expected by endpoint
+        dummy = DummyModel(loaded=True)
+        # apply_hybrid_pipeline should accept list of model_results and sentences
+        def fake_apply_hybrid_pipeline(results, sentences):
+            # return a list of dictionaries expected by predict endpoint
+            return [
+                {
+                    "label": "PRESENT",
+                    "model_label": r.get("model_label", "UNK"),
+                    "score": 0.95,
+                    "rule_applied": None,
+                }
+                for r in results
+            ]
+    
+        monkeypatch.setattr(utils, "apply_hybrid_pipeline", fake_apply_hybrid_pipeline, raising=False)
+        monkeypatch.setattr(utils, "sanitize_clinical_text", lambda x: x.strip() if isinstance(x, str) else x, raising=False)
+    
+        client = make_client_with_model(dummy)
+        try:
+            payload = {"sentence": "  Patient has fever.  "}
+            resp = client.post("/predict", json=payload)
+>           assert resp.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/generated/test_e2e_20251113_120902_01.py:250: AssertionError
+______ test_predict_assertion_handles_inference_exception_and_returns_500 ______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7cce0c334350>
+
+    def test_predict_assertion_handles_inference_exception_and_returns_500(monkeypatch):
+        """UNIVERSAL test for maximum coverage."""
+        # Dummy model that raises during predict to hit 500 path
+        dummy = DummyModel(loaded=True, make_predict_error=True)
+        # Patch apply_hybrid_pipeline so it's not invoked (predict raises first)
+        monkeypatch.setattr(utils, "apply_hybrid_pipeline", lambda a, b: [], raising=False)
+        client = make_client_with_model(dummy)
+        try:
+            payload = {"sentence": "This will cause inference error"}
+            resp = client.post("/predict", json=payload)
+>           assert resp.status_code == 500
+E           assert 503 == 500
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/generated/test_e2e_20251113_120902_01.py:273: AssertionError
+_________________ test_predict_batch_rejects_oversized_batches _________________
+
+    def test_predict_batch_rejects_oversized_batches():
+        """UNIVERSAL test for maximum coverage."""
+        # Ensure a running model so size check runs and returns 400 when exceeded
+        dummy = DummyModel(loaded=True)
+        # Set MAX_BATCH_SIZE to 1 for this test
+        monkey_env = {"MAX_BATCH_SIZE": "1"}
+        old = {}
+        for k, v in monkey_env.items():
+            old[k] = os.environ.get(k)
+            os.environ[k] = v
+    
+        client = make_client_with_model(dummy)
+        try:
+            payload = {"sentences": ["one", "two"]}  # 2 items > max 1
+            resp = client.post("/predict/batch", json=payload)
+>           assert resp.status_code == 400
+E           assert 503 == 400
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/generated/test_e2e_20251113_120902_01.py:296: AssertionError
+________________ test_predict_batch_successful_batch_prediction ________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7cce0c4e55b0>
+
+    def test_predict_batch_successful_batch_prediction(monkeypatch):
+        """UNIVERSAL test for maximum coverage."""
+        # Test full successful batch flow including background task scheduling
+        dummy = DummyModel(loaded=True)
+        # fake apply_hybrid_pipeline returns mapping for each model result
+        def fake_apply_hybrid_pipeline(results, sentences):
+            out = []
+            for res, sent in zip(results, sentences):
+                out.append({"label": "ABSENT", "model_label": res["model_label"], "score": 0.123, "rule_applied": None})
+            return out
+    
+        monkeypatch.setattr(utils, "apply_hybrid_pipeline", fake_apply_hybrid_pipeline, raising=False)
+        monkeypatch.setattr(utils, "sanitize_clinical_text", lambda s: s.strip() if isinstance(s, str) else s, raising=False)
+    
+        client = make_client_with_model(dummy)
+        try:
+            sentences = ["No fever", "No cough"]
+            payload = {"sentences": sentences}
+            resp = client.post("/predict/batch", json=payload)
+>           assert resp.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/generated/test_e2e_20251113_120902_01.py:327: AssertionError
+__________ test_predict_batch_handles_inference_error_and_returns_500 __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7cce0c10e270>
+
+    def test_predict_batch_handles_inference_error_and_returns_500(monkeypatch):
+        """UNIVERSAL test for maximum coverage."""
+        # Dummy model that will raise when batch predicting
+        dummy = DummyModel(loaded=True, make_batch_error=True)
+        client = make_client_with_model(dummy)
+        try:
+            payload = {"sentences": ["a", "b"]}
+            resp = client.post("/predict/batch", json=payload)
+>           assert resp.status_code == 500
+E           assert 503 == 500
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/generated/test_e2e_20251113_120902_01.py:347: AssertionError
+_______ test_system_metrics_reports_memory_and_cpu_and_model_loaded_flag _______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7cce0c334a70>
+
+    def test_system_metrics_reports_memory_and_cpu_and_model_loaded_flag(monkeypatch):
+        """UNIVERSAL test for maximum coverage."""
+        # Monkeypatch get_system_metrics to return deterministic values
+        monkeypatch.setattr(utils, "get_system_metrics", lambda: {"memory_mb": 128, "cpu_percent": 12.5}, raising=False)
+        # Case 1: model is None -> model_loaded False
+        main.model = None
+        client = TestClient(main.app)
+        resp = client.get("/system/metrics")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["model_loaded"] is False
+>       assert data["memory_usage_mb"] == 128
+E       assert 5286.109375 == 128
+
+tests/generated/test_e2e_20251113_120902_01.py:365: AssertionError
+________ test_root_reports_correct_status_based_on_model[True-healthy] _________
+
+model_loaded = True, expected_status = 'healthy'
+
+    @pytest.mark.parametrize("model_loaded,expected_status", [(False, "initializing"), (True, "healthy")])
+    def test_root_reports_correct_status_based_on_model(model_loaded, expected_status):
+        """UNIVERSAL test for maximum coverage."""
+        # Setup model loaded flag as parametrized
+        if model_loaded:
+            dummy = DummyModel(loaded=True)
+            client = make_client_with_model(dummy)
+        else:
+            main.model = None
+            client = TestClient(main.app)
+    
+        try:
+            resp = client.get("/")
+            assert resp.status_code == 200
+            data = resp.json()
+>           assert data["status"] == expected_status
+E           AssertionError: assert 'initializing' == 'healthy'
+E             - healthy
+E             + initializing
+
+tests/generated/test_e2e_20251113_120902_01.py:398: AssertionError
+________________ test_health_check_fails_when_model_not_loaded _________________
+
+    def test_health_check_fails_when_model_not_loaded():
+        """UNIVERSAL test for maximum coverage."""
+        client = TestClient(app_main.app)
+        # Ensure model is None -> health endpoint should return 503 with detail "Model not loaded"
+        app_main.model = None
+        resp = client.get("/health")
+        assert resp.status_code == 503
+        # response is an HTTPException handled by FastAPI -> detail included in body
+>       assert "Model not loaded" in resp.json().get("detail", "") or "Model not loaded" in str(resp.json())
+E       assert ('Model not loaded' in '' or 'Model not loaded' in "{'error': 'Health check failed: ', 'status_code': 503, 'timestamp': 1763036092.574816, 'path': '/health'}")
+E        +  where '' = <built-in method get of dict object at 0x7cce0bfc6340>('detail', '')
+E        +    where <built-in method get of dict object at 0x7cce0bfc6340> = {'error': 'Health check failed: ', 'path': '/health', 'status_code': 503, 'timestamp': 1763036092.574816}.get
+E        +      where {'error': 'Health check failed: ', 'path': '/health', 'status_code': 503, 'timestamp': 1763036092.574816} = <bound method Response.json of <Response [503 Service Unavailable]>>()
+E        +        where <bound method Response.json of <Response [503 Service Unavailable]>> = <Response [503 Service Unavailable]>.json
+E        +  and   "{'error': 'Health check failed: ', 'status_code': 503, 'timestamp': 1763036092.574816, 'path': '/health'}" = str({'error': 'Health check failed: ', 'path': '/health', 'status_code': 503, 'timestamp': 1763036092.574816})
+E        +    where {'error': 'Health check failed: ', 'path': '/health', 'status_code': 503, 'timestamp': 1763036092.574816} = <bound method Response.json of <Response [503 Service Unavailable]>>()
+E        +      where <bound method Response.json of <Response [503 Service Unavailable]>> = <Response [503 Service Unavailable]>.json
+
+tests/generated/test_integ_20251113_120902_01.py:172: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.main:main.py:229 Health check failed:
+________________ test_model_info_endpoint_various_model_states _________________
+
+self = MemoryObjectReceiveStream(_state=MemoryObjectStreamState(max_buffer_size=0, buffer=deque([]), open_send_channels=0, open_receive_channels=1, waiting_receivers=OrderedDict(), waiting_senders=OrderedDict()), _closed=False)
+
+    async def receive(self) -> T_co:
+        await checkpoint()
+        try:
+>           return self.receive_nowait()
+
+venv/lib/python3.12/site-packages/anyio/streams/memory.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = MemoryObjectReceiveStream(_state=MemoryObjectStreamState(max_buffer_size=0, buffer=deque([]), open_send_channels=0, open_receive_channels=1, waiting_receivers=OrderedDict(), waiting_senders=OrderedDict()), _closed=False)
+
+    def receive_nowait(self) -> T_co:
+        """
+        Receive the next item if it can be done without waiting.
+    
+        :return: the received item
+        :raises ~anyio.ClosedResourceError: if this send stream has been closed
+        :raises ~anyio.EndOfStream: if the buffer is empty and this stream has been
+            closed from the sending end
+        :raises ~anyio.WouldBlock: if there are no items in the buffer and no tasks
+            waiting to send
+    
+        """
+        if self._closed:
+            raise ClosedResourceError
+    
+        if self._state.waiting_senders:
+            # Get the item from the next sender
+            send_event, item = self._state.waiting_senders.popitem(last=False)
+            self._state.buffer.append(item)
+            send_event.set()
+    
+        if self._state.buffer:
+            return self._state.buffer.popleft()
+        elif not self._state.open_send_channels:
+            raise EndOfStream
+    
+>       raise WouldBlock
+E       anyio.WouldBlock
+
+venv/lib/python3.12/site-packages/anyio/streams/memory.py:93: WouldBlock
+
+During handling of the above exception, another exception occurred:
+
+request = <starlette.requests.Request object at 0x7cce0c30d550>
+
+    async def call_next(request: Request) -> Response:
+        app_exc: typing.Optional[Exception] = None
+        send_stream, recv_stream = anyio.create_memory_object_stream()
+    
+        async def receive_or_disconnect() -> Message:
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+    
+            async with anyio.create_task_group() as task_group:
+    
+                async def wrap(func: typing.Callable[[], typing.Awaitable[T]]) -> T:
+                    result = await func()
+                    task_group.cancel_scope.cancel()
+                    return result
+    
+                task_group.start_soon(wrap, response_sent.wait)
+                message = await wrap(request.receive)
+    
+            if response_sent.is_set():
+                return {"type": "http.disconnect"}
+    
+            return message
+    
+        async def close_recv_stream_on_response_sent() -> None:
+            await response_sent.wait()
+            recv_stream.close()
+    
+        async def send_no_error(message: Message) -> None:
+            try:
+                await send_stream.send(message)
+            except anyio.BrokenResourceError:
+                # recv_stream has been closed, i.e. response_sent has been set.
+                return
+    
+        async def coro() -> None:
+            nonlocal app_exc
+    
+            async with send_stream:
+                try:
+                    await self.app(scope, receive_or_disconnect, send_no_error)
+                except Exception as exc:
+                    app_exc = exc
+    
+        task_group.start_soon(close_recv_stream_on_response_sent)
+        task_group.start_soon(coro)
+    
+        try:
+>           message = await recv_stream.receive()
+
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:78: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = MemoryObjectReceiveStream(_state=MemoryObjectStreamState(max_buffer_size=0, buffer=deque([]), open_send_channels=0, open_receive_channels=1, waiting_receivers=OrderedDict(), waiting_senders=OrderedDict()), _closed=False)
+
+    async def receive(self) -> T_co:
+        await checkpoint()
+        try:
+            return self.receive_nowait()
+        except WouldBlock:
+            # Add ourselves in the queue
+            receive_event = Event()
+            container: list[T_co] = []
+            self._state.waiting_receivers[receive_event] = container
+    
+            try:
+                await receive_event.wait()
+            except get_cancelled_exc_class():
+                # Ignore the immediate cancellation if we already received an item, so as not to
+                # lose it
+                if not container:
+                    raise
+            finally:
+                self._state.waiting_receivers.pop(receive_event, None)
+    
+            if container:
+                return container[0]
+            else:
+>               raise EndOfStream
+E               anyio.EndOfStream
+
+venv/lib/python3.12/site-packages/anyio/streams/memory.py:118: EndOfStream
+
+During handling of the above exception, another exception occurred:
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7cce0c30f260>
+
+    def test_model_info_endpoint_various_model_states(monkeypatch):
+        """UNIVERSAL test for maximum coverage."""
+        client = TestClient(app_main.app)
+        # Case 1: model missing -> 503
+        monkeypatch.setattr(app_main, "model", None)
+        resp = client.get("/model/info")
+        assert resp.status_code == 503
+    
+        # Case 2: model present but not loaded -> 503
+        dummy = DummyModel(loaded=False)
+        monkeypatch.setattr(app_main, "model", dummy)
+        resp = client.get("/model/info")
+        assert resp.status_code == 503
+    
+        # Case 3: model loaded -> returns model info
+        dummy._loaded = True
+        monkeypatch.setattr(app_main, "model", dummy)
+>       resp = client.get("/model/info")
+
+tests/generated/test_integ_20251113_120902_01.py:219: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+venv/lib/python3.12/site-packages/starlette/testclient.py:499: in get
+    return super().get(
+venv/lib/python3.12/site-packages/httpx/_client.py:1041: in get
+    return self.request(
+venv/lib/python3.12/site-packages/starlette/testclient.py:465: in request
+    return super().request(
+venv/lib/python3.12/site-packages/httpx/_client.py:814: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+venv/lib/python3.12/site-packages/httpx/_client.py:901: in send
+    response = self._send_handling_auth(
+venv/lib/python3.12/site-packages/httpx/_client.py:929: in _send_handling_auth
+    response = self._send_handling_redirects(
+venv/lib/python3.12/site-packages/httpx/_client.py:966: in _send_handling_redirects
+    response = self._send_single_request(request)
+venv/lib/python3.12/site-packages/httpx/_client.py:1002: in _send_single_request
+    response = transport.handle_request(request)
+venv/lib/python3.12/site-packages/starlette/testclient.py:342: in handle_request
+    raise exc
+venv/lib/python3.12/site-packages/starlette/testclient.py:339: in handle_request
+    portal.call(self.app, scope, receive, send)
+venv/lib/python3.12/site-packages/anyio/from_thread.py:277: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+/usr/lib/python3.12/concurrent/futures/_base.py:456: in result
+    return self.__get_result()
+/usr/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+venv/lib/python3.12/site-packages/anyio/from_thread.py:217: in _call_func
+    retval = await retval
+venv/lib/python3.12/site-packages/fastapi/applications.py:1106: in __call__
+    await super().__call__(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/applications.py:122: in __call__
+    await self.middleware_stack(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/middleware/errors.py:184: in __call__
+    raise exc
+venv/lib/python3.12/site-packages/starlette/middleware/errors.py:162: in __call__
+    await self.app(scope, receive, _send)
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:108: in __call__
+    response = await self.dispatch_func(request, call_next)
+../../test-repos/clinic/app/middleware.py:176: in dispatch
+    response = await call_next(request)
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:84: in call_next
+    raise app_exc
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:70: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:108: in __call__
+    response = await self.dispatch_func(request, call_next)
+../../test-repos/clinic/app/middleware.py:128: in dispatch
+    response = await call_next(request)
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:84: in call_next
+    raise app_exc
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:70: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+venv/lib/python3.12/site-packages/starlette/middleware/gzip.py:24: in __call__
+    await responder(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/middleware/gzip.py:44: in __call__
+    await self.app(scope, receive, self.send_with_gzip)
+venv/lib/python3.12/site-packages/starlette/middleware/cors.py:83: in __call__
+    await self.app(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/middleware/trustedhost.py:34: in __call__
+    await self.app(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:108: in __call__
+    response = await self.dispatch_func(request, call_next)
+../../test-repos/clinic/app/middleware.py:30: in dispatch
+    response = await call_next(request)
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:84: in call_next
+    raise app_exc
+venv/lib/python3.12/site-packages/starlette/middleware/base.py:70: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:79: in __call__
+    raise exc
+venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:68: in __call__
+    await self.app(scope, receive, sender)
+venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:20: in __call__
+    raise e
+venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:17: in __call__
+    await self.app(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/routing.py:718: in __call__
+    await route.handle(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/routing.py:276: in handle
+    await self.app(scope, receive, send)
+venv/lib/python3.12/site-packages/starlette/routing.py:66: in app
+    response = await func(request)
+venv/lib/python3.12/site-packages/fastapi/routing.py:274: in app
+    raw_response = await run_endpoint_function(
+venv/lib/python3.12/site-packages/fastapi/routing.py:191: in run_endpoint_function
+    return await dependant.call(**values)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    @app.get(
+        "/model/info",
+        response_model=ModelInfoResponse,
+        tags=["Model"],
+        dependencies=[Depends(verify_api_key)] if os.getenv("REQUIRE_API_KEY") else [],
+    )
+    async def model_info() -> ModelInfoResponse:
+        """Get detailed model information"""
+        if not model or not model.is_loaded():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model not loaded"
+            )
+    
+>       return ModelInfoResponse(**model.get_model_info())
+E       pydantic_core._pydantic_core.ValidationError: 5 validation errors for ModelInfoResponse
+E       model_name
+E         Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.5/v/missing
+E       device
+E         Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.5/v/missing
+E       loaded
+E         Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.5/v/missing
+E       labels
+E         Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.5/v/missing
+E       cuda_available
+E         Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.5/v/missing
+
+../../test-repos/clinic/app/main.py:257: ValidationError
+------------------------------ Captured log call -------------------------------
+ERROR    app.middleware:middleware.py:148 {"event": "request_failed", "request_id": "req-1763036092753", "error": "5 validation errors for ModelInfoResponse\nmodel_name\n  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.5/v/missing\ndevice\n  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.5/v/missing\nloaded\n  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.5/v/missing\nlabels\n  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.5/v/missing\ncuda_available\n  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.5/v/missing", "duration_ms": 1.6961097717285156, "timestamp": 1763036092.755471}
+ERROR    app.main:main.py:540 Unhandled exception: 5 validation errors for ModelInfoResponse
+model_name
+  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+device
+  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+loaded
+  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+labels
+  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+cuda_available
+  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+Traceback (most recent call last):
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/anyio/streams/memory.py", line 98, in receive
+    return self.receive_nowait()
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/anyio/streams/memory.py", line 93, in receive_nowait
+    raise WouldBlock
+anyio.WouldBlock
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 78, in call_next
+    message = await recv_stream.receive()
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/anyio/streams/memory.py", line 118, in receive
+    raise EndOfStream
+anyio.EndOfStream
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 162, in __call__
+    await self.app(scope, receive, _send)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 108, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/test-repos/clinic/app/middleware.py", line 176, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 84, in call_next
+    raise app_exc
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 70, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 108, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/test-repos/clinic/app/middleware.py", line 128, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 84, in call_next
+    raise app_exc
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 70, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/gzip.py", line 24, in __call__
+    await responder(scope, receive, send)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/gzip.py", line 44, in __call__
+    await self.app(scope, receive, self.send_with_gzip)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 83, in __call__
+    await self.app(scope, receive, send)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/trustedhost.py", line 34, in __call__
+    await self.app(scope, receive, send)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 108, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/test-repos/clinic/app/middleware.py", line 30, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 84, in call_next
+    raise app_exc
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 70, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 79, in __call__
+    raise exc
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 68, in __call__
+    await self.app(scope, receive, sender)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 20, in __call__
+    raise e
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 17, in __call__
+    await self.app(scope, receive, send)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/routing.py", line 718, in __call__
+    await route.handle(scope, receive, send)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/starlette/routing.py", line 66, in app
+    response = await func(request)
+               ^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/fastapi/routing.py", line 274, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/fastapi/routing.py", line 191, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/test-repos/clinic/app/main.py", line 257, in model_info
+    return ModelInfoResponse(**model.get_model_info())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/pydantic/main.py", line 164, in __init__
+    __pydantic_self__.__pydantic_validator__.validate_python(data, self_instance=__pydantic_self__)
+pydantic_core._pydantic_core.ValidationError: 5 validation errors for ModelInfoResponse
+model_name
+  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+device
+  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+loaded
+  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+labels
+  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+cuda_available
+  Field required [type=missing, input_value={'name': 'dummy-model', '...1', 'framework': 'test'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing
+_____________ test_general_exception_handler_returns_500_and_logs ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7cce0b70e030>
+
+    def test_general_exception_handler_returns_500_and_logs(monkeypatch):
+        """UNIVERSAL test for maximum coverage."""
+        client = TestClient(app_main.app)
+        # Create an endpoint call that causes an unhandled exception in path - simulate by patching a helper to raise
+        dummy = DummyModel(loaded=True)
+        monkeypatch.setattr(app_main, "model", dummy)
+        # Patch apply_hybrid_pipeline to raise a generic exception to trigger general_exception_handler
+        monkeypatch.setattr(app_main, "apply_hybrid_pipeline", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+        resp = client.post("/predict", json={"sentence": "triggers boom"})
+        # The endpoint handles exceptions and raises HTTPException with 500; FastAPI will route to exception handler
+        assert resp.status_code == 500
+        body = resp.json()
+        assert body.get("status_code") == 500
+>       assert "Internal server error" in body.get("error", "Internal server error")
+E       AssertionError: assert 'Internal server error' in 'Prediction failed: boom'
+E        +  where 'Prediction failed: boom' = <built-in method get of dict object at 0x7cce0a97c740>('error', 'Internal server error')
+E        +    where <built-in method get of dict object at 0x7cce0a97c740> = {'error': 'Prediction failed: boom', 'path': '/predict', 'status_code': 500, 'timestamp': 1763036095.1938088}.get
+
+tests/generated/test_integ_20251113_120902_01.py:422: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.main:main.py:335 Prediction failed 726be734-0395-458b-a360-0c0aea70a1b6: boom
+_____________ TestVerifyAPIKey.test_verify_api_key_health_endpoint _____________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x7cced615e4b0>
+auth_client = <starlette.testclient.TestClient object at 0x7cce0b71ec60>
+
+    def test_verify_api_key_health_endpoint(self, auth_client):
+        """Test that health endpoint doesn't require API key"""
+        response = auth_client.get("/health")
+>       assert response.status_code == 200
+E       assert 503 == 200
+E        +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:55: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.main:main.py:229 Health check failed:
+____________ TestVerifyAPIKey.test_verify_api_key_no_keys_required _____________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x7cced6178290>
+auth_client = <starlette.testclient.TestClient object at 0x7cce0b16c8c0>
+
+    def test_verify_api_key_no_keys_required(self, auth_client):
+        """Test endpoints when no API keys are required"""
+        with patch.dict(os.environ, {"API_KEYS": "", "REQUIRE_API_KEY": "false"}):
+            response = auth_client.get("/model/info")
+>           assert response.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:71: AssertionError
+__________ TestVerifyAPIKey.test_verify_api_key_missing_from_request ___________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x7cced61785f0>
+auth_client = <starlette.testclient.TestClient object at 0x7cce0b1a8d40>
+
+    def test_verify_api_key_missing_from_request(self, auth_client):
+        """Test API key verification when key is missing"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get("/model/info")
+>           assert response.status_code == 401
+E           assert 503 == 401
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:79: AssertionError
+_________________ TestVerifyAPIKey.test_verify_api_key_invalid _________________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x7cced6178950>
+auth_client = <starlette.testclient.TestClient object at 0x7cce0b6c85c0>
+
+    def test_verify_api_key_invalid(self, auth_client):
+        """Test API key verification with invalid key"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get(
+                "/model/info", headers={"Authorization": "Bearer invalid_key"}
+            )
+>           assert response.status_code == 401
+E           assert 503 == 401
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:91: AssertionError
+______________ TestVerifyAPIKey.test_verify_api_key_valid_bearer _______________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x7cced6178cb0>
+auth_client = <starlette.testclient.TestClient object at 0x7cce0c3e2e40>
+
+    def test_verify_api_key_valid_bearer(self, auth_client):
+        """Test API key verification with valid Bearer token"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get(
+                "/model/info", headers={"Authorization": "Bearer test_key"}
+            )
+>           assert response.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:103: AssertionError
+______________ TestVerifyAPIKey.test_verify_api_key_valid_header _______________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x7cced6179010>
+auth_client = <starlette.testclient.TestClient object at 0x7cce0b1f2990>
+
+    def test_verify_api_key_valid_header(self, auth_client):
+        """Test API key verification with valid X-API-Key header"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get("/model/info", headers={"X-API-Key": "test_key"})
+>           assert response.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:111: AssertionError
+____________ TestVerifyAPIKey.test_verify_api_key_valid_query_param ____________
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x7cced6179370>
+auth_client = <starlette.testclient.TestClient object at 0x7cce0c30e510>
+
+    def test_verify_api_key_valid_query_param(self, auth_client):
+        """Test API key verification with valid query parameter"""
+        with patch.dict(
+            os.environ, {"API_KEYS": "test_key", "REQUIRE_API_KEY": "true"}
+        ):
+            response = auth_client.get("/model/info?api_key=test_key")
+>           assert response.status_code == 200
+E           assert 503 == 200
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests/manual/test_auth.py:119: AssertionError
+___________ TestVerifyAPIKey.test_verify_api_key_logging_invalid_key ___________
+
+self = <MagicMock name='logger.warning' id='137224396756160'>
+
+    def assert_called(self):
+        """assert that the mock was called at least once
+        """
+        if self.call_count == 0:
+            msg = ("Expected '%s' to have been called." %
+                   (self._mock_name or 'mock'))
+>           raise AssertionError(msg)
+E           AssertionError: Expected 'warning' to have been called.
+
+/usr/lib/python3.12/unittest/mock.py:913: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+self = <manual.test_auth.TestVerifyAPIKey object at 0x7cced61796d0>
+
+    def test_verify_api_key_logging_invalid_key(self):
+        """Test that invalid API key attempts are logged"""
+        # Standard library imports
+        from unittest.mock import Mock
+    
+        from app.auth import verify_api_key
+    
+        with patch.dict(
+            os.environ, {"API_KEYS": "valid_key", "REQUIRE_API_KEY": "true"}
+        ), patch("app.auth.logger") as mock_logger:
+            mock_request = Mock()
+            mock_request.url.path = "/api/test"
+            mock_request.client = Mock()
+            mock_request.client.host = "192.168.1.1"
+            mock_request.headers = {}
+            mock_request.query_params = {}
+    
+            # This should raise an exception and log the invalid attempt
+            try:
+                verify_api_key(mock_request, None)
+            except Exception:
+                pass
+    
+            # Verify that warning was logged for invalid key attempt
+>           mock_logger.warning.assert_called()
+E           AssertionError: Expected 'warning' to have been called.
+
+tests/manual/test_auth.py:145: AssertionError
+__________ TestRequestLoggingMiddleware.test_dispatch_with_exception ___________
+
+request = <Mock id='137224387894528'>
+
+    async def failing_call_next(request):
+>       raise Exception("Test error")
+E       Exception: Test error
+
+tests/manual/test_middleware.py:248: Exception
+
+During handling of the above exception, another exception occurred:
+
+self = <app.middleware.RequestLoggingMiddleware object at 0x7cce0ae51ac0>
+request = <Mock id='137224387894528'>
+call_next = <function TestRequestLoggingMiddleware.test_dispatch_with_exception.<locals>.failing_call_next at 0x7cce0ae5dda0>
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        start_time = time.time()
+        request_id = request.headers.get(
+            "X-Request-ID", f"req-{int(start_time * 1000)}"
+        )
+    
+        logger.info(
+            json.dumps(
+                {
+                    "event": "request_started",
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "client_ip": self.get_client_id(request),
+                    "timestamp": start_time,
+                }
+            )
+        )
+    
+        try:
+            response = await call_next(request)
+    
+            duration = time.time() - start_time
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "request_completed",
+                        "request_id": request_id,
+                        "status_code": response.status_code,
+                        "duration_ms": duration * 1000,
+                        "timestamp": time.time(),
+                    }
+                )
+            )
+    
+            response.headers["X-Request-ID"] = request_id
+            return response
+    
+        except Exception as e:
+            duration = time.time() - start_time
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "request_failed",
+                        "request_id": request_id,
+                        "error": str(e),
+                        "duration_ms": duration * 1000,
+>                       "timestamp": time.time(),
+                    }
+                )
+            )
+
+../../test-repos/clinic/app/middleware.py:155: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.12/unittest/mock.py:1134: in __call__
+    return self._mock_call(*args, **kwargs)
+/usr/lib/python3.12/unittest/mock.py:1138: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='time' id='137224387890160'>, args = (), kwargs = {}
+effect = <list_iterator object at 0x7cce0af191e0>
+
+    def _execute_mock_call(self, /, *args, **kwargs):
+        # separate from _increment_mock_call so that awaited functions are
+        # executed separately from their call, also AsyncMock overrides this method
+    
+        effect = self.side_effect
+        if effect is not None:
+            if _is_exception(effect):
+                raise effect
+            elif not _callable(effect):
+>               result = next(effect)
+E               StopIteration
+
+/usr/lib/python3.12/unittest/mock.py:1195: StopIteration
+
+The above exception was the direct cause of the following exception:
+
+self = <manual.test_middleware.TestRequestLoggingMiddleware object at 0x7cced619e840>
+middleware = <app.middleware.RequestLoggingMiddleware object at 0x7cce0ae51ac0>
+
+    @pytest.mark.asyncio
+    async def test_dispatch_with_exception(self, middleware):
+        """Test request dispatch with exception"""
+        mock_request = Mock()
+        mock_request.method = "POST"
+        mock_request.url.path = "/api/test"
+        mock_request.headers = {}
+        mock_request.client = None
+    
+        async def failing_call_next(request):
+            raise Exception("Test error")
+    
+        with patch("time.time", side_effect=[1000.0, 1000.3]), patch(
+            "app.middleware.logger"
+        ) as mock_logger:
+            with pytest.raises(Exception, match="Test error"):
+>               await middleware.dispatch(mock_request, failing_call_next)
+E               RuntimeError: coroutine raised StopIteration
+
+tests/manual/test_middleware.py:254: RuntimeError
+
+During handling of the above exception, another exception occurred:
+
+self = <manual.test_middleware.TestRequestLoggingMiddleware object at 0x7cced619e840>
+middleware = <app.middleware.RequestLoggingMiddleware object at 0x7cce0ae51ac0>
+
+    @pytest.mark.asyncio
+    async def test_dispatch_with_exception(self, middleware):
+        """Test request dispatch with exception"""
+        mock_request = Mock()
+        mock_request.method = "POST"
+        mock_request.url.path = "/api/test"
+        mock_request.headers = {}
+        mock_request.client = None
+    
+        async def failing_call_next(request):
+            raise Exception("Test error")
+    
+        with patch("time.time", side_effect=[1000.0, 1000.3]), patch(
+            "app.middleware.logger"
+        ) as mock_logger:
+>           with pytest.raises(Exception, match="Test error"):
+E           AssertionError: Regex pattern did not match.
+E            Regex: 'Test error'
+E            Input: 'coroutine raised StopIteration'
+
+tests/manual/test_middleware.py:253: AssertionError
+______________ TestClinicalAssertionModel.test_load_model_success ______________
+
+self = <manual.test_model.TestClinicalAssertionModel object at 0x7cce0c4371d0>
+mock_cuda = <MagicMock name='is_available' id='137224388693792'>
+mock_pipeline = <MagicMock name='TextClassificationPipeline' id='137224388699072'>
+mock_model_class = <MagicMock name='from_pretrained' id='137224388702816'>
+mock_tokenizer = <MagicMock name='from_pretrained' id='137224388691488'>
+model = <app.model.ClinicalAssertionModel object at 0x7cce0af14fb0>
+
+    @pytest.mark.asyncio
+    @patch("app.model.AutoTokenizer.from_pretrained")
+    @patch("app.model.AutoModelForSequenceClassification.from_pretrained")
+    @patch("app.model.TextClassificationPipeline")
+    @patch("torch.cuda.is_available")
+    async def test_load_model_success(
+        self, mock_cuda, mock_pipeline, mock_model_class, mock_tokenizer, model
+    ):
+        """Test successful model loading"""
+        mock_cuda.return_value = False
+    
+        # Mock the model and tokenizer
+        mock_model_instance = Mock()
+        mock_model_class.return_value = mock_model_instance
+        mock_tokenizer_instance = Mock()
+        mock_tokenizer.return_value = mock_tokenizer_instance
+        mock_pipeline_instance = Mock()
+        mock_pipeline.return_value = mock_pipeline_instance
+    
+        await model.load_model()
+    
+        assert model.tokenizer == mock_tokenizer_instance
+>       assert model.model == mock_model_instance
+E       AssertionError: assert <Mock name='from_pretrained().to().to()' id='137224388683504'> == <Mock name='from_pretrained()' id='137224388692736'>
+E        +  where <Mock name='from_pretrained().to().to()' id='137224388683504'> = <app.model.ClinicalAssertionModel object at 0x7cce0af14fb0>.model
+
+tests/manual/test_model.py:82: AssertionError
+_______________ TestClinicalAssertionModel.test_predict_success ________________
+
+self = <manual.test_model.TestClinicalAssertionModel object at 0x7cce0c4585f0>
+mock_loop = <MagicMock name='get_event_loop' id='137224388248160'>
+model = <app.model.ClinicalAssertionModel object at 0x7cce0aea8170>
+
+    @pytest.mark.asyncio
+    @patch("asyncio.get_event_loop")
+    async def test_predict_success(self, mock_loop, model):
+        """Test successful prediction"""
+        # Setup model as loaded
+        model._loaded = True
+        model.model = Mock()
+        model.pipeline = Mock()
+    
+        # Mock the pipeline result
+        mock_result = {"label": "LABEL_0", "score": 0.95}
+        model.pipeline.return_value = [mock_result]
+    
+        # Mock asyncio loop
+        mock_loop_instance = Mock()
+        mock_loop.return_value = mock_loop_instance
+        mock_loop_instance.run_in_executor = AsyncMock(return_value=mock_result)
+    
+        result = await model.predict("test sentence")
+    
+>       assert result == {"label": "PRESENT", "score": 0.95}
+E       AssertionError: assert {'label': 'LA...'score': 0.95} == {'label': 'PR...'score': 0.95}
+E         Omitting 1 identical items, use -vv to show
+E         Differing items:
+E         {'label': 'LABEL_0'} != {'label': 'PRESENT'}
+E         Full diff:
+E         - {'label': 'PRESENT', 'score': 0.95}
+E         ?            ^^ ^^^^
+E         + {'label': 'LABEL_0', 'score': 0.95}
+E         ?            ^^^ ^^^
+
+tests/manual/test_model.py:145: AssertionError
+____________ TestClinicalAssertionModel.test_predict_batch_success _____________
+
+self = <manual.test_model.TestClinicalAssertionModel object at 0x7cce0c459550>
+mock_loop = <MagicMock name='get_event_loop' id='137224388519424'>
+model = <app.model.ClinicalAssertionModel object at 0x7cce0aeea8d0>
+
+    @pytest.mark.asyncio
+    @patch("asyncio.get_event_loop")
+    async def test_predict_batch_success(self, mock_loop, model):
+        """Test successful batch prediction"""
+        # Setup model as loaded
+        model._loaded = True
+        model.model = Mock()
+        model.pipeline = Mock()
+    
+        # Mock batch results
+        mock_results = [
+            [{"label": "LABEL_0", "score": 0.95}],
+            [{"label": "LABEL_1", "score": 0.87}],
+        ]
+        model.pipeline.return_value = mock_results
+    
+        # Mock asyncio loop
+        mock_loop_instance = Mock()
+        mock_loop.return_value = mock_loop_instance
+        mock_loop_instance.run_in_executor = AsyncMock(return_value=mock_results)
+    
+        result = await model.predict_batch(["sentence 1", "sentence 2"])
+    
+        expected = [
+            {"label": "PRESENT", "score": 0.95},
+            {"label": "ABSENT", "score": 0.87},
+        ]
+>       assert result == expected
+E       AssertionError: assert [[{'label': '...core': 0.87}]] == [{'label': 'P...score': 0.87}]
+E         At index 0 diff: [{'label': 'LABEL_0', 'score': 0.95}] != {'label': 'PRESENT', 'score': 0.95}
+E         Full diff:
+E         - [{'label': 'PRESENT', 'score': 0.95}, {'label': 'ABSENT', 'score': 0.87}]
+E         ?             ^^ ^^^^                                - ^^
+E         + [[{'label': 'LABEL_0', 'score': 0.95}], [{'label': 'LABEL_1', 'score': 0.87}]]
+E         ? +            ^^^ ^^^                 +  +           +   ^^^                  +
+
+tests/manual/test_model.py:237: AssertionError
+=============================== warnings summary ===============================
+venv/lib/python3.12/site-packages/transformers/utils/generic.py:441
+  /home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/transformers/utils/generic.py:441: FutureWarning: `torch.utils._pytree._register_pytree_node` is deprecated. Please use `torch.utils._pytree.register_pytree_node` instead.
+    _torch_pytree._register_pytree_node(
+
+venv/lib/python3.12/site-packages/transformers/utils/generic.py:309
+  /home/sigmoid/TECH_DEMO/new-tech-demo/venv/lib/python3.12/site-packages/transformers/utils/generic.py:309: FutureWarning: `torch.utils._pytree._register_pytree_node` is deprecated. Please use `torch.utils._pytree.register_pytree_node` instead.
+    _torch_pytree._register_pytree_node(
+
+tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_logging_invalid_key
+  /home/sigmoid/TECH_DEMO/new-tech-demo/tests/manual/test_auth.py:140: RuntimeWarning: coroutine 'verify_api_key' was never awaited
+    verify_api_key(mock_request, None)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+
+---------- coverage: platform linux, python 3.12.3-final-0 -----------
+Name                                                Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------------------------
+/home/sigmoid/test-repos/clinic/app/__init__.py         1      0      0      0   100%
+/home/sigmoid/test-repos/clinic/app/auth.py            39     15     18      2    53%   42, 47-70
+/home/sigmoid/test-repos/clinic/app/main.py           154      4     16      2    96%   89-91, 97->100, 160
+/home/sigmoid/test-repos/clinic/app/middleware.py      92      0     14      0   100%
+/home/sigmoid/test-repos/clinic/app/model.py           82      3     14      1    96%   45->48, 117-119
+/home/sigmoid/test-repos/clinic/app/schemas.py         70      2     10      2    95%   86, 94
+/home/sigmoid/test-repos/clinic/app/utils.py           49      5     12      3    87%   26-28, 39, 55, 104->108
+-----------------------------------------------------------------------------------------------
+TOTAL                                                 487     29     84     10    91%
+Coverage HTML written to dir htmlcov
+Coverage XML written to file coverage.xml
+
+=========================== short test summary info ============================
+FAILED tests/generated/test_e2e_20251113_120902_01.py::test_health_check_when_model_not_loaded_returns_503
+FAILED tests/generated/test_e2e_20251113_120902_01.py::test_health_check_with_loaded_model_returns_health_response
+FAILED tests/generated/test_e2e_20251113_120902_01.py::test_model_info_endpoint_returns_model_info_when_loaded
+FAILED tests/generated/test_e2e_20251113_120902_01.py::test_predict_assertion_successful_prediction_and_metrics_increment
+FAILED tests/generated/test_e2e_20251113_120902_01.py::test_predict_assertion_handles_inference_exception_and_returns_500
+FAILED tests/generated/test_e2e_20251113_120902_01.py::test_predict_batch_rejects_oversized_batches
+FAILED tests/generated/test_e2e_20251113_120902_01.py::test_predict_batch_successful_batch_prediction
+FAILED tests/generated/test_e2e_20251113_120902_01.py::test_predict_batch_handles_inference_error_and_returns_500
+FAILED tests/generated/test_e2e_20251113_120902_01.py::test_system_metrics_reports_memory_and_cpu_and_model_loaded_flag
+FAILED tests/generated/test_e2e_20251113_120902_01.py::test_root_reports_correct_status_based_on_model[True-healthy]
+FAILED tests/generated/test_integ_20251113_120902_01.py::test_health_check_fails_when_model_not_loaded
+FAILED tests/generated/test_integ_20251113_120902_01.py::test_model_info_endpoint_various_model_states
+FAILED tests/generated/test_integ_20251113_120902_01.py::test_general_exception_handler_returns_500_and_logs
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_health_endpoint
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_no_keys_required
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_missing_from_request
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_invalid
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_bearer
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_header
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_valid_query_param
+FAILED tests/manual/test_auth.py::TestVerifyAPIKey::test_verify_api_key_logging_invalid_key
+FAILED tests/manual/test_middleware.py::TestRequestLoggingMiddleware::test_dispatch_with_exception
+FAILED tests/manual/test_model.py::TestClinicalAssertionModel::test_load_model_success
+FAILED tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_success
+FAILED tests/manual/test_model.py::TestClinicalAssertionModel::test_predict_batch_success
+=========== 25 failed, 106 passed, 10 skipped, 3 warnings in 20.83s ============

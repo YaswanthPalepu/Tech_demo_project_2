@@ -1,16 +1,5 @@
 {
-  "manual_tests_found": true,
-  "manual_test_paths": [
-    "/home/sigmoid/test-repos/clinic/tests"
-  ],
-  "test_files_count": 5,
-  "test_dirs_detail": {
-    "/home/sigmoid/test-repos/clinic/tests": [
-      "/home/sigmoid/test-repos/clinic/tests/test_middleware.py",
-      "/home/sigmoid/test-repos/clinic/tests/test_api.py",
-      "/home/sigmoid/test-repos/clinic/tests/conftest.py",
-      "/home/sigmoid/test-repos/clinic/tests/test_model.py",
-      "/home/sigmoid/test-repos/clinic/tests/test_auth.py"
-    ]
-  }
+  "manual_tests_found": false,
+  "manual_test_paths": [],
+  "test_files_count": 0
 }

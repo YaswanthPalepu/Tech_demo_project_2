@@ -8,7 +8,7 @@ echo ""
 
 # 1️⃣ Set target directory backend_code pytest-fun clinic flask-high-coverage-repo food-menu 
 export CURRENT_DIR="/home/sigmoid/TECH_DEMO/new-tech-demo"
-export TARGET_DIR="/home/sigmoid/test-repos/clinic"
+export TARGET_DIR="/home/sigmoid/test-repos/food-menu"
 export TARGET_ROOT="$TARGET_DIR"
 export PYTHONPATH="$TARGET_DIR"
 echo "🎯 Target Directory: $TARGET_DIR"

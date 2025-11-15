@@ -275,7 +275,9 @@ def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, tot
         gap_context = get_coverage_context_for_prompts()
         if gap_context:
             print(f"   📊 Added {len(gap_context)} chars of gap-focused context to prompt")
-
+            print(f"   📊 Targeting uncovered code lines")
+            # Show first 500 chars for verification
+            print(f"   Preview: {gap_context[:500]}...")
     user_content = f"""
 UNIVERSAL {kind.upper()} TEST GENERATION - FILE {shard + 1}/{total}
 
@@ -351,46 +353,46 @@ def _merge_universal_text():
     
     return base_text
 
-def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int,
-                 compact: Dict[str, Any], context: str = "") -> List[Dict[str, str]]:
-    """
-    Final, unified override (append-only) with GAP-FOCUSED support.
-    This merges: (a) parametrize-safety, (b) call-safety, and (c) Django-aware guidance,
-    and (d) gap-focused coverage targeting.
-    The LAST definition in the file is the one Python will use.
-    """
-    SYSTEM_MIN_LOCAL = SYSTEM_MIN
-    test_instructions = {
-        "unit": UNIT_ENHANCED,
-        "integ": INTEG_ENHANCED,
-        "e2e": E2E_ENHANCED
-    }
-    dev_instructions = test_instructions.get(kind, UNIT_ENHANCED)
-    max_ctx = 60000
-    trimmed_context = context[:max_ctx] if context else ""
-    merged_rules = _merge_universal_text()
+# def build_prompt(kind: str, compact_json: str, focus_label: str, shard: int, total: int,
+#                  compact: Dict[str, Any], context: str = "") -> List[Dict[str, str]]:
+#     """
+#     Final, unified override (append-only) with GAP-FOCUSED support.
+#     This merges: (a) parametrize-safety, (b) call-safety, and (c) Django-aware guidance,
+#     and (d) gap-focused coverage targeting.
+#     The LAST definition in the file is the one Python will use.
+#     """
+#     SYSTEM_MIN_LOCAL = SYSTEM_MIN
+#     test_instructions = {
+#         "unit": UNIT_ENHANCED,
+#         "integ": INTEG_ENHANCED,
+#         "e2e": E2E_ENHANCED
+#     }
+#     dev_instructions = test_instructions.get(kind, UNIT_ENHANCED)
+#     max_ctx = 60000
+#     trimmed_context = context[:max_ctx] if context else ""
+#     merged_rules = _merge_universal_text()
 
-    # === ADD GAP-FOCUSED CONTEXT ===
-    gap_context = ""
-    if is_gap_focused_mode():
-        gap_context = get_coverage_context_for_prompts()
-        print(f"   📊 Added {len(gap_context)} chars of gap-focused context to prompt")
+#     # === ADD GAP-FOCUSED CONTEXT ===
+#     gap_context = ""
+#     if is_gap_focused_mode():
+#         gap_context = get_coverage_context_for_prompts()
+#         print(f"   📊 Added {len(gap_context)} chars of gap-focused context to prompt")
 
-    user_content = f"""
-UNIVERSAL {kind.upper()} TEST GENERATION - FILE {shard + 1}/{total}
+#     user_content = f"""
+# UNIVERSAL {kind.upper()} TEST GENERATION - FILE {shard + 1}/{total}
 
-{dev_instructions}
+# {dev_instructions}
 
-{merged_rules}
+# {merged_rules}
 
-FOCUS TARGETS: {focus_label}
-PROJECT ANALYSIS: {compact_json}
-ADDITIONAL CONTEXT (TRIMMED): {trimmed_context}
+# FOCUS TARGETS: {focus_label}
+# PROJECT ANALYSIS: {compact_json}
+# ADDITIONAL CONTEXT (TRIMMED): {trimmed_context}
 
-{UNIVERSAL_SCAFFOLD}
-""".strip()
+# {UNIVERSAL_SCAFFOLD}
+# """.strip()
 
-    return [
-        {"role": "system", "content": SYSTEM_MIN_LOCAL},
-        {"role": "user", "content": user_content},
-    ]
+#     return [
+#         {"role": "system", "content": SYSTEM_MIN_LOCAL},
+#         {"role": "user", "content": user_content},
+#     ]

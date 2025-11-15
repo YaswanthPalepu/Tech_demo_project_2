@@ -1,0 +1,963 @@
+=================================== FAILURES ===================================
+______________________ test_contactsform_and_contactflow _______________________
+
+rf = <django.test.client.RequestFactory object at 0x7861f57c2030>
+templates_dir = '/tmp/pytest-of-sigmoid/pytest-12/test_contactsform_and_contactf0/templates'
+
+    @pytest.mark.django_db
+    def test_contactsform_and_contactflow(rf, templates_dir):
+        """UNIVERSAL test for maximum coverage."""
+        Contactsform = getattr(food_forms, "Contactsform")
+        Contact = getattr(food_models, "Contact")
+    
+        # GET request should render the contacts template
+        with override_settings(TEMPLATES=[{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [templates_dir]}]):
+            req_get = rf.get("/contacts/")
+>           resp_get = food_views.contact(req_get)
+
+tests/generated/test_integ_20251115_131946_01.py:166: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../test-repos/food-menu/foodapp/views.py:83: in contact
+    return render(request,'food/contacts.html',{'cont':cont})
+venv/lib/python3.12/site-packages/django/shortcuts.py:25: in render
+    content = loader.render_to_string(template_name, context, request, using=using)
+venv/lib/python3.12/site-packages/django/template/loader.py:61: in render_to_string
+    template = get_template(template_name, using=using)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+template_name = 'food/contacts.html', using = None
+
+    def get_template(template_name, using=None):
+        """
+        Load and return a template for the given name.
+    
+        Raise TemplateDoesNotExist if no such template exists.
+        """
+        chain = []
+        engines = _engine_list(using)
+        for engine in engines:
+            try:
+                return engine.get_template(template_name)
+            except TemplateDoesNotExist as e:
+                chain.append(e)
+    
+>       raise TemplateDoesNotExist(template_name, chain=chain)
+E       django.template.exceptions.TemplateDoesNotExist: food/contacts.html
+
+venv/lib/python3.12/site-packages/django/template/loader.py:19: TemplateDoesNotExist
+______________ test_ctreateItem_update_and_delete_views_workflow _______________
+
+rf = <django.test.client.RequestFactory object at 0x7861f5839760>
+templates_dir = '/tmp/pytest-of-sigmoid/pytest-12/test_ctreateItem_update_and_de0/templates'
+
+    @pytest.mark.django_db
+    def test_ctreateItem_update_and_delete_views_workflow(rf, templates_dir):
+        """UNIVERSAL test for maximum coverage."""
+        Item = getattr(food_models, "Item")
+        # Prepare templates so views can render
+        with override_settings(TEMPLATES=[{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [templates_dir]}]):
+            # Create via ctreateItem POST
+            valid = {
+                "item_name": "Sushi",
+                "item_description": "Fresh",
+                "item_price": 15,
+                "item_image": "http://example.com/sushi.png",
+            }
+            with _RedirectPatcher():
+                req_post = rf.post("/create/", data=valid)
+                resp = food_views.ctreateItem(req_post)
+>               assert resp.status_code == 200
+E               assert 302 == 200
+E                +  where 302 = <HttpResponseRedirect status_code=302, "text/html; charset=utf-8", url="/admins/">.status_code
+
+tests/generated/test_integ_20251115_131946_01.py:207: AssertionError
+----------------------------- Captured stdout call -----------------------------
+data saved
+______________ test_views_render_list_and_detail_pages_and_items3 ______________
+
+rf = <django.test.client.RequestFactory object at 0x7861f5674a70>
+templates_dir = '/tmp/pytest-of-sigmoid/pytest-12/test_views_render_list_and_det0/templates'
+
+    @pytest.mark.django_db
+    def test_views_render_list_and_detail_pages_and_items3(rf, templates_dir):
+        """UNIVERSAL test for maximum coverage."""
+        Item = getattr(food_models, "Item")
+        Contact = getattr(food_models, "Contact")
+    
+        # Create sample data
+        Item.objects.create(item_name="A", item_description="a", item_price=1, item_image="http://example.com/a.png")
+        Item.objects.create(item_name="B", item_description="b", item_price=2, item_image="http://example.com/b.png")
+        Contact.objects.create(name="C1", email="c1@example.com", phone="1111111111", desc="d1")
+    
+        with override_settings(TEMPLATES=[{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [templates_dir]}]):
+            # firstview should list items
+            req = rf.get("/")
+>           resp = food_views.firstview(req)
+
+tests/generated/test_integ_20251115_131946_01.py:257: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../test-repos/food-menu/foodapp/views.py:18: in firstview
+    return render(request,'food/admin.html',contex)
+venv/lib/python3.12/site-packages/django/shortcuts.py:25: in render
+    content = loader.render_to_string(template_name, context, request, using=using)
+venv/lib/python3.12/site-packages/django/template/loader.py:61: in render_to_string
+    template = get_template(template_name, using=using)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+template_name = 'food/admin.html', using = None
+
+    def get_template(template_name, using=None):
+        """
+        Load and return a template for the given name.
+    
+        Raise TemplateDoesNotExist if no such template exists.
+        """
+        chain = []
+        engines = _engine_list(using)
+        for engine in engines:
+            try:
+                return engine.get_template(template_name)
+            except TemplateDoesNotExist as e:
+                chain.append(e)
+    
+>       raise TemplateDoesNotExist(template_name, chain=chain)
+E       django.template.exceptions.TemplateDoesNotExist: food/admin.html
+
+venv/lib/python3.12/site-packages/django/template/loader.py:19: TemplateDoesNotExist
+___________ test_AdminLogIn_various_cases[WrongAdmin-anything-False] ___________
+
+rf = <django.test.client.RequestFactory object at 0x7861f57ea8a0>
+templates_dir = '/tmp/pytest-of-sigmoid/pytest-12/test_AdminLogIn_various_cases_0/templates'
+admin = 'WrongAdmin', password = 'anything', expect_redirect = False
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("admin,password,expect_redirect", [
+        ("WrongAdmin", "anything", False),
+        ("Suhas", "WrongPass", False),
+        ("Suhas", "SuhasO@2002", True),
+    ])
+    def test_AdminLogIn_various_cases(rf, templates_dir, admin, password, expect_redirect):
+        """UNIVERSAL test for maximum coverage."""
+        # Test admin login view with wrong admin, wrong password and correct credentials.
+        with override_settings(TEMPLATES=[{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [templates_dir]}]):
+            # GET should render without errors
+            req_get = rf.get("/admin/login/")
+>           resp_get = food_views.AdminLogIn(req_get)
+
+tests/generated/test_integ_20251115_131946_01.py:308: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../test-repos/food-menu/foodapp/views.py:119: in AdminLogIn
+    return render(request, 'food/adminLogIn.html', {'Form':f, 'AdminError':None, 'PasswordError':None})
+venv/lib/python3.12/site-packages/django/shortcuts.py:25: in render
+    content = loader.render_to_string(template_name, context, request, using=using)
+venv/lib/python3.12/site-packages/django/template/loader.py:61: in render_to_string
+    template = get_template(template_name, using=using)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+template_name = 'food/adminLogIn.html', using = None
+
+    def get_template(template_name, using=None):
+        """
+        Load and return a template for the given name.
+    
+        Raise TemplateDoesNotExist if no such template exists.
+        """
+        chain = []
+        engines = _engine_list(using)
+        for engine in engines:
+            try:
+                return engine.get_template(template_name)
+            except TemplateDoesNotExist as e:
+                chain.append(e)
+    
+>       raise TemplateDoesNotExist(template_name, chain=chain)
+E       django.template.exceptions.TemplateDoesNotExist: food/adminLogIn.html
+
+venv/lib/python3.12/site-packages/django/template/loader.py:19: TemplateDoesNotExist
+_____________ test_AdminLogIn_various_cases[Suhas-WrongPass-False] _____________
+
+rf = <django.test.client.RequestFactory object at 0x7861f578e810>
+templates_dir = '/tmp/pytest-of-sigmoid/pytest-12/test_AdminLogIn_various_cases_1/templates'
+admin = 'Suhas', password = 'WrongPass', expect_redirect = False
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("admin,password,expect_redirect", [
+        ("WrongAdmin", "anything", False),
+        ("Suhas", "WrongPass", False),
+        ("Suhas", "SuhasO@2002", True),
+    ])
+    def test_AdminLogIn_various_cases(rf, templates_dir, admin, password, expect_redirect):
+        """UNIVERSAL test for maximum coverage."""
+        # Test admin login view with wrong admin, wrong password and correct credentials.
+        with override_settings(TEMPLATES=[{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [templates_dir]}]):
+            # GET should render without errors
+            req_get = rf.get("/admin/login/")
+>           resp_get = food_views.AdminLogIn(req_get)
+
+tests/generated/test_integ_20251115_131946_01.py:308: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../test-repos/food-menu/foodapp/views.py:119: in AdminLogIn
+    return render(request, 'food/adminLogIn.html', {'Form':f, 'AdminError':None, 'PasswordError':None})
+venv/lib/python3.12/site-packages/django/shortcuts.py:25: in render
+    content = loader.render_to_string(template_name, context, request, using=using)
+venv/lib/python3.12/site-packages/django/template/loader.py:61: in render_to_string
+    template = get_template(template_name, using=using)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+template_name = 'food/adminLogIn.html', using = None
+
+    def get_template(template_name, using=None):
+        """
+        Load and return a template for the given name.
+    
+        Raise TemplateDoesNotExist if no such template exists.
+        """
+        chain = []
+        engines = _engine_list(using)
+        for engine in engines:
+            try:
+                return engine.get_template(template_name)
+            except TemplateDoesNotExist as e:
+                chain.append(e)
+    
+>       raise TemplateDoesNotExist(template_name, chain=chain)
+E       django.template.exceptions.TemplateDoesNotExist: food/adminLogIn.html
+
+venv/lib/python3.12/site-packages/django/template/loader.py:19: TemplateDoesNotExist
+____________ test_AdminLogIn_various_cases[Suhas-SuhasO@2002-True] _____________
+
+rf = <django.test.client.RequestFactory object at 0x7861f5674920>
+templates_dir = '/tmp/pytest-of-sigmoid/pytest-12/test_AdminLogIn_various_cases_2/templates'
+admin = 'Suhas', password = 'SuhasO@2002', expect_redirect = True
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("admin,password,expect_redirect", [
+        ("WrongAdmin", "anything", False),
+        ("Suhas", "WrongPass", False),
+        ("Suhas", "SuhasO@2002", True),
+    ])
+    def test_AdminLogIn_various_cases(rf, templates_dir, admin, password, expect_redirect):
+        """UNIVERSAL test for maximum coverage."""
+        # Test admin login view with wrong admin, wrong password and correct credentials.
+        with override_settings(TEMPLATES=[{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [templates_dir]}]):
+            # GET should render without errors
+            req_get = rf.get("/admin/login/")
+>           resp_get = food_views.AdminLogIn(req_get)
+
+tests/generated/test_integ_20251115_131946_01.py:308: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../test-repos/food-menu/foodapp/views.py:119: in AdminLogIn
+    return render(request, 'food/adminLogIn.html', {'Form':f, 'AdminError':None, 'PasswordError':None})
+venv/lib/python3.12/site-packages/django/shortcuts.py:25: in render
+    content = loader.render_to_string(template_name, context, request, using=using)
+venv/lib/python3.12/site-packages/django/template/loader.py:61: in render_to_string
+    template = get_template(template_name, using=using)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+template_name = 'food/adminLogIn.html', using = None
+
+    def get_template(template_name, using=None):
+        """
+        Load and return a template for the given name.
+    
+        Raise TemplateDoesNotExist if no such template exists.
+        """
+        chain = []
+        engines = _engine_list(using)
+        for engine in engines:
+            try:
+                return engine.get_template(template_name)
+            except TemplateDoesNotExist as e:
+                chain.append(e)
+    
+>       raise TemplateDoesNotExist(template_name, chain=chain)
+E       django.template.exceptions.TemplateDoesNotExist: food/adminLogIn.html
+
+venv/lib/python3.12/site-packages/django/template/loader.py:19: TemplateDoesNotExist
+__________________ test_register_view_get_and_post_behaviour ___________________
+
+rf = <django.test.client.RequestFactory object at 0x7861f57c1280>
+templates_dir = '/tmp/pytest-of-sigmoid/pytest-12/test_register_view_get_and_pos0/templates'
+
+    @pytest.mark.django_db
+    def test_register_view_get_and_post_behaviour(rf, templates_dir):
+        """UNIVERSAL test for maximum coverage."""
+        # Test users.register view both GET and POST, invalid and valid form paths.
+        with override_settings(TEMPLATES=[{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [templates_dir]}]):
+            # GET request renders register template
+            req_get = rf.get("/register/")
+>           resp_get = users_views.register(req_get)
+
+tests/generated/test_integ_20251115_131946_01.py:332: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../test-repos/food-menu/users/views.py:18: in register
+    return render(request, 'users/register.html', {'form': form})
+venv/lib/python3.12/site-packages/django/shortcuts.py:25: in render
+    content = loader.render_to_string(template_name, context, request, using=using)
+venv/lib/python3.12/site-packages/django/template/loader.py:61: in render_to_string
+    template = get_template(template_name, using=using)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+template_name = 'users/register.html', using = None
+
+    def get_template(template_name, using=None):
+        """
+        Load and return a template for the given name.
+    
+        Raise TemplateDoesNotExist if no such template exists.
+        """
+        chain = []
+        engines = _engine_list(using)
+        for engine in engines:
+            try:
+                return engine.get_template(template_name)
+            except TemplateDoesNotExist as e:
+                chain.append(e)
+    
+>       raise TemplateDoesNotExist(template_name, chain=chain)
+E       django.template.exceptions.TemplateDoesNotExist: users/register.html
+
+venv/lib/python3.12/site-packages/django/template/loader.py:19: TemplateDoesNotExist
+_________________ test_views_raise_on_none_request[firstview] __________________
+
+view_name = 'firstview'
+
+    @pytest.mark.parametrize("view_name", ["firstview", "details", "ctreateItem", "update_item", "delete_item", "userdesc", "home", "userview", "contact", "about", "contactview", "contactsu", "items", "items3", "AdminLogIn"])
+    def test_views_raise_on_none_request(view_name):
+        """UNIVERSAL test for maximum coverage."""
+        # Calling views with None as request should raise AttributeError or TypeError; we assert that an exception is raised to cover error path handling
+        view = getattr(food_views, view_name)
+        # Some views require extra args like id; supply 1 where needed
+        kwargs = {}
+        args = []
+        if view_name in ("details", "ctreateItem") or view_name in ("update_item", "delete_item", "userdesc"):
+            # details expects (request, id)
+            args = [None, 1]
+        else:
+            args = [None]
+>       with pytest.raises(Exception):
+E       Failed: DID NOT RAISE <class 'Exception'>
+
+tests/generated/test_integ_20251115_131946_01.py:367: Failed
+____________________ test_views_raise_on_none_request[home] ____________________
+
+view_name = 'home'
+
+    @pytest.mark.parametrize("view_name", ["firstview", "details", "ctreateItem", "update_item", "delete_item", "userdesc", "home", "userview", "contact", "about", "contactview", "contactsu", "items", "items3", "AdminLogIn"])
+    def test_views_raise_on_none_request(view_name):
+        """UNIVERSAL test for maximum coverage."""
+        # Calling views with None as request should raise AttributeError or TypeError; we assert that an exception is raised to cover error path handling
+        view = getattr(food_views, view_name)
+        # Some views require extra args like id; supply 1 where needed
+        kwargs = {}
+        args = []
+        if view_name in ("details", "ctreateItem") or view_name in ("update_item", "delete_item", "userdesc"):
+            # details expects (request, id)
+            args = [None, 1]
+        else:
+            args = [None]
+>       with pytest.raises(Exception):
+E       Failed: DID NOT RAISE <class 'Exception'>
+
+tests/generated/test_integ_20251115_131946_01.py:367: Failed
+__________________ test_views_raise_on_none_request[userview] __________________
+
+view_name = 'userview'
+
+    @pytest.mark.parametrize("view_name", ["firstview", "details", "ctreateItem", "update_item", "delete_item", "userdesc", "home", "userview", "contact", "about", "contactview", "contactsu", "items", "items3", "AdminLogIn"])
+    def test_views_raise_on_none_request(view_name):
+        """UNIVERSAL test for maximum coverage."""
+        # Calling views with None as request should raise AttributeError or TypeError; we assert that an exception is raised to cover error path handling
+        view = getattr(food_views, view_name)
+        # Some views require extra args like id; supply 1 where needed
+        kwargs = {}
+        args = []
+        if view_name in ("details", "ctreateItem") or view_name in ("update_item", "delete_item", "userdesc"):
+            # details expects (request, id)
+            args = [None, 1]
+        else:
+            args = [None]
+>       with pytest.raises(Exception):
+E       Failed: DID NOT RAISE <class 'Exception'>
+
+tests/generated/test_integ_20251115_131946_01.py:367: Failed
+___________________ test_views_raise_on_none_request[about] ____________________
+
+view_name = 'about'
+
+    @pytest.mark.parametrize("view_name", ["firstview", "details", "ctreateItem", "update_item", "delete_item", "userdesc", "home", "userview", "contact", "about", "contactview", "contactsu", "items", "items3", "AdminLogIn"])
+    def test_views_raise_on_none_request(view_name):
+        """UNIVERSAL test for maximum coverage."""
+        # Calling views with None as request should raise AttributeError or TypeError; we assert that an exception is raised to cover error path handling
+        view = getattr(food_views, view_name)
+        # Some views require extra args like id; supply 1 where needed
+        kwargs = {}
+        args = []
+        if view_name in ("details", "ctreateItem") or view_name in ("update_item", "delete_item", "userdesc"):
+            # details expects (request, id)
+            args = [None, 1]
+        else:
+            args = [None]
+>       with pytest.raises(Exception):
+E       Failed: DID NOT RAISE <class 'Exception'>
+
+tests/generated/test_integ_20251115_131946_01.py:367: Failed
+________________ test_views_raise_on_none_request[contactview] _________________
+
+view_name = 'contactview'
+
+    @pytest.mark.parametrize("view_name", ["firstview", "details", "ctreateItem", "update_item", "delete_item", "userdesc", "home", "userview", "contact", "about", "contactview", "contactsu", "items", "items3", "AdminLogIn"])
+    def test_views_raise_on_none_request(view_name):
+        """UNIVERSAL test for maximum coverage."""
+        # Calling views with None as request should raise AttributeError or TypeError; we assert that an exception is raised to cover error path handling
+        view = getattr(food_views, view_name)
+        # Some views require extra args like id; supply 1 where needed
+        kwargs = {}
+        args = []
+        if view_name in ("details", "ctreateItem") or view_name in ("update_item", "delete_item", "userdesc"):
+            # details expects (request, id)
+            args = [None, 1]
+        else:
+            args = [None]
+>       with pytest.raises(Exception):
+E       Failed: DID NOT RAISE <class 'Exception'>
+
+tests/generated/test_integ_20251115_131946_01.py:367: Failed
+_________________ test_views_raise_on_none_request[contactsu] __________________
+
+view_name = 'contactsu'
+
+    @pytest.mark.parametrize("view_name", ["firstview", "details", "ctreateItem", "update_item", "delete_item", "userdesc", "home", "userview", "contact", "about", "contactview", "contactsu", "items", "items3", "AdminLogIn"])
+    def test_views_raise_on_none_request(view_name):
+        """UNIVERSAL test for maximum coverage."""
+        # Calling views with None as request should raise AttributeError or TypeError; we assert that an exception is raised to cover error path handling
+        view = getattr(food_views, view_name)
+        # Some views require extra args like id; supply 1 where needed
+        kwargs = {}
+        args = []
+        if view_name in ("details", "ctreateItem") or view_name in ("update_item", "delete_item", "userdesc"):
+            # details expects (request, id)
+            args = [None, 1]
+        else:
+            args = [None]
+>       with pytest.raises(Exception):
+E       Failed: DID NOT RAISE <class 'Exception'>
+
+tests/generated/test_integ_20251115_131946_01.py:367: Failed
+___________________ test_views_raise_on_none_request[items3] ___________________
+
+view_name = 'items3'
+
+    @pytest.mark.parametrize("view_name", ["firstview", "details", "ctreateItem", "update_item", "delete_item", "userdesc", "home", "userview", "contact", "about", "contactview", "contactsu", "items", "items3", "AdminLogIn"])
+    def test_views_raise_on_none_request(view_name):
+        """UNIVERSAL test for maximum coverage."""
+        # Calling views with None as request should raise AttributeError or TypeError; we assert that an exception is raised to cover error path handling
+        view = getattr(food_views, view_name)
+        # Some views require extra args like id; supply 1 where needed
+        kwargs = {}
+        args = []
+        if view_name in ("details", "ctreateItem") or view_name in ("update_item", "delete_item", "userdesc"):
+            # details expects (request, id)
+            args = [None, 1]
+        else:
+            args = [None]
+>       with pytest.raises(Exception):
+E       Failed: DID NOT RAISE <class 'Exception'>
+
+tests/generated/test_integ_20251115_131946_01.py:367: Failed
+________________________ test_users_apps_config_string _________________________
+
+    def test_users_apps_config_string():
+        """UNIVERSAL test for maximum coverage."""
+        # Ensure UsersConfig exists and name attribute is correct
+        UsersConfig = getattr(users_apps, "UsersConfig")
+>       cfg = UsersConfig()
+E       TypeError: AppConfig.__init__() missing 2 required positional arguments: 'app_name' and 'app_module'
+
+tests/generated/test_integ_20251115_131946_01.py:375: TypeError
+________________ test_ctreateItem_post_various[IceCream-3-True] ________________
+
+db = None, item_name = 'IceCream', item_price = 3, expect_success = True
+
+    @pytest.mark.skipif(not DJANGO_AVAILABLE, reason="Django not available in test environment")
+    @pytest.mark.parametrize("item_name,item_price,expect_success", [
+        ("IceCream", 3, True),
+        ("", 0, False),
+    ])
+    def test_ctreateItem_post_various(db, item_name, item_price, expect_success):
+        """UNIVERSAL test for maximum coverage."""
+        views = dynamic_import('foodapp.views')
+        Item = dynamic_import('foodapp.models', 'Item')
+    
+        # Build POST data using RequestFactory (this makes request.POST a QueryDict)
+        post_data = {
+            'item_name': item_name,
+            'item_description': "desc" if item_name else "",
+            'item_price': str(item_price),
+            'item_image': "http://img" if item_name else "",
+        }
+        request = factory.post('/create', data=post_data)
+    
+        if expect_success:
+            # Should either redirect or resolve to a proper HttpResponseRedirect; NoReverseMatch acceptable
+            try:
+                resp = views.ctreateItem(request)
+                assert hasattr(resp, 'status_code')
+                # Either created and redirected (302) or rendered template (200)
+                assert resp.status_code in (200, 302)
+            except NoReverseMatch:
+                pytest.skip("URL name foodapp:firstview not configured; redirect could not be resolved.")
+            # Check item persisted
+>           assert Item.objects.filter(item_name=item_name).exists()
+E           AssertionError: assert False
+E            +  where False = <bound method QuerySet.exists of <QuerySet []>>()
+E            +    where <bound method QuerySet.exists of <QuerySet []>> = <QuerySet []>.exists
+E            +      where <QuerySet []> = <bound method QuerySet.filter of <django.db.models.manager.Manager object at 0x7861f5965df0>>(item_name='IceCream')
+E            +        where <bound method QuerySet.filter of <django.db.models.manager.Manager object at 0x7861f5965df0>> = <django.db.models.manager.Manager object at 0x7861f5965df0>.filter
+E            +          where <django.db.models.manager.Manager object at 0x7861f5965df0> = <class 'foodapp.models.Item'>.objects
+
+tests/generated/test_integ_20251115_131946_02.py:169: AssertionError
+----------------------------- Captured stdout call -----------------------------
+<ul class="errorlist"><li>item_image<ul class="errorlist" id="id_item_image_error"><li>Enter a valid URL.</li></ul></li></ul>
+_____________________ test_update_item_get_and_post_flows ______________________
+
+db = None
+
+    @pytest.mark.skipif(not DJANGO_AVAILABLE, reason="Django not available in test environment")
+    def test_update_item_get_and_post_flows(db):
+        """UNIVERSAL test for maximum coverage."""
+        views = dynamic_import('foodapp.views')
+        Item = dynamic_import('foodapp.models', 'Item')
+    
+        item = Item.objects.create(item_name="Old", item_description="old", item_price=1, item_image="http://img")
+        # GET flow (render)
+        request_get = factory.get(f'/update/{item.id}/')
+        try:
+            resp_get = views.update_item(request_get, item.id)
+            assert hasattr(resp_get, 'status_code')
+        except TemplateDoesNotExist:
+            pass
+    
+        # POST flow (update)
+        post_data = {'item_name': "New", 'item_description': "new", 'item_price': "9", 'item_image': "http://new"}
+        request_post = factory.post(f'/update/{item.id}/', data=post_data)
+        try:
+            resp_post = views.update_item(request_post, item.id)
+            # If it returns, expect a redirect-like response
+            assert hasattr(resp_post, 'status_code')
+        except NoReverseMatch:
+            pytest.skip("No reverse for foodapp:firstview; cannot assert redirect")
+        # Refresh from DB
+        item.refresh_from_db()
+>       assert item.item_name == "New"
+E       AssertionError: assert 'Old' == 'New'
+E         - New
+E         + Old
+
+tests/generated/test_integ_20251115_131946_02.py:208: AssertionError
+______ test_views_handle_none_request_gracefully_or_raise_attribute_error ______
+
+    @pytest.mark.skipif(not DJANGO_AVAILABLE, reason="Django not available in test environment")
+    def test_views_handle_none_request_gracefully_or_raise_attribute_error():
+        """UNIVERSAL test for maximum coverage."""
+        """
+        Calling view functions with None should typically raise an AttributeError early.
+        This ensures they expect a proper HttpRequest and do not silently swallow errors.
+        """
+        views = dynamic_import('foodapp.views')
+        # List a few view callables to test with None
+        callables = [
+            ('firstview', views.firstview, (None,), {}),
+            ('home', views.home, (None,), {}),
+            ('items3', views.items3, (None,), {}),
+        ]
+        for name, func, args, kwargs in callables:
+>           with pytest.raises(Exception):
+E           Failed: DID NOT RAISE <class 'Exception'>
+
+tests/generated/test_integ_20251115_131946_02.py:391: Failed
+_ test_model_forms_validation_and_save[Additemform-valid_data0-invalid_data0] __
+
+form_class = <class 'foodapp.forms.Additemform'>
+valid_data = {'item_description': 'desc', 'item_image': 'http://x', 'item_name': 'A', 'item_price': 1}
+invalid_data = {'item_description': '', 'item_image': '', 'item_name': '', 'item_price': ''}
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("form_class,valid_data,invalid_data", [
+        (Additemform, {'item_name': 'A', 'item_description': 'desc', 'item_price': 1, 'item_image': 'http://x'}, {'item_name': '', 'item_description': '', 'item_price': '', 'item_image': ''}),
+        (Contactsform, {'name': 'Bob', 'email': 'bob@example.com', 'phone': '0987654321', 'desc': 'hello'}, {'name': '', 'email': 'bad', 'phone': '123', 'desc': ''}),
+    ])
+    def test_model_forms_validation_and_save(form_class, valid_data, invalid_data):
+        """UNIVERSAL test for maximum coverage."""
+        """
+        Test ModelForm behavior for both valid and invalid payloads.
+        """
+        if form_class is None:
+            pytest.skip("Form class not available")
+        # Valid case: should be valid and savable
+        form = form_class(valid_data)
+>       assert form.is_valid(), f"Form expected to be valid but had errors: {getattr(form, 'errors', None)}"
+E       AssertionError: Form expected to be valid but had errors: <ul class="errorlist"><li>item_image<ul class="errorlist" id="id_item_image_error"><li>Enter a valid URL.</li></ul></li></ul>
+E       assert False
+E        +  where False = <bound method BaseForm.is_valid of <Additemform bound=True, valid=False, fields=(item_name;item_description;item_price;item_image)>>()
+E        +    where <bound method BaseForm.is_valid of <Additemform bound=True, valid=False, fields=(item_name;item_description;item_price;item_image)>> = <Additemform bound=True, valid=False, fields=(item_name;item_description;item_price;item_image)>.is_valid
+
+tests/generated/test_integ_20251115_131946_03.py:196: AssertionError
+____________ test_adminform_validation_and_adminlogin_view[--None] _____________
+
+rf = <django.test.client.RequestFactory object at 0x7861f571a5d0>, admin = ''
+password = '', expected_substr = None
+
+    @pytest.mark.parametrize("admin,password,expected_substr", [
+        ("WrongAdmin", "SuhasO@2002", "Invalid Admin"),
+        ("Suhas", "WrongPassword", "Incorrect Password"),
+        ("", "", None),
+    ])
+    def test_adminform_validation_and_adminlogin_view(rf, admin, password, expected_substr):
+        """UNIVERSAL test for maximum coverage."""
+        """
+        Test AdminForm validation independently and AdminLogIn view responses for multiple credential combinations.
+        Uses QueryDict for POST data as required.
+        """
+        if AdminForm is None or AdminLogIn is None:
+            pytest.skip("AdminForm or AdminLogIn view not available")
+    
+        # Validate AdminForm behavior directly
+        form = AdminForm(data={'Admin': admin, 'Password': password})
+        # If both fields present non-empty, form.is_valid should be True (fields are CharField)
+        # but we still exercise both valid and invalid scenarios
+        _ = form.is_valid()  # just call to get cleaned_data when applicable
+    
+        # Build POST request using QueryDict
+        qd = QueryDict('', mutable=True)
+        qd.update({'Admin': admin, 'Password': password})
+        request = rf.post('/adminlogin/', data=qd)
+        request.method = 'POST'
+        # Call the view
+        response = AdminLogIn(request)
+        # Response should be HttpResponse (fake_render) or HttpResponseRedirect (fake_redirect)
+        assert isinstance(response, (HttpResponse, HttpResponseRedirect))
+        content = ''
+        try:
+            content = response.content.decode()
+        except Exception:
+            content = str(response)
+    
+        # If expected_substr is provided, ensure it's present in the rendered content
+        if expected_substr:
+            assert expected_substr in content
+        else:
+            # For empty credentials, admin view returns template without specific error message
+>           assert 'TEMPLATE:food/adminLogIn.html' in content
+E           assert 'TEMPLATE:food/adminLogIn.html' in '\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Admin LogIn Page</title>\n    <link rel="stylesheet" href="/static/food/aboutpage.css">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        input,label{\n            display: block;\n            padding: 10px 10px 10px 0px;\n            font-size: 20px;\n            width: 100%;\n            margin: 5px;\n            color: rgb(51, 4, 51);\n            border: 0px 0px 0px 1px;\n            \n            \n        }\n        input[type=\'submit\']{\n            width: 104%;\n            background-color: purple;\n            color: white;\n        }\n        input[type=\'submit\']:hover{\n            background-color: pink;\n            color: black;\n        }\n        form{\n            \n            border: 0px solid black;\n            margin: 10px auto;\n            width: 2...PAGE</h1>\n        <div class="p">\n            <form method="post">\n                <input type="hidden" name="csrfmiddlewaretoken" value="yl665w5S4tgTsPE1Nwu5qH4mfTQRAgLhuLCdcEAvRkoaz4YnHT5GWdT41UOVNyX4">\n                <label>Admin Username:</label>\n                <input type="text" placeholder="Enter Admin" name="Admin" value="">\n                \n             \n                <label>Admin Password:</label>\n                <input type="password" placeholder="Enter Password" name="Password" value="">\n                \n                <input type="submit">\n            </form>\n        </div>\n    </main>\n    <footer >\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n\n\n    </footer>\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n</body>\n</html>'
+
+tests/generated/test_integ_20251115_131946_03.py:246: AssertionError
+________ test_simple_views_render_templates[firstview-food/admin.html] _________
+
+rf = <django.test.client.RequestFactory object at 0x7861f55ed5e0>
+view_func = <function firstview at 0x7861f59b8180>
+expected_template = 'food/admin.html'
+
+    @pytest.mark.parametrize("view_func,expected_template", [
+        (firstview, 'food/admin.html'),
+        (home, 'food/home.html'),
+        (about, 'food/aboutpage.html'),
+        (contactsu, 'food/contactsucc.html'),
+        (items, 'food/testing.html'),
+    ])
+    def test_simple_views_render_templates(rf, view_func, expected_template):
+        """UNIVERSAL test for maximum coverage."""
+        """
+        Ensure simple views return the expected template name via the safe_render replacement.
+        """
+        if view_func is None:
+            pytest.skip(f"View {view_func} not available")
+        request = rf.get('/')
+        response = view_func(request)
+        assert isinstance(response, HttpResponse)
+        text = response.content.decode()
+>       assert f"TEMPLATE:{expected_template}" in text
+E       assert 'TEMPLATE:food/admin.html' in '\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Admin Page</title>\n    <link rel="stylesheet" href="/static/food/admins.css">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n    }\n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <b>Food App</b>\n            </div>\n            <div class="child">\n                \n                <a href="/add-item/">Add item</a>\n                <a href="/viewcontact/">View Contacts</a>\n                <a href="">View Users</a>\n            </div>\n            <div class="child social">\n                <a href="/"><ion-icon name="log-out-outline"></ion-icon>Logout</a>\n            </div>\n        </div>\n    </header>\n    <main>\n        <div class="menu-items">\n            \n        </div>\n    </main>\n    \n    \n    \n    \n    <footer>\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n    </footer>\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n</body>\n</html>\n'
+
+tests/generated/test_integ_20251115_131946_03.py:269: AssertionError
+___________ test_simple_views_render_templates[home-food/home.html] ____________
+
+rf = <django.test.client.RequestFactory object at 0x7861f554c4a0>
+view_func = <function home at 0x7861f59b8ae0>
+expected_template = 'food/home.html'
+
+    @pytest.mark.parametrize("view_func,expected_template", [
+        (firstview, 'food/admin.html'),
+        (home, 'food/home.html'),
+        (about, 'food/aboutpage.html'),
+        (contactsu, 'food/contactsucc.html'),
+        (items, 'food/testing.html'),
+    ])
+    def test_simple_views_render_templates(rf, view_func, expected_template):
+        """UNIVERSAL test for maximum coverage."""
+        """
+        Ensure simple views return the expected template name via the safe_render replacement.
+        """
+        if view_func is None:
+            pytest.skip(f"View {view_func} not available")
+        request = rf.get('/')
+        response = view_func(request)
+        assert isinstance(response, HttpResponse)
+        text = response.content.decode()
+>       assert f"TEMPLATE:{expected_template}" in text
+E       assert 'TEMPLATE:food/home.html' in '\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Home Page</title>\n    <link rel="stylesheet" href="/static/food/home.css">\n    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n    }\n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <a href="">Food App</a>\n            </div>\n            <div class="child">\n                <a href="/">Home</a>\n                <a href="...>\n                <span class="visually-hidden">Previous</span>\n            </button>\n            <button class="carousel-control-next" type="button" data-bs-target="#carouselExampleControls" data-bs-slide="next">\n                <span class="carousel-control-next-icon" aria-hidden="true"></span>\n                <span class="visually-hidden">Next</span>\n            </button>\n        </div>\n    </main>\n    <footer>\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n    </footer>\n    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n</body>\n</html>\n'
+
+tests/generated/test_integ_20251115_131946_03.py:269: AssertionError
+________ test_simple_views_render_templates[about-food/aboutpage.html] _________
+
+rf = <django.test.client.RequestFactory object at 0x7861f5384440>
+view_func = <function about at 0x7861f59b8d60>
+expected_template = 'food/aboutpage.html'
+
+    @pytest.mark.parametrize("view_func,expected_template", [
+        (firstview, 'food/admin.html'),
+        (home, 'food/home.html'),
+        (about, 'food/aboutpage.html'),
+        (contactsu, 'food/contactsucc.html'),
+        (items, 'food/testing.html'),
+    ])
+    def test_simple_views_render_templates(rf, view_func, expected_template):
+        """UNIVERSAL test for maximum coverage."""
+        """
+        Ensure simple views return the expected template name via the safe_render replacement.
+        """
+        if view_func is None:
+            pytest.skip(f"View {view_func} not available")
+        request = rf.get('/')
+        response = view_func(request)
+        assert isinstance(response, HttpResponse)
+        text = response.content.decode()
+>       assert f"TEMPLATE:{expected_template}" in text
+E       assert 'TEMPLATE:food/aboutpage.html' in '\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <link rel="stylesheet" href="/static/food/aboutpage.css">\n    <title>About Page</title>\n\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n    }\n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <b>Food App</b>\n            </div>\n            <div class="child">\n                \n                <a href="/">Home</a>\n                <a href="/about/">About</a>\n                <a href="/contact/">Contact Us</a>\n            </div>\n            <div class="child social">\n                <a href="#"><i class="fa-brands fa-instagram"></i>...                <img src="/static/images/suhas2%20o.jpg" alt="">\n                    <h2>Suhas O</h2>\n                    <p>Founder & Head Chef</p>\n\n                </div>\n                <div>\n                    <img src="/static/images/suhas2%20o.jpg" alt="">\n                    <h2>Suhas O</h2>\n                    <p>Product Manager</p>\n\n                </div>\n                <div>\n                    <img src="/static/images/suhas2%20o.jpg" alt="">\n                    <h2>Suhas O</h2>\n                    <p>Lead Developer</p>\n\n                </div>\n            </div>\n        </div>\n\n    </main>\n    <footer>\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n    </footer>\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n</body>\n</html>'
+
+tests/generated/test_integ_20251115_131946_03.py:269: AssertionError
+_____ test_simple_views_render_templates[contactsu-food/contactsucc.html] ______
+
+rf = <django.test.client.RequestFactory object at 0x7861f53902c0>
+view_func = <function contactsu at 0x7861f59b8ea0>
+expected_template = 'food/contactsucc.html'
+
+    @pytest.mark.parametrize("view_func,expected_template", [
+        (firstview, 'food/admin.html'),
+        (home, 'food/home.html'),
+        (about, 'food/aboutpage.html'),
+        (contactsu, 'food/contactsucc.html'),
+        (items, 'food/testing.html'),
+    ])
+    def test_simple_views_render_templates(rf, view_func, expected_template):
+        """UNIVERSAL test for maximum coverage."""
+        """
+        Ensure simple views return the expected template name via the safe_render replacement.
+        """
+        if view_func is None:
+            pytest.skip(f"View {view_func} not available")
+        request = rf.get('/')
+        response = view_func(request)
+        assert isinstance(response, HttpResponse)
+        text = response.content.decode()
+>       assert f"TEMPLATE:{expected_template}" in text
+E       assert 'TEMPLATE:food/contactsucc.html' in '\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title></title>\n    <link rel="stylesheet" href="/static/food/contactsu.css">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    \n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <a href="">Food App</a>\n            </div>\n            <div class="child">\n                <a href="/">Home</a>\n            </div>\n            <div class="child social">\n                <a href="#"><i class="fa-brands fa-instagram"></i></a>\n                <a href="#"><i class="fa-brands fa-facebook"></i></a>\n            </div>\n        </div>\n    </header>\n    <main>\n        <h1>YOUR FEEDBACK SUBMIT SUCCESSFULLY</h1>\n    </main>\n    \n    <footer>\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n    </footer>\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n    \n</body>\n</html>'
+
+tests/generated/test_integ_20251115_131946_03.py:269: AssertionError
+_________ test_simple_views_render_templates[items-food/testing.html] __________
+
+rf = <django.test.client.RequestFactory object at 0x7861f53d9cd0>
+view_func = <function items at 0x7861f59b8f40>
+expected_template = 'food/testing.html'
+
+    @pytest.mark.parametrize("view_func,expected_template", [
+        (firstview, 'food/admin.html'),
+        (home, 'food/home.html'),
+        (about, 'food/aboutpage.html'),
+        (contactsu, 'food/contactsucc.html'),
+        (items, 'food/testing.html'),
+    ])
+    def test_simple_views_render_templates(rf, view_func, expected_template):
+        """UNIVERSAL test for maximum coverage."""
+        """
+        Ensure simple views return the expected template name via the safe_render replacement.
+        """
+        if view_func is None:
+            pytest.skip(f"View {view_func} not available")
+        request = rf.get('/')
+>       response = view_func(request)
+
+tests/generated/test_integ_20251115_131946_03.py:266: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../test-repos/food-menu/foodapp/views.py:98: in items
+    return render(request,'food/testing.html')
+venv/lib/python3.12/site-packages/django/shortcuts.py:25: in render
+    content = loader.render_to_string(template_name, context, request, using=using)
+venv/lib/python3.12/site-packages/django/template/loader.py:61: in render_to_string
+    template = get_template(template_name, using=using)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+template_name = 'food/testing.html', using = None
+
+    def get_template(template_name, using=None):
+        """
+        Load and return a template for the given name.
+    
+        Raise TemplateDoesNotExist if no such template exists.
+        """
+        chain = []
+        engines = _engine_list(using)
+        for engine in engines:
+            try:
+                return engine.get_template(template_name)
+            except TemplateDoesNotExist as e:
+                chain.append(e)
+    
+>       raise TemplateDoesNotExist(template_name, chain=chain)
+E       django.template.exceptions.TemplateDoesNotExist: food/testing.html
+
+venv/lib/python3.12/site-packages/django/template/loader.py:19: TemplateDoesNotExist
+___________________ test_create_update_delete_item_workflow ____________________
+
+rf = <django.test.client.RequestFactory object at 0x7861f55ea690>
+sample_item_data = {'item_description': 'A delicious test item', 'item_image': 'http://example.com/image.png', 'item_name': 'TestItem', 'item_price': 10}
+
+    @pytest.mark.django_db
+    def test_create_update_delete_item_workflow(rf, sample_item_data):
+        """UNIVERSAL test for maximum coverage."""
+        """
+        Full workflow: create via Additemform (ctreateItem), update via update_item, and delete via delete_item.
+        Uses POST QueryDict and the safe render/redirect replacements.
+        """
+        if ctreateItem is None or update_item is None or delete_item is None or Additemform is None or Item is None:
+            pytest.skip("Required view/form/model not available for create/update/delete workflow")
+    
+        # Simulate GET for create view (should render the add-item form)
+        get_req = rf.get('/create/')
+        resp_get = ctreateItem(get_req)
+        assert isinstance(resp_get, HttpResponse)
+>       assert 'TEMPLATE:food/add-item-forms.html' in resp_get.content.decode()
+E       assert 'TEMPLATE:food/add-item-forms.html' in '\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Add Item Page</title>\n    <link rel="stylesheet" href="/static/food/add_inpu.css">\n    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n    }\n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <a href="">Food App</a>\n            </div>\n            <div class="child">\n                <a href="">Add Item</a>\n                <a href="/admins/">Admin Page</a>\n                \n            </div>\n           \n        </div>\n    </header>\n    \n    <main>\n        <div class="form">\n            <form action="" method="POST">\n                <input type="hidden" name="csrfmiddlewaretoken" value...item_price">Item Price:</label>\n                <input type="number" name="item_price" placeholder="Enter Item Price" required>\n                <label for="item_image">Item Image:</label>\n                <input type="url" name="item_image" placeholder="Enter Image Url" required>\n                <button type="submit">Add Items</button>\n            </form>\n        </div>\n    </main>\n    <footer>\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n    </footer>\n    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>\n\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n        \n    \n    \n</body>\n</html>'
+E        +  where '\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Add Item Page</title>\n    <link rel="stylesheet" href="/static/food/add_inpu.css">\n    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n    }\n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <a href="">Food App</a>\n            </div>\n            <div class="child">\n                <a href="">Add Item</a>\n                <a href="/admins/">Admin Page</a>\n                \n            </div>\n           \n        </div>\n    </header>\n    \n    <main>\n        <div class="form">\n            <form action="" method="POST">\n                <input type="hidden" name="csrfmiddlewaretoken" value...item_price">Item Price:</label>\n                <input type="number" name="item_price" placeholder="Enter Item Price" required>\n                <label for="item_image">Item Image:</label>\n                <input type="url" name="item_image" placeholder="Enter Image Url" required>\n                <button type="submit">Add Items</button>\n            </form>\n        </div>\n    </main>\n    <footer>\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n    </footer>\n    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>\n\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n        \n    \n    \n</body>\n</html>' = <built-in method decode of bytes object at 0x794d9f0>()
+E        +    where <built-in method decode of bytes object at 0x794d9f0> = b'\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Add Item Page</title>\n    <link rel="stylesheet" href="/static/food/add_inpu.css">\n    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n    }\n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <a href="">Food App</a>\n            </div>\n            <div class="child">\n                <a href="">Add Item</a>\n                <a href="/admins/">Admin Page</a>\n                \n            </div>\n           \n        </div>\n    </header>\n    \n    <main>\n        <div class="form">\n            <form action="" method="POST">\n                <input type="hidden" name="csrfmiddlewaretoken" valu...item_price">Item Price:</label>\n                <input type="number" name="item_price" placeholder="Enter Item Price" required>\n                <label for="item_image">Item Image:</label>\n                <input type="url" name="item_image" placeholder="Enter Image Url" required>\n                <button type="submit">Add Items</button>\n            </form>\n        </div>\n    </main>\n    <footer>\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n    </footer>\n    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>\n\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n        \n    \n    \n</body>\n</html>'.decode
+E        +      where b'\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Add Item Page</title>\n    <link rel="stylesheet" href="/static/food/add_inpu.css">\n    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n    }\n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <a href="">Food App</a>\n            </div>\n            <div class="child">\n                <a href="">Add Item</a>\n                <a href="/admins/">Admin Page</a>\n                \n            </div>\n           \n        </div>\n    </header>\n    \n    <main>\n        <div class="form">\n            <form action="" method="POST">\n                <input type="hidden" name="csrfmiddlewaretoken" valu...item_price">Item Price:</label>\n                <input type="number" name="item_price" placeholder="Enter Item Price" required>\n                <label for="item_image">Item Image:</label>\n                <input type="url" name="item_image" placeholder="Enter Image Url" required>\n                <button type="submit">Add Items</button>\n            </form>\n        </div>\n    </main>\n    <footer>\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n    </footer>\n    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>\n\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n        \n    \n    \n</body>\n</html>' = <HttpResponse status_code=200, "text/html; charset=utf-8">.content
+
+tests/generated/test_integ_20251115_131946_03.py:296: AssertionError
+____________ test_details_and_userdesc_and_userview_and_contactview ____________
+
+rf = <django.test.client.RequestFactory object at 0x7861f5609700>
+sample_item_data = {'item_description': 'A delicious test item', 'item_image': 'http://example.com/image.png', 'item_name': 'TestItem', 'item_price': 10}
+sample_contact_data = {'desc': 'Inquiry', 'email': 'alice@example.com', 'name': 'Alice', 'phone': '1234567890'}
+
+    @pytest.mark.django_db
+    def test_details_and_userdesc_and_userview_and_contactview(rf, sample_item_data, sample_contact_data):
+        """UNIVERSAL test for maximum coverage."""
+        """
+        Test detail views and list views that rely on database querysets.
+        """
+        if Item is None or Contact is None:
+            pytest.skip("Models not available")
+    
+        # Create sample instances
+        item = Item.objects.create(**sample_item_data)
+        Contact.objects.create(**sample_contact_data)
+    
+        # details view
+        if details is not None:
+            req = rf.get(f'/details/{item.pk}/')
+            resp = details(req, item.pk)
+            assert isinstance(resp, HttpResponse)
+>           assert 'TEMPLATE:food/details.html' in resp.content.decode()
+E           assert 'TEMPLATE:food/details.html' in '\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Item Description Page</title>\n    <link rel="stylesheet" href="/static/food/detailitems.css">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n\n    }\n   \n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <a href="">Food App</a>\n            </div>\n            <div class="child">\n                <a href="">Description View</a>\n                \n                <a href="/admins/">Admin Page</a>\n                \n            </div>\n           \n        </div>\n    </header>\n    <div class="container">\n        <div class="row".../image.png" class="item-image fade-in" alt="Item Image">\n                </div>\n            </div>\n    \n            \n            <div class="col-md-6">\n                <div class="item-details fade-in">\n                    <h1 class="item-name">Item Name: TestItem</h1>\n                    <p class="item-desc">Item Description: A delicious test item</p>\n                    <h3 class="item-cost">Price: &#8377;10</h3>\n                    <button id="btn"><a id="a" href="/update-item/238/">Update Item</a></button>\n                    <button id="btn"><a id="a" href="/delete-item/238/">Delete Item</a></button>\n                </div>\n            </div>\n        </div>\n    </div>\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n    \n</body>\n</html>\n\n\n\n    \n'
+E            +  where '\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Item Description Page</title>\n    <link rel="stylesheet" href="/static/food/detailitems.css">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n\n    }\n   \n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <a href="">Food App</a>\n            </div>\n            <div class="child">\n                <a href="">Description View</a>\n                \n                <a href="/admins/">Admin Page</a>\n                \n            </div>\n           \n        </div>\n    </header>\n    <div class="container">\n        <div class="row".../image.png" class="item-image fade-in" alt="Item Image">\n                </div>\n            </div>\n    \n            \n            <div class="col-md-6">\n                <div class="item-details fade-in">\n                    <h1 class="item-name">Item Name: TestItem</h1>\n                    <p class="item-desc">Item Description: A delicious test item</p>\n                    <h3 class="item-cost">Price: &#8377;10</h3>\n                    <button id="btn"><a id="a" href="/update-item/238/">Update Item</a></button>\n                    <button id="btn"><a id="a" href="/delete-item/238/">Delete Item</a></button>\n                </div>\n            </div>\n        </div>\n    </div>\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n    \n</body>\n</html>\n\n\n\n    \n' = <built-in method decode of bytes object at 0x78a4260>()
+E            +    where <built-in method decode of bytes object at 0x78a4260> = b'\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Item Description Page</title>\n    <link rel="stylesheet" href="/static/food/detailitems.css">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n\n    }\n   \n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <a href="">Food App</a>\n            </div>\n            <div class="child">\n                <a href="">Description View</a>\n                \n                <a href="/admins/">Admin Page</a>\n                \n            </div>\n           \n        </div>\n    </header>\n    <div class="container">\n        <div class="row.../image.png" class="item-image fade-in" alt="Item Image">\n                </div>\n            </div>\n    \n            \n            <div class="col-md-6">\n                <div class="item-details fade-in">\n                    <h1 class="item-name">Item Name: TestItem</h1>\n                    <p class="item-desc">Item Description: A delicious test item</p>\n                    <h3 class="item-cost">Price: &#8377;10</h3>\n                    <button id="btn"><a id="a" href="/update-item/238/">Update Item</a></button>\n                    <button id="btn"><a id="a" href="/delete-item/238/">Delete Item</a></button>\n                </div>\n            </div>\n        </div>\n    </div>\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n    \n</body>\n</html>\n\n\n\n    \n'.decode
+E            +      where b'\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Item Description Page</title>\n    <link rel="stylesheet" href="/static/food/detailitems.css">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n\n    }\n   \n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <a href="">Food App</a>\n            </div>\n            <div class="child">\n                <a href="">Description View</a>\n                \n                <a href="/admins/">Admin Page</a>\n                \n            </div>\n           \n        </div>\n    </header>\n    <div class="container">\n        <div class="row.../image.png" class="item-image fade-in" alt="Item Image">\n                </div>\n            </div>\n    \n            \n            <div class="col-md-6">\n                <div class="item-details fade-in">\n                    <h1 class="item-name">Item Name: TestItem</h1>\n                    <p class="item-desc">Item Description: A delicious test item</p>\n                    <h3 class="item-cost">Price: &#8377;10</h3>\n                    <button id="btn"><a id="a" href="/update-item/238/">Update Item</a></button>\n                    <button id="btn"><a id="a" href="/delete-item/238/">Delete Item</a></button>\n                </div>\n            </div>\n        </div>\n    </div>\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n    \n</body>\n</html>\n\n\n\n    \n' = <HttpResponse status_code=200, "text/html; charset=utf-8">.content
+
+tests/generated/test_integ_20251115_131946_03.py:369: AssertionError
+____________________ test_contact_form_submission_and_view _____________________
+
+rf = <django.test.client.RequestFactory object at 0x7861f5387620>
+sample_contact_data = {'desc': 'Inquiry', 'email': 'alice@example.com', 'name': 'Alice', 'phone': '1234567890'}
+
+    @pytest.mark.django_db
+    def test_contact_form_submission_and_view(rf, sample_contact_data):
+        """UNIVERSAL test for maximum coverage."""
+        """
+        Submit contact form via contact view (both valid and invalid) and ensure contactview reflects saved entries.
+        """
+        if contact_view is None or contactview is None or Contactsform is None or Contact is None:
+            pytest.skip("Contact view/form/model not available")
+    
+        # GET for contact page
+        get_req = rf.get('/contact/')
+        get_resp = contact_view(get_req)
+        assert isinstance(get_resp, HttpResponse)
+>       assert 'TEMPLATE:food/contacts.html' in get_resp.content.decode()
+E       assert 'TEMPLATE:food/contacts.html' in '\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Contact Us Page</title>\n    <link rel="stylesheet" href="/static/food/contacts.css">\n    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n    }\n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <b>Food App</b>\n            </div>\n            <div class="child">\n                <a href="/">Home</a>\n                <a href...name" required>\n                    <label for="">Email:</label>\n                    <input type="email" placeholder="Enter your email" name="email"  required>\n                    <label for="">Phone No</label>\n                    <input type="tel" placeholder="Enter your phone number" name="phone"  required>\n                    <label for="">Comments:</label>\n                    <textarea name="desc" id="desc" placeholder="Enter your comments"></textarea>\n                    <input type="submit">\n                </form>\n            </div>\n        </div>\n       \n       \n    </main>\n    <footer>\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n    </footer>\n   \n        \n        \n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n</body>\n</html>\n'
+E        +  where '\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Contact Us Page</title>\n    <link rel="stylesheet" href="/static/food/contacts.css">\n    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n    }\n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <b>Food App</b>\n            </div>\n            <div class="child">\n                <a href="/">Home</a>\n                <a href...name" required>\n                    <label for="">Email:</label>\n                    <input type="email" placeholder="Enter your email" name="email"  required>\n                    <label for="">Phone No</label>\n                    <input type="tel" placeholder="Enter your phone number" name="phone"  required>\n                    <label for="">Comments:</label>\n                    <textarea name="desc" id="desc" placeholder="Enter your comments"></textarea>\n                    <input type="submit">\n                </form>\n            </div>\n        </div>\n       \n       \n    </main>\n    <footer>\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n    </footer>\n   \n        \n        \n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n</body>\n</html>\n' = <built-in method decode of bytes object at 0x7986fc0>()
+E        +    where <built-in method decode of bytes object at 0x7986fc0> = b'\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Contact Us Page</title>\n    <link rel="stylesheet" href="/static/food/contacts.css">\n    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n    }\n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <b>Food App</b>\n            </div>\n            <div class="child">\n                <a href="/">Home</a>\n                <a hre...name" required>\n                    <label for="">Email:</label>\n                    <input type="email" placeholder="Enter your email" name="email"  required>\n                    <label for="">Phone No</label>\n                    <input type="tel" placeholder="Enter your phone number" name="phone"  required>\n                    <label for="">Comments:</label>\n                    <textarea name="desc" id="desc" placeholder="Enter your comments"></textarea>\n                    <input type="submit">\n                </form>\n            </div>\n        </div>\n       \n       \n    </main>\n    <footer>\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n    </footer>\n   \n        \n        \n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n</body>\n</html>\n'.decode
+E        +      where b'\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Contact Us Page</title>\n    <link rel="stylesheet" href="/static/food/contacts.css">\n    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        .achild> a:hover{\n        background-color: purple;\n        color: white;\n        border: none;\n\n    }\n    </style>\n</head>\n<body>\n    <header>\n        <div class="parent">\n            <div class="child achild">\n                <ion-icon name="fast-food-outline"></ion-icon>\n                <b>Food App</b>\n            </div>\n            <div class="child">\n                <a href="/">Home</a>\n                <a hre...name" required>\n                    <label for="">Email:</label>\n                    <input type="email" placeholder="Enter your email" name="email"  required>\n                    <label for="">Phone No</label>\n                    <input type="tel" placeholder="Enter your phone number" name="phone"  required>\n                    <label for="">Comments:</label>\n                    <textarea name="desc" id="desc" placeholder="Enter your comments"></textarea>\n                    <input type="submit">\n                </form>\n            </div>\n        </div>\n       \n       \n    </main>\n    <footer>\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n    </footer>\n   \n        \n        \n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n</body>\n</html>\n' = <HttpResponse status_code=200, "text/html; charset=utf-8">.content
+
+tests/generated/test_integ_20251115_131946_03.py:406: AssertionError
+_______________________ test_register_view_get_and_post ________________________
+
+rf = <django.test.client.RequestFactory object at 0x7861f5390110>
+
+    @pytest.mark.django_db
+    def test_register_view_get_and_post(rf):
+        """UNIVERSAL test for maximum coverage."""
+        """
+        Test the users.register view for GET and POST workflows.
+        """
+        if register_view is None:
+            pytest.skip("register view not available")
+    
+        # GET request should render registration page
+        get_req = rf.get('/register/')
+        get_resp = register_view(get_req)
+        assert isinstance(get_resp, HttpResponse)
+        # Since register view uses Render, ensure our fake render produced template info
+>       assert 'TEMPLATE:' in get_resp.content.decode()
+E       assert 'TEMPLATE:' in '\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>User SignUp Page</title>\n    <link rel="stylesheet" href="/static/food/aboutpage.css">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        input,label{\n            display: block;\n            padding: 10px 10px 10px 0px;\n            font-size: 20px;\n            width: 95%;\n            margin: 5px;\n            color: rgb(51, 4, 51);\n            border: 0px 0px 0px 1px;\n            \n            \n        }\n        input[type=\'submit\']{\n            width: 99%;\n            background-color: purple;\n            color: white;\n        }\n        input[type=\'submit\']:hover{\n            background-color: pink;\n            color: black;\n        }\n      \n        h1{\n            text-align: center;\n            color: purple;\n            padding-bottom: 4px;\n     ...rd1_helptext" id="id_password1">\n    \n</div>\n\n  <div>\n    <label for="id_password2">Password confirmation:</label>\n\n<div class="helptext" id="id_password2_helptext">Enter the same password as before, for verification.</div>\n\n<input type="password" name="password2" autocomplete="new-password" required aria-describedby="id_password2_helptext" id="id_password2">\n    \n      \n    \n</div>\n                <input type="submit" value="SignUp">\n            </form>\n    \n        </div>\n        <div class="c">\n            <p>Have an account?<a href="/login/">Log in</a></p>\n        </div>\n    \n    </div>\n    <footer >\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n\n\n    </footer>\n\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n</body>\n</html>\n'
+E        +  where '\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>User SignUp Page</title>\n    <link rel="stylesheet" href="/static/food/aboutpage.css">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        input,label{\n            display: block;\n            padding: 10px 10px 10px 0px;\n            font-size: 20px;\n            width: 95%;\n            margin: 5px;\n            color: rgb(51, 4, 51);\n            border: 0px 0px 0px 1px;\n            \n            \n        }\n        input[type=\'submit\']{\n            width: 99%;\n            background-color: purple;\n            color: white;\n        }\n        input[type=\'submit\']:hover{\n            background-color: pink;\n            color: black;\n        }\n      \n        h1{\n            text-align: center;\n            color: purple;\n            padding-bottom: 4px;\n     ...rd1_helptext" id="id_password1">\n    \n</div>\n\n  <div>\n    <label for="id_password2">Password confirmation:</label>\n\n<div class="helptext" id="id_password2_helptext">Enter the same password as before, for verification.</div>\n\n<input type="password" name="password2" autocomplete="new-password" required aria-describedby="id_password2_helptext" id="id_password2">\n    \n      \n    \n</div>\n                <input type="submit" value="SignUp">\n            </form>\n    \n        </div>\n        <div class="c">\n            <p>Have an account?<a href="/login/">Log in</a></p>\n        </div>\n    \n    </div>\n    <footer >\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n\n\n    </footer>\n\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n</body>\n</html>\n' = <built-in method decode of bytes object at 0x7a1c850>()
+E        +    where <built-in method decode of bytes object at 0x7a1c850> = b'\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>User SignUp Page</title>\n    <link rel="stylesheet" href="/static/food/aboutpage.css">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        input,label{\n            display: block;\n            padding: 10px 10px 10px 0px;\n            font-size: 20px;\n            width: 95%;\n            margin: 5px;\n            color: rgb(51, 4, 51);\n            border: 0px 0px 0px 1px;\n            \n            \n        }\n        input[type=\'submit\']{\n            width: 99%;\n            background-color: purple;\n            color: white;\n        }\n        input[type=\'submit\']:hover{\n            background-color: pink;\n            color: black;\n        }\n      \n        h1{\n            text-align: center;\n            color: purple;\n            padding-bottom: 4px;\n    ...rd1_helptext" id="id_password1">\n    \n</div>\n\n  <div>\n    <label for="id_password2">Password confirmation:</label>\n\n<div class="helptext" id="id_password2_helptext">Enter the same password as before, for verification.</div>\n\n<input type="password" name="password2" autocomplete="new-password" required aria-describedby="id_password2_helptext" id="id_password2">\n    \n      \n    \n</div>\n                <input type="submit" value="SignUp">\n            </form>\n    \n        </div>\n        <div class="c">\n            <p>Have an account?<a href="/login/">Log in</a></p>\n        </div>\n    \n    </div>\n    <footer >\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n\n\n    </footer>\n\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n</body>\n</html>\n'.decode
+E        +      where b'\n<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>User SignUp Page</title>\n    <link rel="stylesheet" href="/static/food/aboutpage.css">\n    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/v4-shims.min.css" integrity="sha512-U+fiq69HDM4etLVUiZeQxmJE5AZoft4ti4TIM95MqXV0IjBXgT2oHw5cNeIFqz3OE/axTKQIR8e7zlm3xbOVmg==" crossorigin="anonymous" referrerpolicy="no-referrer" />\n    <style>\n        input,label{\n            display: block;\n            padding: 10px 10px 10px 0px;\n            font-size: 20px;\n            width: 95%;\n            margin: 5px;\n            color: rgb(51, 4, 51);\n            border: 0px 0px 0px 1px;\n            \n            \n        }\n        input[type=\'submit\']{\n            width: 99%;\n            background-color: purple;\n            color: white;\n        }\n        input[type=\'submit\']:hover{\n            background-color: pink;\n            color: black;\n        }\n      \n        h1{\n            text-align: center;\n            color: purple;\n            padding-bottom: 4px;\n    ...rd1_helptext" id="id_password1">\n    \n</div>\n\n  <div>\n    <label for="id_password2">Password confirmation:</label>\n\n<div class="helptext" id="id_password2_helptext">Enter the same password as before, for verification.</div>\n\n<input type="password" name="password2" autocomplete="new-password" required aria-describedby="id_password2_helptext" id="id_password2">\n    \n      \n    \n</div>\n                <input type="submit" value="SignUp">\n            </form>\n    \n        </div>\n        <div class="c">\n            <p>Have an account?<a href="/login/">Log in</a></p>\n        </div>\n    \n    </div>\n    <footer >\n        <p>&copy; 2025 FoodApp. All Rights Reserved.</p>\n\n\n    </footer>\n\n    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>\n    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>\n    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js" integrity="sha512-b+nQTCdtTBIRIbraqNEwsjB6UvL3UEMkXnhzd8awtCYh0Kcsjl9uEgwVFVbhoj3uu1DO1ZMacNvLoyJJiNfcvg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n</body>\n</html>\n' = <HttpResponse status_code=200, "text/html; charset=utf-8">.content
+
+tests/generated/test_integ_20251115_131946_03.py:448: AssertionError
+________________ test_appconfig_classes_present_and_attributes _________________
+
+    def test_appconfig_classes_present_and_attributes():
+        """UNIVERSAL test for maximum coverage."""
+        """
+        Verify that AppConfig classes exist and expose 'name' attribute as expected.
+        """
+        if FoodappConfig is None or UsersConfig is None:
+            pytest.skip("AppConfig classes not available")
+>       fa = FoodappConfig()
+E       TypeError: AppConfig.__init__() missing 2 required positional arguments: 'app_name' and 'app_module'
+
+tests/generated/test_integ_20251115_131946_03.py:479: TypeError
+__________________ test_users_register_view_and_registerform ___________________
+
+db = None, rf = <django.test.client.RequestFactory object at 0x7861f53ff2f0>
+
+    @pytest.mark.skipif(not django, reason="Django not available")
+    def test_users_register_view_and_registerform(db, rf):
+        """UNIVERSAL test for maximum coverage."""
+        # RegisterForm exists and can be instantiated
+        RegisterForm = getattr(users_forms, "RegisterForm")
+        # Valid registration data - ensure passwords match
+        data = {
+            "username": "testuser_xyz",
+            "password1": "ComplexPass!23",
+            "password2": "ComplexPass!23",
+        }
+        form = RegisterForm(data=data)
+>       assert form.is_valid(), form.errors
+E       AssertionError: {'email': ['This field is required.']}
+E       assert False
+E        +  where False = <bound method BaseForm.is_valid of <RegisterForm bound=True, valid=False, fields=(username;email;password1;password2)>>()
+E        +    where <bound method BaseForm.is_valid of <RegisterForm bound=True, valid=False, fields=(username;email;password1;password2)>> = <RegisterForm bound=True, valid=False, fields=(username;email;password1;password2)>.is_valid
+
+tests/generated/test_unit_20251115_131946_02.py:368: AssertionError
+=============================== warnings summary ===============================

@@ -430,3 +430,18 @@ Generated Files:
     for filename in summary_data['files']:
         summary_text += f"  - {filename}\n"
     return summary_text.strip()
+
+def extract_python_only(text: str) -> str:
+    if "```" in text:
+        blocks = re.findall(r"```(?:python)?\s*(.*?)```", text, flags=re.IGNORECASE|re.DOTALL)
+        if blocks:
+            return "\n\n".join(blocks)
+        return text.replace("```","")
+    return text
+def validate_code(code: str):
+        if not code.strip(): return False, "empty output"
+        if not _re.search(r"def test_", code): return False, "no test functions"
+        try: _ast.parse(code); return True, ""
+        except SyntaxError as e: return False, f"syntax error: {e}"
+    
+def massage(code: str): return code

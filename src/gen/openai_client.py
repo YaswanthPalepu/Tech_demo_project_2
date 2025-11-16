@@ -65,9 +65,10 @@ def create_chat_completion(client: AzureOpenAI, deployment: str, messages: List[
                 "messages": messages,
             }
             
-            # Only add max_tokens if explicitly provided
+            # Only add max_completion_tokens if explicitly provided
+            # Note: Newer models (e.g., gpt-5-mini) use max_completion_tokens instead of max_tokens
             if max_tokens is not None:
-                request_params["max_tokens"] = max_tokens
+                request_params["max_completion_tokens"] = max_tokens
             
             # NOTE: temperature parameter is intentionally omitted
             # Many Azure OpenAI deployments only support the default temperature (1.0)

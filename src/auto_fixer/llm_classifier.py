@@ -114,13 +114,10 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
             # Parse response
             content = response.choices[0].message.content.strip()
 
-            # Extract JSON from response (handle markdown code blocks)
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
+            # Extract JSON from response (handle various formats)
+            json_str = self._extract_json(content)
 
-            result = json.loads(content)
+            result = json.loads(json_str)
 
             return LLMClassification(
                 classification=result.get("classification", "code_bug"),
@@ -129,6 +126,15 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
                 confidence=result.get("confidence", 0.5)
             )
 
+        except json.JSONDecodeError as e:
+            print(f"Error parsing LLM JSON response: {e}")
+            print(f"Response preview: {content[:200] if 'content' in locals() else 'N/A'}...")
+            # Conservative fallback
+            return LLMClassification(
+                classification="code_bug",
+                reason=f"JSON parse error: {str(e)}",
+                confidence=0.0
+            )
         except Exception as e:
             print(f"Error in LLM classification: {e}")
             # Conservative fallback
@@ -137,6 +143,38 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
                 reason=f"Classification failed: {str(e)}",
                 confidence=0.0
             )
+
+    def _extract_json(self, content: str) -> str:
+        """
+        Extract JSON from LLM response, handling various formats.
+
+        Args:
+            content: Raw LLM response
+
+        Returns:
+            JSON string
+        """
+        # Try markdown code blocks first
+        if "```json" in content:
+            return content.split("```json")[1].split("```")[0].strip()
+
+        if "```" in content:
+            parts = content.split("```")
+            for part in parts[1::2]:  # Every other part (inside code blocks)
+                part = part.strip()
+                if part.startswith('{') and part.endswith('}'):
+                    return part
+
+        # Try to find JSON object directly
+        import re
+        json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+        matches = re.findall(json_pattern, content, re.DOTALL)
+        if matches:
+            # Return the longest match (likely the complete JSON)
+            return max(matches, key=len)
+
+        # Fallback: return as-is and hope it's valid JSON
+        return content
 
     def _build_prompt(
         self,

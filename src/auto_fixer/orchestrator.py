@@ -251,9 +251,13 @@ class AutoTestFixerOrchestrator:
         """
         print(f"  Applying fix...")
 
+        # Strip parameter suffix for parameterized tests
+        # e.g., "test_foo[param]" → "test_foo"
+        base_test_name = self._strip_test_parameters(failure.test_name)
+
         success = self.ast_patcher.patch_test_function(
             failure.test_file,
-            failure.test_name,
+            base_test_name,
             fixed_code
         )
 
@@ -268,6 +272,23 @@ class AutoTestFixerOrchestrator:
         else:
             print(f"  ✗ Fix application failed")
             return False
+
+    def _strip_test_parameters(self, test_name: str) -> str:
+        """
+        Strip pytest parameter suffix from test name.
+
+        Parameterized tests have names like "test_foo[param]" but the
+        actual function in AST is just "test_foo".
+
+        Args:
+            test_name: Full test name with parameters
+
+        Returns:
+            Base test name without parameters
+        """
+        if '[' in test_name:
+            return test_name.split('[')[0]
+        return test_name
 
     def _read_test_function(self, failure: TestFailure) -> str:
         """
@@ -287,8 +308,11 @@ class AutoTestFixerOrchestrator:
             import ast
             tree = ast.parse(content)
 
+            # Strip parameter suffix for parameterized tests
+            base_test_name = self._strip_test_parameters(failure.test_name)
+
             for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef) and node.name == failure.test_name:
+                if isinstance(node, ast.FunctionDef) and node.name == base_test_name:
                     return ast.unparse(node)
 
             return content  # Fallback to full file

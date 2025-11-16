@@ -107,13 +107,17 @@ class ASTContextExtractor:
 
         Args:
             tree: AST tree
-            func_name: Function name to extract
+            func_name: Function name to extract (may include parameters like "test_foo[param]")
 
         Returns:
             Source code of the function
         """
+        # Strip parameter suffix for parameterized tests
+        # e.g., "test_foo[param]" → "test_foo"
+        base_func_name = func_name.split('[')[0] if '[' in func_name else func_name
+
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            if isinstance(node, ast.FunctionDef) and node.name == base_func_name:
                 return ast.unparse(node)
 
         return ""

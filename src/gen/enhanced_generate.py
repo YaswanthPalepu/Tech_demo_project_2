@@ -604,14 +604,14 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
     
     conftest_path = _create_universal_conftest(output_dir, target_root)
     print(f"Created universal conftest: {conftest_path}")
-    
-    should_generate, changed_files, deleted_files = should_generate_tests(str(target_root))
-    
+
+    should_generate, changed_files, deleted_files = should_generate_tests(str(target_root), str(output_dir))
+
     if not should_generate:
         print("No changes detected")
         return []
-    
-    prepare_for_generation(str(target_root), changed_files, deleted_files)
+
+    prepare_for_generation(str(target_root), changed_files, deleted_files, str(output_dir))
     
     force_generation = os.getenv("TESTGEN_FORCE", "").lower() in ["true", "1", "yes"]
     
@@ -705,8 +705,8 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
                 traceback.print_exc()
     
     if generated_files and changed_files:
-        finalize_generation(str(target_root), changed_files, generated_files)
-    
+        finalize_generation(str(target_root), changed_files, generated_files, str(output_dir))
+
     change_summary = {
         "added_or_modified": len(changed_files),
         "deleted": len(deleted_files),

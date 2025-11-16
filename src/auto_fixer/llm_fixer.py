@@ -83,15 +83,23 @@ Return the complete fixed test function code."""
 
         try:
             # Call LLM
-            response = self.client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
-                messages=[
+            # Build request parameters
+            request_params = {
+                "model": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
+                "messages": [
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.2,  # Low temperature for consistent fixes
-                max_tokens=2000
-            )
+                "max_tokens": 2000
+            }
+
+            # Only set temperature if environment variable is set
+            # Some Azure deployments don't support custom temperature
+            temp = os.getenv("AUTOFIXER_LLM_TEMPERATURE")
+            if temp is not None:
+                request_params["temperature"] = float(temp)
+
+            response = self.client.chat.completions.create(**request_params)
 
             # Extract fixed code
             content = response.choices[0].message.content.strip()
@@ -241,15 +249,23 @@ You may need to fix imports, fixtures, or the test function itself.
 Return the COMPLETE fixed test file."""
 
         try:
-            response = self.client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
-                messages=[
+            # Build request parameters
+            request_params = {
+                "model": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
+                "messages": [
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.2,
-                max_tokens=4000
-            )
+                "max_tokens": 4000
+            }
+
+            # Only set temperature if environment variable is set
+            # Some Azure deployments don't support custom temperature
+            temp = os.getenv("AUTOFIXER_LLM_TEMPERATURE")
+            if temp is not None:
+                request_params["temperature"] = float(temp)
+
+            response = self.client.chat.completions.create(**request_params)
 
             content = response.choices[0].message.content.strip()
             return self._extract_code(content)

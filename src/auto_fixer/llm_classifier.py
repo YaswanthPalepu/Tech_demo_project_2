@@ -93,15 +93,23 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
 
         try:
             # Call LLM
-            response = self.client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
-                messages=[
+            # Build request parameters
+            request_params = {
+                "model": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
+                "messages": [
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.1,  # Low temperature for consistent classification
-                max_tokens=2000
-            )
+                "max_tokens": 2000
+            }
+
+            # Only set temperature if environment variable is set
+            # Some Azure deployments don't support custom temperature
+            temp = os.getenv("AUTOFIXER_LLM_TEMPERATURE")
+            if temp is not None:
+                request_params["temperature"] = float(temp)
+
+            response = self.client.chat.completions.create(**request_params)
 
             # Parse response
             content = response.choices[0].message.content.strip()

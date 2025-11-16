@@ -25,6 +25,11 @@ find "$TARGET_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || 
 echo "✅ Coverage data cleaned"
 echo ""
 
+# 🔧 Ensure pytest-json-report is installed for auto-fix functionality
+echo "📦 Installing pytest-json-report for auto-fix feature..."
+pip install -q pytest-json-report || echo "⚠️  Failed to install pytest-json-report, auto-fix may not work"
+echo ""
+
 # 2️⃣ Detect Manual Tests
 echo "🔍 Running detect_manual_tests.py on target repo..."
 python src/detect_manual_tests.py "$TARGET_DIR" || true
@@ -88,6 +93,7 @@ PYCODE
   echo ""
 
   # Run pytest and capture output
+  MANUAL_TEST_EXIT_CODE=0
   pytest "$CURRENT_DIR/tests/manual" \
     --cov=$TARGET_DIR \
     --cov-config=pytest.ini \
@@ -95,12 +101,30 @@ PYCODE
     --cov-report=xml \
     --cov-report=html \
     --cov-fail-under=0 \
-    -v || true
+    --json-report \
+    --json-report-file="$CURRENT_DIR/.pytest_manual.json" \
+    -v || MANUAL_TEST_EXIT_CODE=$?
 
   echo "📊 Coverage report generated"
   coverage report --show-missing
 
   echo ""
+
+  # Auto-fix failing tests if any failures detected
+  if [ $MANUAL_TEST_EXIT_CODE -ne 0 ]; then
+    echo "⚠️  Some manual tests failed (exit code: $MANUAL_TEST_EXIT_CODE)"
+    echo "🔧 Starting auto-fix for failing manual tests..."
+    echo ""
+
+    python -m src.gen.auto_fix_tests \
+      --test-dir "tests/manual" \
+      --target-dir "$TARGET_DIR" \
+      --current-dir "$CURRENT_DIR" \
+      --max-iterations 3 || true
+
+    echo ""
+  fi
+
   echo "✅ Pytest completed for manual tests."
   echo ""
 
@@ -210,6 +234,7 @@ PYCODE
       # Check if AI tests were actually generated
       if [ -d "./tests/generated" ] && [ -d "./tests/manual" ]; then
         echo "🧪 Running combined test suite..."
+        COMBINED_TEST_EXIT_CODE=0
         pytest "$CURRENT_DIR/tests/manual" "$CURRENT_DIR/tests/generated" \
           --cov=$TARGET_DIR \
           --cov-config=pytest.ini \
@@ -217,9 +242,28 @@ PYCODE
           --cov-report=xml \
           --cov-report=html \
           --cov-fail-under=0 \
-          -v || true
-        
+          --json-report \
+          --json-report-file="$CURRENT_DIR/.pytest_combined.json" \
+          -v || COMBINED_TEST_EXIT_CODE=$?
+
         echo ""
+
+        # Auto-fix failing tests if any failures detected
+        if [ $COMBINED_TEST_EXIT_CODE -ne 0 ]; then
+          echo "⚠️  Some combined tests failed (exit code: $COMBINED_TEST_EXIT_CODE)"
+          echo "🔧 Starting auto-fix for failing tests..."
+          echo ""
+
+          # Fix generated tests first (more likely to have issues)
+          python -m src.gen.auto_fix_tests \
+            --test-dir "tests/generated" \
+            --target-dir "$TARGET_DIR" \
+            --current-dir "$CURRENT_DIR" \
+            --max-iterations 3 || true
+
+          echo ""
+        fi
+
         echo "📊 Combined Coverage Analysis:"
         coverage report --show-missing
         
@@ -328,6 +372,7 @@ find ./tests/generated -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
 # Run pytest on AI-generated tests
 if [ "$TEST_COUNT" -gt 0 ]; then
   echo "🧪 Running pytest on AI-generated tests..."
+  AI_TEST_EXIT_CODE=0
   pytest "$CURRENT_DIR/tests/generated" \
     --cov=$TARGET_DIR \
     --cov-config=pytest.ini \
@@ -335,9 +380,27 @@ if [ "$TEST_COUNT" -gt 0 ]; then
     --cov-report=xml \
     --cov-report=html \
     --cov-fail-under=0 \
-    -v || true
+    --json-report \
+    --json-report-file="$CURRENT_DIR/.pytest_generated.json" \
+    -v || AI_TEST_EXIT_CODE=$?
 
   echo ""
+
+  # Auto-fix failing tests if any failures detected
+  if [ $AI_TEST_EXIT_CODE -ne 0 ]; then
+    echo "⚠️  Some AI-generated tests failed (exit code: $AI_TEST_EXIT_CODE)"
+    echo "🔧 Starting auto-fix for failing AI-generated tests..."
+    echo ""
+
+    python -m src.gen.auto_fix_tests \
+      --test-dir "tests/generated" \
+      --target-dir "$TARGET_DIR" \
+      --current-dir "$CURRENT_DIR" \
+      --max-iterations 3 || true
+
+    echo ""
+  fi
+
   echo "✅ Pytest completed for AI-generated tests."
   echo ""
 

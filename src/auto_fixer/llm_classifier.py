@@ -100,7 +100,7 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}
                 ],
-                "max_tokens": 2000
+                "max_completion_tokens": 2000
             }
 
             # Only set temperature if environment variable is set

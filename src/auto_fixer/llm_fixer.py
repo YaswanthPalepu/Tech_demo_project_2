@@ -90,7 +90,7 @@ Return the complete fixed test function code."""
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}
                 ],
-                "max_tokens": 2000
+                "max_completion_tokens": 2000
             }
 
             # Only set temperature if environment variable is set
@@ -256,7 +256,7 @@ Return the COMPLETE fixed test file."""
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
-                "max_tokens": 4000
+                "max_completion_tokens": 4000
             }
 
             # Only set temperature if environment variable is set

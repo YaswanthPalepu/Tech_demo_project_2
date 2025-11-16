@@ -64,11 +64,17 @@ class ASTPatcher:
 
         # Validate patched content before writing
         try:
-            ast.parse(patched_content)
+            patched_tree = ast.parse(patched_content)
         except SyntaxError as e:
             print(f"Error: Patched code has syntax error at line {e.lineno}: {e.msg}")
             if e.text:
                 print(f"  Problem line: {e.text.strip()}")
+            print(f"  Keeping original file unchanged")
+            return False
+
+        # Validate for pytest-specific issues (duplicate parametrize decorators)
+        if not self._validate_pytest_decorators(patched_tree):
+            print(f"Error: Patched code has duplicate @pytest.mark.parametrize decorators")
             print(f"  Keeping original file unchanged")
             return False
 
@@ -256,7 +262,13 @@ class ASTPatcher:
             with open(test_file_path, 'r') as f:
                 content = f.read()
 
-            ast.parse(content)
+            tree = ast.parse(content)
+
+            # Also validate pytest-specific issues
+            if not self._validate_pytest_decorators(tree):
+                print(f"Validation failed: Duplicate @pytest.mark.parametrize decorators found")
+                return False
+
             return True
 
         except SyntaxError as e:
@@ -265,3 +277,52 @@ class ASTPatcher:
         except FileNotFoundError:
             print(f"File not found: {test_file_path}")
             return False
+
+    def _validate_pytest_decorators(self, tree: ast.AST) -> bool:
+        """
+        Validate that there are no duplicate @pytest.mark.parametrize decorators.
+
+        Args:
+            tree: AST tree to validate
+
+        Returns:
+            True if no duplicates found, False otherwise
+        """
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                # Track parametrize parameter names for this function
+                param_names = []
+
+                for decorator in node.decorator_list:
+                    param_name = self._get_parametrize_param_name(decorator)
+                    if param_name:
+                        if param_name in param_names:
+                            # Duplicate found
+                            print(f"  Found duplicate parametrize '{param_name}' in function '{node.name}'")
+                            return False
+                        param_names.append(param_name)
+
+        return True
+
+    def _get_parametrize_param_name(self, decorator: ast.expr) -> str:
+        """
+        Extract parameter name from @pytest.mark.parametrize decorator.
+
+        Args:
+            decorator: Decorator AST node
+
+        Returns:
+            Parameter name if this is a parametrize decorator, empty string otherwise
+        """
+        # Pattern: @pytest.mark.parametrize("param_name", ...)
+        if isinstance(decorator, ast.Call):
+            if isinstance(decorator.func, ast.Attribute):
+                # Check if it's pytest.mark.parametrize
+                if (isinstance(decorator.func.value, ast.Attribute) and
+                    decorator.func.value.attr == "mark" and
+                    decorator.func.attr == "parametrize"):
+                    # Get the first argument (parameter name)
+                    if decorator.args and isinstance(decorator.args[0], ast.Constant):
+                        return decorator.args[0].value
+
+        return ""

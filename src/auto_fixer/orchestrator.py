@@ -1,0 +1,344 @@
+"""
+Auto Test Fixer Orchestrator
+
+Main orchestrator that coordinates the entire test fixing workflow.
+"""
+
+import json
+from typing import List, Dict, Any
+from dataclasses import dataclass, asdict
+import os
+
+from .failure_parser import FailureParser, TestFailure
+from .rule_classifier import RuleBasedClassifier
+from .llm_classifier import LLMClassifier, LLMClassification
+from .ast_context_extractor import ASTContextExtractor
+from .llm_fixer import LLMFixer
+from .ast_patcher import ASTPatcher
+
+
+@dataclass
+class FixResult:
+    """Result of a fix attempt."""
+    test_file: str
+    test_name: str
+    classification: str
+    fix_attempted: bool
+    fix_successful: bool
+    reason: str
+
+
+class AutoTestFixerOrchestrator:
+    """
+    Orchestrates the automatic test fixing workflow.
+
+    Workflow:
+    1. Run pytest with JSON output
+    2. Parse all failures
+    3. Classify each failure (rule-based + LLM)
+    4. Extract AST context for test mistakes
+    5. Generate fixes using LLM
+    6. Apply fixes using AST patcher
+    7. Re-run tests
+    8. Repeat until all test mistakes fixed or max iterations reached
+    """
+
+    def __init__(
+        self,
+        test_directory: str = "tests",
+        project_root: str = ".",
+        max_iterations: int = 3
+    ):
+        self.test_directory = test_directory
+        self.project_root = project_root
+        self.max_iterations = max_iterations
+
+        # Initialize components
+        self.failure_parser = FailureParser(test_directory)
+        self.rule_classifier = RuleBasedClassifier()
+        self.llm_classifier = LLMClassifier()
+        self.context_extractor = ASTContextExtractor(project_root)
+        self.llm_fixer = LLMFixer()
+        self.ast_patcher = ASTPatcher()
+
+        # Track results
+        self.fix_history: List[FixResult] = []
+        self.code_bugs: List[TestFailure] = []
+
+    def run(self, extra_pytest_args: List[str] = None) -> Dict[str, Any]:
+        """
+        Run the auto-fixer workflow.
+
+        Args:
+            extra_pytest_args: Additional pytest arguments
+
+        Returns:
+            Summary of fixes and results
+        """
+        print("=" * 80)
+        print("AUTO TEST FIXER - STARTING")
+        print("=" * 80)
+
+        iteration = 0
+        all_tests_fixed = False
+
+        while iteration < self.max_iterations and not all_tests_fixed:
+            iteration += 1
+            print(f"\n{'=' * 80}")
+            print(f"ITERATION {iteration}/{self.max_iterations}")
+            print(f"{'=' * 80}\n")
+
+            # Step 1: Run pytest and parse failures
+            print("Step 1: Running pytest and parsing failures...")
+            failures = self.failure_parser.run_and_parse(extra_pytest_args)
+
+            if not failures:
+                print("✓ No test failures found!")
+                all_tests_fixed = True
+                break
+
+            print(f"Found {len(failures)} failing test(s)")
+
+            # Step 2-6: Process each failure
+            test_mistakes_fixed = []
+            code_bugs_found = []
+
+            for idx, failure in enumerate(failures, 1):
+                print(f"\n--- Processing failure {idx}/{len(failures)} ---")
+                print(f"Test: {failure.test_name} in {failure.test_file}")
+
+                result = self._process_failure(failure)
+                self.fix_history.append(result)
+
+                if result.classification == "code_bug":
+                    code_bugs_found.append(failure)
+                    print(f"  Classification: CODE BUG (skipped)")
+                elif result.fix_successful:
+                    test_mistakes_fixed.append(failure)
+                    print(f"  Classification: TEST MISTAKE (fixed)")
+                else:
+                    print(f"  Classification: TEST MISTAKE (fix failed)")
+
+            print(f"\n{'=' * 80}")
+            print(f"Iteration {iteration} Summary:")
+            print(f"  Test mistakes fixed: {len(test_mistakes_fixed)}")
+            print(f"  Code bugs found: {len(code_bugs_found)}")
+            print(f"{'=' * 80}")
+
+            # Update code bugs list
+            self.code_bugs.extend(code_bugs_found)
+
+            # If no test mistakes were fixed, stop iterating
+            if len(test_mistakes_fixed) == 0:
+                print("\nNo test mistakes fixed in this iteration. Stopping.")
+                break
+
+        # Final summary
+        return self._generate_summary(iteration)
+
+    def _process_failure(self, failure: TestFailure) -> FixResult:
+        """
+        Process a single test failure.
+
+        Args:
+            failure: TestFailure object
+
+        Returns:
+            FixResult object
+        """
+        # Step 2: Rule-based classification
+        rule_classification = self.rule_classifier.classify(failure)
+
+        if rule_classification == "test_mistake":
+            print(f"  Rule classifier: test_mistake")
+            return self._fix_test_mistake(failure, "rule-based classification")
+
+        # Step 3: LLM classification
+        print(f"  Rule classifier: unknown, using LLM...")
+
+        # Step 4: Extract AST context
+        test_code = self._read_test_function(failure)
+        source_code = self.context_extractor.get_full_context_string(
+            failure.test_file,
+            failure.test_name
+        )
+
+        # LLM classification
+        llm_result = self.llm_classifier.classify(failure, test_code, source_code)
+        print(f"  LLM classifier: {llm_result.classification} ({llm_result.reason})")
+
+        if llm_result.classification == "test_mistake":
+            # Try to use LLM's suggested fix first
+            if llm_result.fixed_code:
+                success = self._apply_fix(failure, llm_result.fixed_code)
+                if success:
+                    return FixResult(
+                        test_file=failure.test_file,
+                        test_name=failure.test_name,
+                        classification="test_mistake",
+                        fix_attempted=True,
+                        fix_successful=True,
+                        reason=llm_result.reason
+                    )
+
+            # If LLM fix didn't work, generate a new fix
+            return self._fix_test_mistake(failure, llm_result.reason)
+
+        # Code bug - don't fix
+        return FixResult(
+            test_file=failure.test_file,
+            test_name=failure.test_name,
+            classification="code_bug",
+            fix_attempted=False,
+            fix_successful=False,
+            reason=llm_result.reason
+        )
+
+    def _fix_test_mistake(self, failure: TestFailure, reason: str) -> FixResult:
+        """
+        Fix a test mistake.
+
+        Args:
+            failure: TestFailure object
+            reason: Reason for classification
+
+        Returns:
+            FixResult object
+        """
+        # Step 4: Extract context
+        test_code = self._read_test_function(failure)
+        source_code = self.context_extractor.get_full_context_string(
+            failure.test_file,
+            failure.test_name
+        )
+
+        # Step 5: Generate fix
+        print(f"  Generating fix...")
+        fixed_code = self.llm_fixer.fix_test(failure, test_code, source_code)
+
+        if not fixed_code:
+            return FixResult(
+                test_file=failure.test_file,
+                test_name=failure.test_name,
+                classification="test_mistake",
+                fix_attempted=True,
+                fix_successful=False,
+                reason=f"{reason} (fix generation failed)"
+            )
+
+        # Step 6: Apply fix
+        success = self._apply_fix(failure, fixed_code)
+
+        return FixResult(
+            test_file=failure.test_file,
+            test_name=failure.test_name,
+            classification="test_mistake",
+            fix_attempted=True,
+            fix_successful=success,
+            reason=reason
+        )
+
+    def _apply_fix(self, failure: TestFailure, fixed_code: str) -> bool:
+        """
+        Apply a fix to a test file.
+
+        Args:
+            failure: TestFailure object
+            fixed_code: Fixed function code
+
+        Returns:
+            True if patch successful
+        """
+        print(f"  Applying fix...")
+
+        success = self.ast_patcher.patch_test_function(
+            failure.test_file,
+            failure.test_name,
+            fixed_code
+        )
+
+        if success:
+            # Validate the patch
+            if self.ast_patcher.validate_patch(failure.test_file):
+                print(f"  ✓ Fix applied successfully")
+                return True
+            else:
+                print(f"  ✗ Fix validation failed")
+                return False
+        else:
+            print(f"  ✗ Fix application failed")
+            return False
+
+    def _read_test_function(self, failure: TestFailure) -> str:
+        """
+        Read the failing test function code.
+
+        Args:
+            failure: TestFailure object
+
+        Returns:
+            Test function source code
+        """
+        try:
+            with open(failure.test_file, 'r') as f:
+                content = f.read()
+
+            # Try to extract just the function
+            import ast
+            tree = ast.parse(content)
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef) and node.name == failure.test_name:
+                    return ast.unparse(node)
+
+            return content  # Fallback to full file
+
+        except Exception as e:
+            print(f"Error reading test function: {e}")
+            return ""
+
+    def _generate_summary(self, iterations: int) -> Dict[str, Any]:
+        """
+        Generate final summary report.
+
+        Args:
+            iterations: Number of iterations run
+
+        Returns:
+            Summary dictionary
+        """
+        total_failures = len(self.fix_history)
+        test_mistakes = [r for r in self.fix_history if r.classification == "test_mistake"]
+        code_bugs = [r for r in self.fix_history if r.classification == "code_bug"]
+        successful_fixes = [r for r in test_mistakes if r.fix_successful]
+
+        summary = {
+            "iterations": iterations,
+            "total_failures": total_failures,
+            "test_mistakes": len(test_mistakes),
+            "code_bugs": len(code_bugs),
+            "successful_fixes": len(successful_fixes),
+            "failed_fixes": len(test_mistakes) - len(successful_fixes),
+            "fix_history": [asdict(r) for r in self.fix_history],
+            "code_bugs_list": [f.to_dict() for f in self.code_bugs]
+        }
+
+        # Print summary
+        print("\n" + "=" * 80)
+        print("FINAL SUMMARY")
+        print("=" * 80)
+        print(f"Iterations: {iterations}/{self.max_iterations}")
+        print(f"Total failures processed: {total_failures}")
+        print(f"Test mistakes: {len(test_mistakes)}")
+        print(f"  - Fixed: {len(successful_fixes)}")
+        print(f"  - Failed to fix: {len(test_mistakes) - len(successful_fixes)}")
+        print(f"Code bugs (not fixed): {len(code_bugs)}")
+        print("=" * 80)
+
+        # Save report
+        with open("auto_fixer_report.json", "w") as f:
+            json.dump(summary, f, indent=2)
+
+        print("\nDetailed report saved to: auto_fixer_report.json")
+
+        return summary

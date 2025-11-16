@@ -62,6 +62,16 @@ class ASTPatcher:
         if not patched_content:
             return False
 
+        # Validate patched content before writing
+        try:
+            ast.parse(patched_content)
+        except SyntaxError as e:
+            print(f"Error: Patched code has syntax error at line {e.lineno}: {e.msg}")
+            if e.text:
+                print(f"  Problem line: {e.text.strip()}")
+            print(f"  Keeping original file unchanged")
+            return False
+
         # Write patched content
         try:
             with open(test_file_path, 'w') as f:
@@ -223,7 +233,10 @@ class ASTPatcher:
             return True
 
         except SyntaxError as e:
-            print(f"Error: New content has syntax errors: {e}")
+            print(f"Error: New content has syntax error at line {e.lineno}: {e.msg}")
+            if e.text:
+                print(f"  Problem line: {e.text.strip()}")
+            print(f"  Keeping original file unchanged")
             return False
         except IOError as e:
             print(f"Error writing file: {e}")

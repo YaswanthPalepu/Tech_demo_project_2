@@ -1,0 +1,167 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                   AUTO-HEALING TEST LOOP - VISUAL GUIDE                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ YOUR MISTAKE vs CORRECT USAGE                                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+❌ WHAT YOU DID (WRONG):
+   python -m src.test_healing.auto_healing_loop --target "tests/generated"
+                                                          ^^^^^^^^^^^^^^^^
+                                                          This is the TESTS dir!
+
+✅ CORRECT WAY:
+   python -m src.test_healing.auto_healing_loop --target ./target
+                                                          ^^^^^^^^
+                                                          This is SOURCE CODE!
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ FILE STRUCTURE I CREATED FOR YOU                                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Tech_demo_project_2/
+│
+├── target/                          ← SOURCE CODE TO TEST
+│   └── app/
+│       ├── __init__.py
+│       ├── models.py                  User class, calculate(), validate_email()
+│       └── utils.py                   format_username(), validate_password()
+│
+├── tests/generated/                 ← TESTS (WITH INTENTIONAL ERRORS)
+│   ├── conftest.py                    Setup for tests
+│   └── test_with_llm_mistakes.py      5 tests (3 pass, 2 have LLM errors)
+│
+└── src/test_healing/                ← AUTO-HEALING SYSTEM
+    ├── auto_healing_loop.py           Main orchestrator
+    ├── pytest_failure_parser.py       Parse failures
+    ├── test_ast_extractor.py          Extract test code
+    ├── test_healer.py                 Fix with LLM
+    └── integration.py                 Integrated workflow
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ THE 2 LLM MISTAKES I CREATED                                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+ERROR #1: Syntax Error (Line 30)
+────────────────────────────────
+❌ BROKEN:                          ✅ FIXED:
+def test_calculate()                def test_calculate():
+    result = calculate(5, 3)            result = calculate(5, 3)
+    assert result == 8                  assert result == 8
+
+ERROR #2: Import Error (Line 43)
+─────────────────────────────────
+❌ BROKEN:                          ✅ FIXED:
+from app.utils import validate_email    from app.models import validate_email
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ HOW AUTO-HEALING WORKS (STEP BY STEP)                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+STEP 1: Run pytest
+├─> pytest tests/generated -v
+└─> Result: 2 failed, 3 passed
+
+STEP 2: Parse failures
+├─> pytest_failure_parser.py reads output
+├─> Extracts: test_calculate - SyntaxError: expected ':'
+└─> Extracts: test_email_validation - ImportError
+
+STEP 3: Classify errors
+├─> test_calculate: Syntax error in test → LLM mistake ✓
+└─> test_email_validation: Import error in test → LLM mistake ✓
+
+STEP 4: Extract test code
+├─> test_ast_extractor.py parses tests/generated/test_with_llm_mistakes.py
+└─> Gets source code of failing tests
+
+STEP 5: Get source context
+├─> analyzer.py analyzes target/ directory
+├─> Finds: validate_email is in models.py (not utils.py)
+└─> Provides context to LLM
+
+STEP 6: Send to LLM
+├─> test_healer.py combines:
+│   ├─ Failing test code
+│   ├─ Error details
+│   └─ Source code context
+└─> Sends to OpenAI
+
+STEP 7: LLM generates fix
+├─> Analyzes error
+├─> Generates corrected test
+└─> Returns fixed code
+
+STEP 8: Replace test
+├─> auto_healing_loop.py validates fix
+└─> Replaces broken test in file
+
+STEP 9: Re-run pytest
+├─> pytest tests/generated -v
+└─> Result: 5 passed, 0 failed ✓
+
+SUCCESS! 🎉
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ QUICK COMMAND REFERENCE                                                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+# Verify system works (no API key needed)
+python test_healing_verify.py
+
+# Check syntax error
+python -c "import ast; ast.parse(open('tests/generated/test_with_llm_mistakes.py').read())"
+
+# Run auto-healing (requires OpenAI API key)
+export OPENAI_API_KEY="sk-..."
+python -m src.test_healing.auto_healing_loop --target ./target
+
+# View session report after healing
+cat tests/generated/healing_session_report.json
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ UNDERSTANDING THE PARAMETERS                                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+--target PATH
+    └─> Points to YOUR SOURCE CODE
+    └─> Examples: ./target, ./src, ./app, ./myproject
+    └─> This is what you're TESTING
+
+--tests-dir PATH (optional, default: tests/generated)
+    └─> Points to GENERATED TESTS
+    └─> This is WHERE the tests are
+
+--max-iterations N (optional, default: 3)
+    └─> How many times to retry healing
+
+--full-source (optional flag)
+    └─> Use complete source files instead of AST snippets
+    └─> Slower but more accurate
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ DOCUMENTATION FILES                                                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+1. RUN_AUTO_HEALING_DEMO.md          Start here! Complete demo with your setup
+2. COMPLETE_WORKFLOW_EXPLAINED.md    Detailed step-by-step workflow
+3. QUICK_START_AUTO_HEALING.md       Quick reference guide
+4. src/test_healing/README.md        Complete technical documentation
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ TRY IT NOW!                                                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+python -m src.test_healing.auto_healing_loop --target ./target
+
+Expected output:
+  ✓ Initial failures: 2
+  ✓ Healable failures: 2
+  ✓ Iteration 1: 2 healed
+  ✓ Final failures: 0
+  ✓ SUCCESS!
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ Need help? Read: RUN_AUTO_HEALING_DEMO.md                                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝

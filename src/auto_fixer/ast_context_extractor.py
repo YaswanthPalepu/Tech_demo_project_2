@@ -6,6 +6,7 @@ Extracts relevant source code context based on test imports.
 
 import ast
 import os
+import re
 from typing import Dict, List, Set, Optional
 from pathlib import Path
 
@@ -20,6 +21,12 @@ class ASTContextExtractor:
     - Routes
     - Models
     - Utils
+
+    Advanced features:
+    - Targeted extraction (finds functions at any line number)
+    - Recursive dependency resolution
+    - Error traceback parsing
+    - Smart caching for performance
     """
 
     def __init__(self, project_root: str = ".", verbose: bool = False):
@@ -27,11 +34,14 @@ class ASTContextExtractor:
         self.verbose = verbose
         # Max lines to extract from a single source file (prevent token overflow)
         self.max_source_lines = 300
+        # Cache for source maps (performance optimization)
+        self._source_map_cache = {}
 
     def extract_context(
         self,
         test_file_path: str,
-        test_function_name: str
+        test_function_name: str,
+        error_message: str = ""
     ) -> Dict[str, str]:
         """
         Extract relevant source code context for a failing test.
@@ -39,6 +49,7 @@ class ASTContextExtractor:
         Args:
             test_file_path: Path to the test file
             test_function_name: Name of the failing test function
+            error_message: Error message with traceback (for targeted extraction)
 
         Returns:
             Dictionary mapping source file paths to their relevant code
@@ -71,7 +82,17 @@ class ASTContextExtractor:
         # Extract relevant code from each source file
         context = {}
         for source_file in source_files:
-            code = self._extract_relevant_code(source_file, test_imports)
+            # Use targeted extraction if error message provided, otherwise fallback
+            if error_message:
+                code = self._extract_relevant_code_targeted(
+                    source_file=source_file,
+                    test_file=test_file_path,
+                    error_message=error_message,
+                    max_lines=self.max_source_lines
+                )
+            else:
+                code = self._extract_relevant_code(source_file, test_imports)
+
             if code:
                 context[source_file] = code
 
@@ -369,10 +390,471 @@ class ASTContextExtractor:
 
         return result if result else content[:self.max_source_lines * 80]  # Fallback
 
+    # ========================================================================
+    # ADVANCED TARGETED EXTRACTION COMPONENTS
+    # ========================================================================
+
+    def _parse_test_imports_detailed(self, test_file: str) -> Dict[str, Set[str]]:
+        """
+        Parse test file to find what it imports from each module (detailed version).
+
+        Args:
+            test_file: Path to test file
+
+        Returns:
+            Dict mapping module paths to imported names
+            Example: {
+                'app.main': {'predict_batch', 'validate_sentence'},
+                'app.utils': {'sanitize_input'}
+            }
+        """
+        try:
+            with open(test_file, 'r') as f:
+                tree = ast.parse(f.read())
+        except (FileNotFoundError, SyntaxError):
+            return {}
+
+        imports = {}  # module_path -> set of imported names
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                # import app.main as app_main
+                for alias in node.names:
+                    module_path = alias.name  # 'app.main'
+                    import_name = alias.asname or alias.name  # 'app_main'
+
+                    if module_path not in imports:
+                        imports[module_path] = set()
+                    imports[module_path].add(import_name)
+
+            elif isinstance(node, ast.ImportFrom):
+                # from app.main import predict_batch, validate_sentence
+                module_path = node.module or ""
+
+                if module_path not in imports:
+                    imports[module_path] = set()
+
+                for alias in node.names:
+                    import_name = alias.name  # 'predict_batch'
+                    imports[module_path].add(import_name)
+
+        if self.verbose and imports:
+            print(f"  📥 Parsed test imports:")
+            for module, names in list(imports.items())[:3]:  # Show first 3
+                names_str = ', '.join(list(names)[:5])
+                if len(names) > 5:
+                    names_str += f', ... ({len(names)} total)'
+                print(f"      {module}: {names_str}")
+
+        return imports
+
+    def _build_source_map(self, source_file: str) -> Dict[str, Dict]:
+        """
+        Build an index of all definitions in the source file.
+
+        Args:
+            source_file: Path to source file
+
+        Returns:
+            Dict mapping names to definition info
+            Format: {
+                'function_name': {
+                    'node': ast.FunctionDef,
+                    'line_start': int,
+                    'line_end': int,
+                    'code': str
+                }
+            }
+        """
+        # Check cache first
+        if source_file in self._source_map_cache:
+            return self._source_map_cache[source_file]
+
+        try:
+            with open(source_file, 'r') as f:
+                content = f.read()
+        except (FileNotFoundError, IOError):
+            return {}
+
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return {}
+
+        source_map = {}
+
+        # Walk through all top-level definitions
+        for node in tree.body:
+            name = None
+
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                # Function definitions
+                name = node.name
+
+            elif isinstance(node, ast.ClassDef):
+                # Class definitions
+                name = node.name
+
+            elif isinstance(node, ast.Assign):
+                # Variable assignments (constants)
+                # MODEL = None
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        name = target.id
+                        break
+
+            if name:
+                # Store definition info
+                try:
+                    code = ast.unparse(node)
+                except:
+                    code = ""  # Fallback if unparsing fails
+
+                source_map[name] = {
+                    'node': node,
+                    'line_start': node.lineno if hasattr(node, 'lineno') else 0,
+                    'line_end': node.end_lineno if hasattr(node, 'end_lineno') else 0,
+                    'code': code
+                }
+
+        # Cache the result
+        self._source_map_cache[source_file] = source_map
+
+        if self.verbose and source_map:
+            print(f"  🗺️  Built source map: {len(source_map)} definitions found")
+
+        return source_map
+
+    def _parse_error_traceback(
+        self,
+        error_message: str,
+        source_file: str
+    ) -> Set[str]:
+        """
+        Extract function names from error traceback.
+
+        Args:
+            error_message: The full error message with traceback
+            source_file: Path to source file (to filter relevant entries)
+
+        Returns:
+            Set of function names that appear in the traceback
+        """
+        functions = set()
+
+        if not error_message:
+            return functions
+
+        # Normalize paths for comparison
+        try:
+            source_file_normalized = os.path.abspath(source_file)
+            source_file_name = os.path.basename(source_file)
+        except:
+            return functions
+
+        # Pattern: File "path/to/file.py", line 123, in function_name
+        # Matches both:
+        #   File "/home/user/app/main.py", line 520, in predict_batch
+        #   File "app/main.py", line 520, in predict_batch
+        pattern = r'File\s+"([^"]+)",\s+line\s+(\d+),\s+in\s+(\w+)'
+
+        for match in re.finditer(pattern, error_message):
+            file_path = match.group(1)
+            line_number = int(match.group(2))
+            function_name = match.group(3)
+
+            # Check if this traceback entry is from our source file
+            # Match by filename or full path
+            try:
+                file_path_normalized = os.path.abspath(file_path)
+                file_name = os.path.basename(file_path)
+
+                if (file_path_normalized == source_file_normalized or
+                    file_name == source_file_name):
+                    functions.add(function_name)
+
+                    if self.verbose:
+                        print(f"      📍 Found in traceback: {function_name} (line {line_number})")
+            except:
+                # If path normalization fails, try basic string matching
+                if source_file_name in file_path:
+                    functions.add(function_name)
+
+        return functions
+
+    def _find_dependencies(
+        self,
+        node: ast.AST,
+        source_map: Dict[str, Dict],
+        max_depth: int = 3,
+        visited: Optional[Set[str]] = None
+    ) -> Set[str]:
+        """
+        Find all functions/variables that a node depends on (recursive).
+
+        Args:
+            node: AST node to analyze
+            source_map: Map of all available definitions
+            max_depth: Maximum recursion depth (prevent infinite loops)
+            visited: Set of already visited names (for cycle detection)
+
+        Returns:
+            Set of dependency names
+        """
+        if visited is None:
+            visited = set()
+
+        if max_depth <= 0:
+            return set()
+
+        dependencies = set()
+
+        # Walk through the function/class body
+        for child in ast.walk(node):
+            # Find Name nodes (variable/function references)
+            if isinstance(child, ast.Name):
+                name = child.id
+
+                # Check if this name is defined in our source map
+                if name in source_map and name not in visited:
+                    dependencies.add(name)
+                    visited.add(name)
+
+                    # Recursively find dependencies of this dependency
+                    dep_node = source_map[name]['node']
+                    try:
+                        sub_deps = self._find_dependencies(
+                            dep_node,
+                            source_map,
+                            max_depth - 1,
+                            visited
+                        )
+                        dependencies.update(sub_deps)
+                    except RecursionError:
+                        # Safety net for deep recursion
+                        pass
+
+            # Find function calls
+            elif isinstance(child, ast.Call):
+                # Direct function call: predict(text)
+                if isinstance(child.func, ast.Name):
+                    name = child.func.id
+
+                    if name in source_map and name not in visited:
+                        dependencies.add(name)
+                        visited.add(name)
+
+                        # Recursively find dependencies
+                        dep_node = source_map[name]['node']
+                        try:
+                            sub_deps = self._find_dependencies(
+                                dep_node,
+                                source_map,
+                                max_depth - 1,
+                                visited
+                            )
+                            dependencies.update(sub_deps)
+                        except RecursionError:
+                            pass
+
+                # Attribute call: obj.method()
+                elif isinstance(child.func, ast.Attribute):
+                    # MODEL.predict() - the object is 'MODEL'
+                    if isinstance(child.func.value, ast.Name):
+                        obj_name = child.func.value.id
+
+                        if obj_name in source_map and obj_name not in visited:
+                            dependencies.add(obj_name)
+                            visited.add(obj_name)
+
+        return dependencies
+
+    def _extract_relevant_code_targeted(
+        self,
+        source_file: str,
+        test_file: str,
+        error_message: str,
+        max_lines: int = 300
+    ) -> str:
+        """
+        Extract only the code relevant to the failing test (TARGETED VERSION).
+
+        Algorithm:
+        1. Parse test imports to find what test uses
+        2. Build source map to index all definitions
+        3. Parse error traceback for additional context
+        4. Find dependencies recursively
+        5. Extract targeted code with priority ordering
+
+        Args:
+            source_file: Path to source file
+            test_file: Path to test file
+            error_message: Error message with traceback
+            max_lines: Maximum lines to extract
+
+        Returns:
+            Extracted code string
+        """
+        try:
+            with open(source_file, 'r') as f:
+                content = f.read()
+        except (FileNotFoundError, IOError):
+            return ""
+
+        total_lines = len(content.split('\n'))
+
+        # If file is small enough, return everything
+        if total_lines <= max_lines:
+            return content
+
+        if self.verbose:
+            print(f"    🎯 Using targeted extraction for {os.path.basename(source_file)} ({total_lines} lines)...")
+
+        # Step 1: Parse test imports
+        test_imports = self._parse_test_imports_detailed(test_file)
+
+        # Get imported names from this source file
+        imported_names = set()
+        source_file_name = Path(source_file).stem  # 'main' from 'app/main.py'
+
+        for module_path, names in test_imports.items():
+            # Check if this module corresponds to our source file
+            # E.g., 'app.main' matches 'app/main.py'
+            if source_file_name in module_path.replace('.', '/'):
+                imported_names.update(names)
+
+        # Step 2: Build source map
+        source_map = self._build_source_map(source_file)
+
+        if not source_map:
+            # Fallback: return blind truncation
+            if self.verbose:
+                print(f"      ⚠️  Could not parse source file, using blind truncation")
+            return self._extract_relevant_code(source_file, set())
+
+        # Step 3: Parse error traceback
+        error_functions = self._parse_error_traceback(error_message, source_file)
+
+        # Step 4: Combine all target names
+        target_names = imported_names | error_functions
+
+        if self.verbose and target_names:
+            targets_str = ', '.join(list(target_names)[:5])
+            if len(target_names) > 5:
+                targets_str += f', ... ({len(target_names)} total)'
+            print(f"      🎯 Target functions: {targets_str}")
+
+        if not target_names:
+            # No specific targets found, fallback to blind truncation
+            if self.verbose:
+                print(f"      ⚠️  No specific targets found, using blind truncation")
+            return self._extract_relevant_code(source_file, set())
+
+        # Step 5: Extract with priority ordering
+        extracted = []
+        extracted_names = set()
+        current_lines = 0
+
+        # Priority 1: Imports (always include if space)
+        for name, info in source_map.items():
+            node = info['node']
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                code = info['code']
+                lines = len(code.split('\n'))
+
+                if current_lines + lines <= max_lines:
+                    extracted.append(code)
+                    extracted_names.add(name)
+                    current_lines += lines
+
+        # Priority 2: Constants used by target functions
+        all_dependencies = set()
+        for target in target_names:
+            if target in source_map:
+                try:
+                    deps = self._find_dependencies(
+                        source_map[target]['node'],
+                        source_map
+                    )
+                    all_dependencies.update(deps)
+                except:
+                    pass  # Skip if dependency finding fails
+
+        for name in all_dependencies:
+            if name not in extracted_names and name in source_map:
+                node = source_map[name]['node']
+                if isinstance(node, ast.Assign):
+                    code = source_map[name]['code']
+                    lines = len(code.split('\n'))
+
+                    if current_lines + lines <= max_lines:
+                        extracted.append(code)
+                        extracted_names.add(name)
+                        current_lines += lines
+
+        # Priority 3: Target functions (the ones actually used)
+        for target in target_names:
+            if target not in extracted_names and target in source_map:
+                code = source_map[target]['code']
+                lines = len(code.split('\n'))
+
+                if current_lines + lines <= max_lines:
+                    extracted.append(code)
+                    extracted_names.add(target)
+                    current_lines += lines
+
+                    if self.verbose:
+                        print(f"        ✓ Extracted: {target} ({lines} lines)")
+
+        # Priority 4: Dependencies of target functions
+        for dep in all_dependencies:
+            if dep not in extracted_names and dep in source_map:
+                code = source_map[dep]['code']
+                lines = len(code.split('\n'))
+
+                if current_lines + lines <= max_lines:
+                    extracted.append(code)
+                    extracted_names.add(dep)
+                    current_lines += lines
+
+                    if self.verbose:
+                        print(f"        ✓ Extracted: {dep} ({lines} lines, dependency)")
+
+        # Priority 5: Fill remaining space with other definitions
+        if current_lines < max_lines:
+            for name, info in source_map.items():
+                if name not in extracted_names:
+                    node = info['node']
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        code = info['code']
+                        lines = len(code.split('\n'))
+
+                        if current_lines + lines <= max_lines:
+                            extracted.append(code)
+                            extracted_names.add(name)
+                            current_lines += lines
+
+        # Build result
+        if not extracted:
+            # Fallback if nothing extracted
+            return self._extract_relevant_code(source_file, set())
+
+        result = "\n\n".join(extracted)
+
+        # Add metadata
+        result += f"\n\n# ... (extracted {current_lines} targeted lines from {total_lines} total)"
+        result += f"\n# Targeted extraction: {len(extracted_names)} definitions"
+
+        if self.verbose:
+            print(f"      ✅ Extracted {current_lines}/{total_lines} lines ({len(extracted_names)} definitions)")
+
+        return result
+
     def get_full_context_string(
         self,
         test_file_path: str,
-        test_function_name: str
+        test_function_name: str,
+        error_message: str = ""
     ) -> str:
         """
         Get a formatted string with all relevant context.
@@ -380,11 +862,12 @@ class ASTContextExtractor:
         Args:
             test_file_path: Path to test file
             test_function_name: Name of failing test
+            error_message: Error message with traceback (for targeted extraction)
 
         Returns:
             Formatted context string
         """
-        context = self.extract_context(test_file_path, test_function_name)
+        context = self.extract_context(test_file_path, test_function_name, error_message)
 
         if not context:
             return "# No relevant source code found"

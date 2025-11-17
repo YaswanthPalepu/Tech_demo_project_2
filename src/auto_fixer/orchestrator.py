@@ -162,11 +162,12 @@ class AutoTestFixerOrchestrator:
         # Step 3: LLM classification
         print(f"  Rule classifier: unknown, using LLM...")
 
-        # Step 4: Extract AST context
+        # Step 4: Extract AST context (with error message for targeted extraction)
         test_code = self._read_test_function(failure)
         source_code = self.context_extractor.get_full_context_string(
             failure.test_file,
-            failure.test_name
+            failure.test_name,
+            failure.error_message
         )
 
         # LLM classification
@@ -211,11 +212,12 @@ class AutoTestFixerOrchestrator:
         Returns:
             FixResult object
         """
-        # Step 4: Extract context
+        # Step 4: Extract context (with error message for targeted extraction)
         test_code = self._read_test_function(failure)
         source_code = self.context_extractor.get_full_context_string(
             failure.test_file,
-            failure.test_name
+            failure.test_name,
+            failure.error_message
         )
 
         # Step 5: Generate fix

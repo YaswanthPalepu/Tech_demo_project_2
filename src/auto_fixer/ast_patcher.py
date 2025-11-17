@@ -155,7 +155,19 @@ class ASTPatcher:
                 break
 
         if not function_node:
+            # Function not found - show what functions DO exist to help debug
+            available_functions = []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    available_functions.append(node.name)
+
             print(f"Error: Function '{function_name}' not found in file")
+            if available_functions:
+                print(f"  Available functions in file: {', '.join(available_functions[:10])}")
+                if len(available_functions) > 10:
+                    print(f"  ... and {len(available_functions) - 10} more")
+            else:
+                print(f"  No functions found in file!")
             return None
 
         # Get the line range of the function

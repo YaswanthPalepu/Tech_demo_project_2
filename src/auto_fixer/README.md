@@ -48,8 +48,9 @@ The Auto Test Fixer analyzes failing pytest tests and:
 
 6. **ASTPatcher** (`ast_patcher.py`)
    - Precisely replaces failing test functions using AST manipulation
+   - **Automatically cleans LLM-generated code** (removes duplicate decorators, etc.)
    - Preserves all other code, imports, and formatting
-   - Validates patches before writing
+   - Validates patches before writing (syntax + pytest-specific rules)
 
 7. **AutoTestFixerOrchestrator** (`orchestrator.py`)
    - Coordinates the entire workflow
@@ -98,6 +99,41 @@ The Auto Test Fixer analyzes failing pytest tests and:
 │    - Max iterations reached (default: 3)                    │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+## Automatic Cleanup
+
+The auto-fixer **automatically cleans up common LLM mistakes** before applying fixes. You don't need to run separate fix scripts!
+
+### What Gets Auto-Cleaned
+
+1. **Duplicate `@pytest.mark.parametrize` decorators**
+   - LLMs sometimes generate duplicate decorators
+   - Auto-cleanup removes duplicates before validation
+   - Prevents `ValueError: duplicate parametrization` errors
+
+2. **Markdown code blocks**
+   - Strips ` ```python ` wrappers
+   - Extracts clean Python code
+
+3. **Formatting issues**
+   - Normalizes indentation
+   - Removes extra whitespace
+
+### Example Output
+
+```
+--- Processing failure 1/5 ---
+Test: test_example in tests/test_foo.py
+  Generating fix...
+  Auto-removing duplicate @pytest.mark.parametrize('x') from LLM fix
+  ✓ Automatically cleaned duplicate decorators from LLM-generated fix
+  Applying fix...
+  ✓ Fix applied successfully
+```
+
+**No manual intervention needed!** The auto-fixer handles these issues automatically.
+
+See `AUTOMATIC_CLEANUP_GUIDE.md` for detailed information.
 
 ## Usage
 

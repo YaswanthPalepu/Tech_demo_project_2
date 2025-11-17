@@ -154,12 +154,18 @@ class ASTPatcher:
         Returns:
             List of indented lines
         """
+        # Clean up markdown and formatting first
+        fixed_code = self._clean_code(fixed_code)
+
+        # Automatically remove duplicate decorators from LLM-generated code
+        fixed_code = self._remove_duplicate_decorators(fixed_code)
+
         # Parse the fixed code to validate it
         try:
             ast.parse(fixed_code)
         except SyntaxError:
-            # If parsing fails, try to clean it up
-            fixed_code = self._clean_code(fixed_code)
+            # If parsing still fails after cleaning, return as-is
+            pass
 
         # Split into lines
         lines = fixed_code.split('\n')
@@ -326,3 +332,61 @@ class ASTPatcher:
                         return decorator.args[0].value
 
         return ""
+
+    def _remove_duplicate_decorators(self, code: str) -> str:
+        """
+        Automatically remove duplicate @pytest.mark.parametrize decorators from code.
+
+        LLMs sometimes generate duplicate decorators. This method detects and removes
+        them automatically so the fix can proceed.
+
+        Args:
+            code: Python code (typically a function)
+
+        Returns:
+            Code with duplicate decorators removed
+        """
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            # Can't parse, return as-is
+            return code
+
+        # Track if we made any changes
+        modified = False
+
+        # Process all function definitions
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                # Track seen parametrize parameter names
+                seen_params = set()
+                new_decorators = []
+
+                for decorator in node.decorator_list:
+                    param_name = self._get_parametrize_param_name(decorator)
+
+                    if param_name:
+                        if param_name in seen_params:
+                            # Skip duplicate
+                            print(f"  Auto-removing duplicate @pytest.mark.parametrize('{param_name}') from LLM fix")
+                            modified = True
+                            continue
+                        seen_params.add(param_name)
+
+                    new_decorators.append(decorator)
+
+                if modified:
+                    node.decorator_list = new_decorators
+
+        if not modified:
+            # No changes needed
+            return code
+
+        # Convert back to code
+        try:
+            cleaned_code = ast.unparse(tree)
+            print(f"  ✓ Automatically cleaned duplicate decorators from LLM-generated fix")
+            return cleaned_code
+        except Exception:
+            # If unparsing fails, return original
+            return code

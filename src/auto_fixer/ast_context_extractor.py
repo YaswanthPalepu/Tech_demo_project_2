@@ -25,6 +25,8 @@ class ASTContextExtractor:
     def __init__(self, project_root: str = ".", verbose: bool = False):
         self.project_root = Path(project_root)
         self.verbose = verbose
+        # Max lines to extract from a single source file (prevent token overflow)
+        self.max_source_lines = 300
 
     def extract_context(
         self,
@@ -98,8 +100,18 @@ class ASTContextExtractor:
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
+                    # import app.main as app_main
                     name = alias.asname or alias.name
                     imports[name] = alias.name
+
+                    # Also add the base module path for matching
+                    # e.g., "app.main" should match both "app_main" and "app.main"
+                    if alias.asname and '.' in alias.name:
+                        # Add intermediate paths for multi-part imports
+                        parts = alias.name.split('.')
+                        for i in range(len(parts)):
+                            partial = '.'.join(parts[:i+1])
+                            imports[partial] = partial
 
             elif isinstance(node, ast.ImportFrom):
                 module = node.module or ""
@@ -107,6 +119,10 @@ class ASTContextExtractor:
                     name = alias.asname or alias.name
                     full_path = f"{module}.{alias.name}" if module else alias.name
                     imports[name] = full_path
+
+                    # Also add the module itself
+                    if module:
+                        imports[module] = module
 
         return imports
 
@@ -284,12 +300,14 @@ class ASTContextExtractor:
         """
         Extract relevant code elements from a source file.
 
+        Intelligently limits extraction to avoid token overflow.
+
         Args:
             source_file: Path to source file
             imports: Import paths that reference this file
 
         Returns:
-            Concatenated relevant code
+            Concatenated relevant code (limited to max_source_lines)
         """
         try:
             with open(source_file, 'r') as f:
@@ -297,28 +315,59 @@ class ASTContextExtractor:
         except (FileNotFoundError, IOError):
             return ""
 
+        lines = content.split('\n')
+
+        # If file is small enough, return all content
+        if len(lines) <= self.max_source_lines:
+            return content
+
+        # File too large - extract intelligently
+        if self.verbose:
+            print(f"    ⚠ File too large ({len(lines)} lines), extracting relevant parts only...")
+
         try:
             tree = ast.parse(content)
         except SyntaxError:
-            return content  # Return raw content if parsing fails
+            # If parsing fails, return truncated raw content
+            truncated = '\n'.join(lines[:self.max_source_lines])
+            return truncated + f"\n\n# ... (file truncated: {len(lines)} total lines)"
 
-        # Extract all top-level definitions
-        relevant_code = []
+        # Extract definitions with size tracking
+        extracted_items = []
+        current_lines = 0
 
+        # Priority 1: Extract imports and constants (usually at top)
         for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                # Include function definitions
-                relevant_code.append(ast.unparse(node))
+            if isinstance(node, (ast.Import, ast.ImportFrom, ast.Assign)):
+                code = ast.unparse(node)
+                item_lines = len(code.split('\n'))
+                if current_lines + item_lines <= self.max_source_lines:
+                    extracted_items.append(code)
+                    current_lines += item_lines
 
-            elif isinstance(node, ast.ClassDef):
-                # Include class definitions
-                relevant_code.append(ast.unparse(node))
+        # Priority 2: Extract functions and classes (up to limit)
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                code = ast.unparse(node)
+                item_lines = len(code.split('\n'))
 
-            elif isinstance(node, ast.Assign):
-                # Include important assignments (constants, configs)
-                relevant_code.append(ast.unparse(node))
+                # If adding this would exceed limit, skip
+                if current_lines + item_lines > self.max_source_lines:
+                    continue
 
-        return "\n\n".join(relevant_code) if relevant_code else content
+                extracted_items.append(code)
+                current_lines += item_lines
+
+        result = "\n\n".join(extracted_items) if extracted_items else ""
+
+        # Add truncation notice
+        if current_lines < len(lines):
+            result += f"\n\n# ... (extracted {current_lines}/{len(lines)} lines to fit token limit)"
+
+            if self.verbose:
+                print(f"      → Extracted {current_lines}/{len(lines)} lines")
+
+        return result if result else content[:self.max_source_lines * 80]  # Fallback
 
     def get_full_context_string(
         self,

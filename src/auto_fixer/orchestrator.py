@@ -128,9 +128,12 @@ class AutoTestFixerOrchestrator:
             # Update code bugs list
             self.code_bugs.extend(code_bugs_found)
 
-            # If no test mistakes were fixed, stop iterating
-            if len(test_mistakes_fixed) == 0:
-                print("\nNo test mistakes fixed in this iteration. Stopping.")
+            # Only stop if we made NO progress at all (no fixes, no attempts)
+            # Continue if we fixed some tests OR if we're still attempting fixes
+            if len(test_mistakes_fixed) == 0 and iteration > 1:
+                # Give it at least 2 iterations before stopping
+                # Only stop if we've tried and made zero progress
+                print("\nNo test mistakes fixed in this iteration and we've tried multiple times. Stopping.")
                 break
 
         # Final summary

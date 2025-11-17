@@ -87,10 +87,30 @@ class ASTPatcher:
             return False
 
         # Validate for pytest-specific issues (duplicate parametrize decorators)
+        # If we find duplicates, try to clean them automatically
         if not self._validate_pytest_decorators(patched_tree):
-            print(f"Error: Patched code has duplicate @pytest.mark.parametrize decorators")
-            print(f"  Keeping original file unchanged")
-            return False
+            print(f"  Found duplicate decorators in patched file, attempting auto-cleanup...")
+            # Try to clean the ENTIRE patched file
+            cleaned_content = self._remove_duplicate_decorators_from_file(patched_content)
+            if cleaned_content != patched_content:
+                # Re-validate the cleaned version
+                try:
+                    cleaned_tree = ast.parse(cleaned_content)
+                    if self._validate_pytest_decorators(cleaned_tree):
+                        print(f"  ✓ Auto-cleanup successful - using cleaned version")
+                        patched_content = cleaned_content
+                    else:
+                        print(f"Error: Patched code still has duplicate @pytest.mark.parametrize decorators after cleanup")
+                        print(f"  Keeping original file unchanged")
+                        return False
+                except SyntaxError:
+                    print(f"Error: Cleaned code has syntax errors")
+                    print(f"  Keeping original file unchanged")
+                    return False
+            else:
+                print(f"Error: Auto-cleanup didn't remove duplicates")
+                print(f"  Keeping original file unchanged")
+                return False
 
         # CRITICAL: Test the fix before applying it (regression prevention)
         if self.enable_test_validation:
@@ -493,3 +513,59 @@ class ASTPatcher:
         except Exception:
             # If unparsing fails, return original
             return code
+
+    def _remove_duplicate_decorators_from_file(self, file_content: str) -> str:
+        """
+        Remove duplicate decorators from an entire file (not just a function).
+
+        This is used after patching to clean up any duplicates that might have
+        been introduced during the replacement process.
+
+        Args:
+            file_content: Complete file content
+
+        Returns:
+            Cleaned file content
+        """
+        try:
+            tree = ast.parse(file_content)
+        except SyntaxError:
+            return file_content
+
+        modified = False
+
+        # Use ast.NodeTransformer for proper modification
+        class DuplicateRemover(ast.NodeTransformer):
+            def __init__(self, patcher):
+                self.patcher = patcher
+                self.modified = False
+
+            def visit_FunctionDef(self, node):
+                seen_params = set()
+                new_decorators = []
+
+                for decorator in node.decorator_list:
+                    param_name = self.patcher._get_parametrize_param_name(decorator)
+
+                    if param_name:
+                        if param_name in seen_params:
+                            # Skip duplicate
+                            self.modified = True
+                            continue
+                        seen_params.add(param_name)
+
+                    new_decorators.append(decorator)
+
+                node.decorator_list = new_decorators
+                return node
+
+        remover = DuplicateRemover(self)
+        cleaned_tree = remover.visit(tree)
+
+        if remover.modified:
+            try:
+                return ast.unparse(cleaned_tree)
+            except Exception:
+                return file_content
+
+        return file_content

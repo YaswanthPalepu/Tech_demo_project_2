@@ -507,6 +507,30 @@ class ASTContextExtractor:
                     import_name = alias.name  # 'predict_batch'
                     imports[module_path].add(import_name)
 
+            elif isinstance(node, ast.Call):
+                # Check for dynamic import helpers: pytest.importorskip("app.main"), safe_import("app.main"), try_import("app.main")
+                module_path = None
+
+                if isinstance(node.func, ast.Attribute):
+                    # pytest.importorskip("app.main")
+                    if node.func.attr == 'importorskip':
+                        if node.args and isinstance(node.args[0], (ast.Constant, ast.Str)):
+                            module_path = node.args[0].value if isinstance(node.args[0], ast.Constant) else node.args[0].s
+
+                elif isinstance(node.func, ast.Name):
+                    # safe_import("app.main"), try_import("app.main")
+                    if node.func.id in ('safe_import', 'try_import', 'importorskip'):
+                        if node.args and isinstance(node.args[0], (ast.Constant, ast.Str)):
+                            module_path = node.args[0].value if isinstance(node.args[0], ast.Constant) else node.args[0].s
+
+                if module_path and isinstance(module_path, str):
+                    if module_path not in imports:
+                        imports[module_path] = set()
+                    # For dynamic imports, we import the whole module
+                    imports[module_path].add('*')
+                    if self.verbose:
+                        print(f"      Detected dynamic import: '{module_path}'")
+
         if self.verbose and imports:
             print(f"  📥 Parsed test imports:")
             for module, names in list(imports.items())[:3]:  # Show first 3

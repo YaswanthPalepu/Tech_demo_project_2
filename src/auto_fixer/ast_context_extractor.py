@@ -85,6 +85,15 @@ class ASTContextExtractor:
         # Resolve import paths to actual files
         source_files = self._resolve_imports_to_files(test_imports)
 
+        # FALLBACK: If HTTP endpoints detected but no source files found,
+        # search common locations for files that might contain the endpoints
+        if http_endpoints and not source_files:
+            if self.verbose:
+                print(f"    ⚠️  No source files from imports, searching for HTTP endpoint handlers...")
+            source_files = self._find_files_with_http_endpoints(http_endpoints)
+            if source_files and self.verbose:
+                print(f"    ✓ Found {len(source_files)} file(s) with matching endpoints")
+
         # Extract relevant code from each source file
         context = {}
         for source_file in source_files:
@@ -392,6 +401,100 @@ class ASTContextExtractor:
             return None
 
         return (method_name.upper(), endpoint)
+
+    def _find_files_with_http_endpoints(self, http_endpoints: List[tuple[str, str]]) -> List[str]:
+        """
+        Search project for files containing the specified HTTP endpoints.
+
+        This is a fallback for when imports don't resolve to source files,
+        but we know the test makes HTTP requests that must be defined somewhere.
+
+        Args:
+            http_endpoints: List of (method, endpoint) tuples
+
+        Returns:
+            List of file paths containing matching endpoints
+        """
+        matching_files = []
+
+        # Common locations for FastAPI apps
+        search_paths = [
+            'app/main.py',
+            'app/__init__.py',
+            'main.py',
+            'src/main.py',
+            'src/app/main.py',
+            'api/main.py',
+            'server.py',
+            'app.py',
+        ]
+
+        # Also search for route files
+        search_patterns = [
+            'app/routes*.py',
+            'app/api*.py',
+            'routes/*.py',
+            'api/*.py',
+        ]
+
+        # Collect candidate files
+        candidate_files = []
+
+        # Add direct paths that exist
+        for path in search_paths:
+            full_path = os.path.join(self.project_root, path)
+            if os.path.exists(full_path):
+                candidate_files.append(full_path)
+
+        # Add files matching patterns
+        import glob
+        for pattern in search_patterns:
+            full_pattern = os.path.join(self.project_root, pattern)
+            candidate_files.extend(glob.glob(full_pattern))
+
+        # Check each candidate for matching endpoints
+        for file_path in candidate_files:
+            if self._file_contains_endpoints(file_path, http_endpoints):
+                matching_files.append(file_path)
+
+        return matching_files
+
+    def _file_contains_endpoints(self, file_path: str, http_endpoints: List[tuple[str, str]]) -> bool:
+        """
+        Check if a file contains any of the specified HTTP endpoints.
+
+        Args:
+            file_path: Path to Python file
+            http_endpoints: List of (method, endpoint) tuples
+
+        Returns:
+            True if file contains at least one matching endpoint
+        """
+        try:
+            with open(file_path, 'r') as f:
+                content = f.read()
+            tree = ast.parse(content)
+        except:
+            return False
+
+        # Extract all route decorators from this file
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+
+            for decorator in node.decorator_list:
+                route_info = self._parse_route_decorator(decorator)
+                if not route_info:
+                    continue
+
+                method, endpoint = route_info
+
+                # Check if this matches any of our target endpoints
+                for target_method, target_endpoint in http_endpoints:
+                    if method == target_method and endpoint == target_endpoint:
+                        return True
+
+        return False
 
     def _resolve_imports_to_files(self, imports: Set[str]) -> List[str]:
         """

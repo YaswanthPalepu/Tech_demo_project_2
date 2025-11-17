@@ -402,6 +402,85 @@ class ASTContextExtractor:
 
         return (method_name.upper(), endpoint)
 
+    def _extract_decorator_dependencies(
+        self,
+        func_node: ast.AST,
+        source_map: Dict[str, Dict]
+    ) -> Set[str]:
+        """
+        Extract dependency functions from route decorators.
+
+        Parses decorators like:
+        - @app.get("/path", dependencies=[Depends(verify_api_key)])
+        - @app.post("/path", dependencies=[Depends(auth_user), Depends(rate_limit)])
+
+        Args:
+            func_node: Function AST node
+            source_map: Map of all source definitions
+
+        Returns:
+            Set of dependency function names
+        """
+        dependencies = set()
+
+        if not isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return dependencies
+
+        # Check each decorator
+        for decorator in func_node.decorator_list:
+            if not isinstance(decorator, ast.Call):
+                continue
+
+            # Look for 'dependencies' keyword argument
+            # @app.get("/path", dependencies=[...])
+            for keyword in decorator.keywords:
+                if keyword.arg == 'dependencies':
+                    # Parse the list of dependencies
+                    self._parse_dependency_list(keyword.value, dependencies, source_map)
+
+        return dependencies
+
+    def _parse_dependency_list(
+        self,
+        node: ast.AST,
+        dependencies: Set[str],
+        source_map: Dict[str, Dict]
+    ):
+        """
+        Recursively parse dependency list to extract function names.
+
+        Args:
+            node: AST node (could be List, Call, Name, etc.)
+            dependencies: Set to add found dependencies to
+            source_map: Map of all source definitions
+        """
+        if isinstance(node, ast.List):
+            # dependencies=[Depends(func1), Depends(func2)]
+            for element in node.elts:
+                self._parse_dependency_list(element, dependencies, source_map)
+
+        elif isinstance(node, ast.Call):
+            # Depends(verify_api_key) or Depends(verify_api_key())
+            if isinstance(node.func, ast.Name) and node.func.id == 'Depends':
+                # First argument is the dependency function
+                if node.args:
+                    arg = node.args[0]
+                    if isinstance(arg, ast.Name):
+                        # Depends(verify_api_key)
+                        func_name = arg.id
+                        if func_name in source_map:
+                            dependencies.add(func_name)
+                    elif isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name):
+                        # Depends(verify_api_key())
+                        func_name = arg.func.id
+                        if func_name in source_map:
+                            dependencies.add(func_name)
+
+        elif isinstance(node, ast.IfExp):
+            # dependencies=[Depends(func)] if condition else []
+            self._parse_dependency_list(node.body, dependencies, source_map)
+            self._parse_dependency_list(node.orelse, dependencies, source_map)
+
     def _find_files_with_http_endpoints(self, http_endpoints: List[tuple[str, str]]) -> List[str]:
         """
         Search project for files containing the specified HTTP endpoints.
@@ -1079,13 +1158,23 @@ class ASTContextExtractor:
 
         # Step 3.5: Map HTTP endpoints to handler functions (NEW for e2e tests!)
         endpoint_handlers = set()
+        decorator_dependencies = set()
         if http_endpoints:
             endpoint_handlers = self._map_endpoints_to_handlers(http_endpoints, source_file, source_map)
             if endpoint_handlers and self.verbose:
                 print(f"      🌐 Mapped endpoints to handlers: {', '.join(list(endpoint_handlers)[:3])}")
 
+            # Extract dependencies from decorators (NEW: for API keys, auth, etc.)
+            for handler_name in endpoint_handlers:
+                if handler_name in source_map:
+                    deps = self._extract_decorator_dependencies(source_map[handler_name]['node'], source_map)
+                    decorator_dependencies.update(deps)
+
+            if decorator_dependencies and self.verbose:
+                print(f"      🔐 Found decorator dependencies: {', '.join(list(decorator_dependencies)[:3])}")
+
         # Step 4: Combine all target names
-        target_names = imported_names | error_functions | endpoint_handlers
+        target_names = imported_names | error_functions | endpoint_handlers | decorator_dependencies
 
         # Remove wildcard '*' - it's not a real function name, just indicates "module imported"
         # If we have '*', rely on error_functions to provide the actual targets

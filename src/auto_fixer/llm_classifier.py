@@ -92,7 +92,7 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
         user_prompt = self._build_prompt(failure, test_code, source_code)
 
         try:
-            # Call LLM
+            # Call LLM with retry logic
             # Build request parameters
             request_params = {
                 "model": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
@@ -109,7 +109,8 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
             if temp is not None:
                 request_params["temperature"] = float(temp)
 
-            response = self.client.chat.completions.create(**request_params)
+            # Retry logic with exponential backoff
+            response = self._call_llm_with_retry(request_params, max_retries=3)
 
             # Parse response
             content = response.choices[0].message.content.strip()
@@ -143,6 +144,48 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
                 reason=f"Classification failed: {str(e)}",
                 confidence=0.0
             )
+
+    def _call_llm_with_retry(self, request_params: dict, max_retries: int = 3):
+        """
+        Call LLM API with exponential backoff retry logic.
+
+        Args:
+            request_params: Parameters for the API call
+            max_retries: Maximum number of retry attempts
+
+        Returns:
+            API response
+
+        Raises:
+            Exception: If all retries fail
+        """
+        import time
+
+        for attempt in range(max_retries):
+            try:
+                response = self.client.chat.completions.create(**request_params)
+
+                # Validate response has content
+                if not response.choices or not response.choices[0].message.content:
+                    raise ValueError("Empty response from LLM")
+
+                content = response.choices[0].message.content.strip()
+                if not content:
+                    raise ValueError("Empty content in LLM response")
+
+                return response
+
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    # Calculate backoff time: 2^attempt seconds (2s, 4s, 8s)
+                    backoff_time = 2 ** attempt
+                    print(f"  ⚠️  LLM API error (attempt {attempt + 1}/{max_retries}): {e}")
+                    print(f"      Retrying in {backoff_time}s...")
+                    time.sleep(backoff_time)
+                else:
+                    # Final attempt failed
+                    print(f"  ❌ LLM API failed after {max_retries} attempts: {e}")
+                    raise
 
     def _extract_json(self, content: str) -> str:
         """

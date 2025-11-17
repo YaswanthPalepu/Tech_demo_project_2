@@ -5,7 +5,11 @@ Replaces failing test functions in test files using AST manipulation.
 """
 
 import ast
+import subprocess
+import tempfile
+import shutil
 from typing import Optional
+from pathlib import Path
 
 
 class ASTPatcher:
@@ -14,10 +18,20 @@ class ASTPatcher:
 
     Uses AST to precisely replace only the failing function,
     preserving all other code, imports, and formatting.
+
+    Validates fixes by running pytest to ensure they don't introduce
+    new failures (regression prevention).
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, enable_test_validation: bool = True):
+        """
+        Initialize ASTPatcher.
+
+        Args:
+            enable_test_validation: If True, run pytest on fixes before applying.
+                                   Prevents auto-fixer from making things worse.
+        """
+        self.enable_test_validation = enable_test_validation
 
     def patch_test_function(
         self,
@@ -77,6 +91,13 @@ class ASTPatcher:
             print(f"Error: Patched code has duplicate @pytest.mark.parametrize decorators")
             print(f"  Keeping original file unchanged")
             return False
+
+        # CRITICAL: Test the fix before applying it (regression prevention)
+        if self.enable_test_validation:
+            if not self._test_fix_before_commit(test_file_path, test_function_name,
+                                                patched_content, original_content):
+                print(f"  Rejecting fix - it still fails or creates new errors")
+                return False
 
         # Write patched content
         try:
@@ -332,6 +353,88 @@ class ASTPatcher:
                         return decorator.args[0].value
 
         return ""
+
+    def _test_fix_before_commit(
+        self,
+        test_file_path: str,
+        test_function_name: str,
+        patched_content: str,
+        original_content: str
+    ) -> bool:
+        """
+        Test a fix before committing it to prevent regressions.
+
+        Writes the patched content temporarily, runs pytest on the specific test,
+        then restores the original. Only returns True if the test passes.
+
+        This is CRITICAL to prevent the auto-fixer from making things worse!
+
+        Args:
+            test_file_path: Path to the test file
+            test_function_name: Name of the test function
+            patched_content: The proposed fix
+            original_content: The original content (for rollback)
+
+        Returns:
+            True if the test passes with the fix, False otherwise
+        """
+        print(f"  🧪 Testing fix before applying (regression prevention)...")
+
+        # Strip parameter suffix for parameterized tests
+        base_test_name = test_function_name.split('[')[0] if '[' in test_function_name else test_function_name
+
+        try:
+            # Write the patched content temporarily
+            with open(test_file_path, 'w') as f:
+                f.write(patched_content)
+
+            # Run pytest on this specific test
+            test_nodeid = f"{test_file_path}::{base_test_name}"
+            result = subprocess.run(
+                ['pytest', test_nodeid, '-v', '--tb=short', '-x'],
+                capture_output=True,
+                text=True,
+                timeout=30  # 30 second timeout
+            )
+
+            # Restore original content IMMEDIATELY
+            with open(test_file_path, 'w') as f:
+                f.write(original_content)
+
+            # Check if test passed
+            if result.returncode == 0:
+                print(f"  ✅ Fix validated - test passes!")
+                return True
+            else:
+                # Test failed - fix didn't work or made things worse
+                print(f"  ❌ Fix validation failed - test still fails:")
+                # Show last few lines of output
+                output_lines = result.stdout.split('\n')
+                for line in output_lines[-5:]:
+                    if line.strip():
+                        print(f"     {line}")
+                return False
+
+        except subprocess.TimeoutExpired:
+            # Test hung - definitely reject this fix
+            print(f"  ⏱️  Fix validation timed out - test hung")
+            # Restore original
+            try:
+                with open(test_file_path, 'w') as f:
+                    f.write(original_content)
+            except:
+                pass
+            return False
+
+        except Exception as e:
+            # Any error during testing - restore original and reject
+            print(f"  ⚠️  Error during fix validation: {e}")
+            try:
+                with open(test_file_path, 'w') as f:
+                    f.write(original_content)
+            except:
+                pass
+            return False
 
     def _remove_duplicate_decorators(self, code: str) -> str:
         """

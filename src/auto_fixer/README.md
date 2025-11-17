@@ -49,6 +49,8 @@ The Auto Test Fixer analyzes failing pytest tests and:
 6. **ASTPatcher** (`ast_patcher.py`)
    - Precisely replaces failing test functions using AST manipulation
    - **Automatically cleans LLM-generated code** (removes duplicate decorators, etc.)
+   - **🛡️ Regression prevention** - tests every fix before applying it
+   - Rejects fixes that still fail or create new errors
    - Preserves all other code, imports, and formatting
    - Validates patches before writing (syntax + pytest-specific rules)
 
@@ -134,6 +136,69 @@ Test: test_example in tests/test_foo.py
 **No manual intervention needed!** The auto-fixer handles these issues automatically.
 
 See `AUTOMATIC_CLEANUP_GUIDE.md` for detailed information.
+
+## Regression Prevention
+
+🛡️ **The auto-fixer now tests every fix before applying it!**
+
+### Problem: Auto-Fixer Making Things Worse
+
+Sometimes LLMs generate "fixes" that:
+- Still fail the original test
+- Create NEW failures
+- Introduce bugs
+
+### Solution: Test Fixes Before Applying
+
+Every fix is now validated:
+
+```
+1. LLM generates fix
+2. Auto-cleanup runs
+3. Syntax validation
+4. 🧪 TEST the fix:
+   - Write fix temporarily
+   - Run pytest on the test
+   - Restore original
+   - Only apply if test PASSES
+```
+
+### Example Output
+
+```
+--- Processing failure 1/5 ---
+Test: test_example in tests/test_foo.py
+  Generating fix...
+  Applying fix...
+  🧪 Testing fix before applying (regression prevention)...
+  ✅ Fix validated - test passes!
+  ✓ Fix applied successfully
+```
+
+If validation fails:
+```
+  🧪 Testing fix before applying (regression prevention)...
+  ❌ Fix validation failed - test still fails:
+     AssertionError: assert (False)
+  Rejecting fix - it still fails or creates new errors
+  ✗ Fix application failed
+```
+
+**Original file is kept unchanged!** Bad fixes are rejected automatically.
+
+### Benefits
+
+- ✅ **Can't make things worse** - only applies working fixes
+- ✅ **Prevents regressions** - catches bad LLM outputs
+- ✅ **Honest reporting** - only counts actual successes
+- ✅ **Safe rollback** - always restores original on failure
+
+### Performance
+
+- Overhead: ~1-3 seconds per fix
+- Worth it: Prevents creating new failures
+
+See `REGRESSION_PREVENTION_GUIDE.md` for complete details.
 
 ## Usage
 

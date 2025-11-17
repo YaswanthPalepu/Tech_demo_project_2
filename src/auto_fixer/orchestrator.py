@@ -400,7 +400,7 @@ class AutoTestFixerOrchestrator:
             base_test_name = self._strip_test_parameters(failure.test_name)
 
             for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef) and node.name == base_test_name:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == base_test_name:
                     return ast.unparse(node)
 
             return content  # Fallback to full file

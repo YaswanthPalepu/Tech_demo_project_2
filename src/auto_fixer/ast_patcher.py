@@ -246,10 +246,10 @@ class ASTPatcher:
         Returns:
             Patched content or None
         """
-        # Find the function node
+        # Find the function node (including async functions!)
         function_node = None
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == function_name:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == function_name:
                 function_node = node
                 break
 
@@ -257,7 +257,7 @@ class ASTPatcher:
             # Function not found - show what functions DO exist to help debug
             available_functions = []
             for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     available_functions.append(node.name)
 
             print(f"Error: Function '{function_name}' not found in file")
@@ -447,7 +447,7 @@ class ASTPatcher:
             True if no duplicates found, False otherwise
         """
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 # Track parametrize parameter names for this function
                 param_names = []
 
@@ -624,9 +624,9 @@ class ASTPatcher:
         # Track if we made any changes
         modified = False
 
-        # Process all function definitions
+        # Process all function definitions (including async)
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 # Track seen parametrize parameter names
                 seen_params = set()
                 new_decorators = []
@@ -686,7 +686,8 @@ class ASTPatcher:
                 self.patcher = patcher
                 self.modified = False
 
-            def visit_FunctionDef(self, node):
+            def _process_function(self, node):
+                """Process both regular and async functions."""
                 seen_params = set()
                 new_decorators = []
 
@@ -704,6 +705,12 @@ class ASTPatcher:
 
                 node.decorator_list = new_decorators
                 return node
+
+            def visit_FunctionDef(self, node):
+                return self._process_function(node)
+
+            def visit_AsyncFunctionDef(self, node):
+                return self._process_function(node)
 
         remover = DuplicateRemover(self)
         cleaned_tree = remover.visit(tree)

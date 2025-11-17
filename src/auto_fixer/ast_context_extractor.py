@@ -232,7 +232,7 @@ class ASTContextExtractor:
         base_func_name = func_name.split('[')[0] if '[' in func_name else func_name
 
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == base_func_name:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == base_func_name:
                 return ast.unparse(node)
 
         return ""

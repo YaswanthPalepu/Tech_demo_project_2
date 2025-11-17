@@ -33,7 +33,8 @@ class ASTContextExtractor:
         self.project_root = Path(project_root)
         self.verbose = verbose
         # Max lines to extract from a single source file (prevent token overflow)
-        self.max_source_lines = 300
+        # REDUCED from 300 to 200 to prevent token overflow with error messages
+        self.max_source_lines = 200
         # Cache for source maps (performance optimization)
         self._source_map_cache = {}
 
@@ -108,7 +109,7 @@ class ASTContextExtractor:
 
     def _extract_imports(self, tree: ast.AST) -> Dict[str, str]:
         """
-        Extract all imports from the AST.
+        Extract all imports from the AST, including string-based references in patch/monkeypatch.
 
         Args:
             tree: AST tree
@@ -144,6 +145,53 @@ class ASTContextExtractor:
                     # Also add the module itself
                     if module:
                         imports[module] = module
+
+            # NEW: Detect string-based imports in patch() and monkeypatch calls
+            elif isinstance(node, ast.Call):
+                # Check for unittest.mock.patch('app.main.model')
+                if isinstance(node.func, ast.Attribute) and node.func.attr == 'patch':
+                    if node.args and isinstance(node.args[0], (ast.Constant, ast.Str)):
+                        # Extract the string argument
+                        patch_target = node.args[0].value if isinstance(node.args[0], ast.Constant) else node.args[0].s
+                        if isinstance(patch_target, str) and '.' in patch_target:
+                            # 'app.main.model' -> extract 'app.main'
+                            parts = patch_target.split('.')
+                            # Add the module path (everything except the last part)
+                            if len(parts) >= 2:
+                                module = '.'.join(parts[:-1])
+                                imports[module] = module
+                                if self.verbose:
+                                    print(f"    Detected patch target: '{patch_target}' → importing '{module}'")
+
+                # Check for monkeypatch.setattr('app.main.model', ...)
+                elif isinstance(node.func, ast.Attribute) and node.func.attr == 'setattr':
+                    if node.args and isinstance(node.args[0], (ast.Constant, ast.Str)):
+                        # Extract the string argument
+                        setattr_target = node.args[0].value if isinstance(node.args[0], ast.Constant) else node.args[0].s
+                        if isinstance(setattr_target, str) and '.' in setattr_target:
+                            # 'app.main.model' -> extract 'app.main'
+                            parts = setattr_target.split('.')
+                            if len(parts) >= 2:
+                                module = '.'.join(parts[:-1])
+                                imports[module] = module
+                                if self.verbose:
+                                    print(f"    Detected monkeypatch target: '{setattr_target}' → importing '{module}'")
+
+            # Also check for patch() used as decorator
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for decorator in node.decorator_list:
+                    if isinstance(decorator, ast.Call):
+                        # @patch('app.main.model')
+                        if isinstance(decorator.func, ast.Name) and decorator.func.id == 'patch':
+                            if decorator.args and isinstance(decorator.args[0], (ast.Constant, ast.Str)):
+                                patch_target = decorator.args[0].value if isinstance(decorator.args[0], ast.Constant) else decorator.args[0].s
+                                if isinstance(patch_target, str) and '.' in patch_target:
+                                    parts = patch_target.split('.')
+                                    if len(parts) >= 2:
+                                        module = '.'.join(parts[:-1])
+                                        imports[module] = module
+                                        if self.verbose:
+                                            print(f"    Detected patch decorator: '@patch({patch_target})' → importing '{module}'")
 
         return imports
 

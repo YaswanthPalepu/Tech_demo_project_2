@@ -53,11 +53,14 @@ class AutoTestFixerOrchestrator:
         self.project_root = project_root
         self.max_iterations = max_iterations
 
+        # Check for verbose mode
+        verbose = os.getenv("AUTOFIXER_VERBOSE", "").lower() in ("true", "1", "yes")
+
         # Initialize components
         self.failure_parser = FailureParser(test_directory)
         self.rule_classifier = RuleBasedClassifier()
         self.llm_classifier = LLMClassifier()
-        self.context_extractor = ASTContextExtractor(project_root)
+        self.context_extractor = ASTContextExtractor(project_root, verbose=verbose)
         self.llm_fixer = LLMFixer()
         self.ast_patcher = ASTPatcher()
 

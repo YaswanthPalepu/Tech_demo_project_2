@@ -22,8 +22,9 @@ class ASTContextExtractor:
     - Utils
     """
 
-    def __init__(self, project_root: str = "."):
+    def __init__(self, project_root: str = ".", verbose: bool = False):
         self.project_root = Path(project_root)
+        self.verbose = verbose
 
     def extract_context(
         self,
@@ -71,6 +72,14 @@ class ASTContextExtractor:
             code = self._extract_relevant_code(source_file, test_imports)
             if code:
                 context[source_file] = code
+
+        if self.verbose:
+            if context:
+                print(f"  ✓ Extracted context from {len(context)} source file(s)")
+            else:
+                print(f"  ⚠ No source code context found")
+                print(f"    Imports detected: {list(imports.keys())[:5]}")
+                print(f"    Used in test: {list(test_imports)[:5]}")
 
         return context
 
@@ -216,20 +225,54 @@ class ASTContextExtractor:
         Returns:
             File path or None
         """
-        # Try different variations
-        variations = [
-            # Direct path: src.models.user -> src/models/user.py
-            module_path.replace('.', '/') + '.py',
-            # Package path: src.models.user -> src/models/user/__init__.py
-            module_path.replace('.', '/') + '/__init__.py',
-            # Without first component: models.user -> models/user.py
-            '/'.join(module_path.split('.')[1:]) + '.py',
-        ]
+        parts = module_path.split('.')
 
+        # Try different variations
+        variations = []
+
+        # 1. Direct path: src.models.user -> src/models/user.py
+        variations.append(module_path.replace('.', '/') + '.py')
+
+        # 2. Package path: src.models.user -> src/models/user/__init__.py
+        variations.append(module_path.replace('.', '/') + '/__init__.py')
+
+        # 3. Without first component: models.user -> models/user.py
+        if len(parts) > 1:
+            variations.append('/'.join(parts[1:]) + '.py')
+
+        # 4. Single file at root: app.main -> main.py or app.py
+        if len(parts) >= 2:
+            variations.append(parts[-1] + '.py')  # Last component
+            variations.append(parts[0] + '.py')   # First component
+        elif len(parts) == 1:
+            variations.append(parts[0] + '.py')
+
+        # 5. Common Python app structures
+        if len(parts) >= 2:
+            # app.something -> app/something.py
+            variations.append(f"{parts[0]}/{'/'.join(parts[1:])}.py")
+            # something.else -> src/something/else.py
+            variations.append(f"src/{module_path.replace('.', '/')}.py")
+
+        # 6. Single file patterns for common entry points
+        common_files = ['main.py', 'app.py', 'server.py', 'api.py', '__init__.py']
+        variations.extend(common_files)
+        variations.extend([f"app/{f}" for f in common_files])
+        variations.extend([f"src/{f}" for f in common_files])
+
+        if self.verbose:
+            print(f"    Trying to resolve module '{module_path}'...")
+
+        # Try each variation
         for var in variations:
             full_path = self.project_root / var
             if full_path.exists():
+                if self.verbose:
+                    print(f"      ✓ Found: {full_path}")
                 return str(full_path)
+
+        if self.verbose:
+            print(f"      ✗ Not found (tried {len(variations)} variations)")
 
         return None
 

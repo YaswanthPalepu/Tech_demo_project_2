@@ -33,6 +33,105 @@ class ASTPatcher:
         """
         self.enable_test_validation = enable_test_validation
 
+    def patch_test_function_with_feedback(
+        self,
+        test_file_path: str,
+        test_function_name: str,
+        fixed_function_code: str
+    ) -> tuple[bool, str]:
+        """
+        Replace a specific test function in a file with detailed feedback.
+
+        Args:
+            test_file_path: Path to the test file
+            test_function_name: Name of the function to replace
+            fixed_function_code: Fixed function code
+
+        Returns:
+            Tuple of (success, failure_output):
+            - success: True if patch successful, False otherwise
+            - failure_output: Pytest failure output if test failed, empty string otherwise
+        """
+        # Read original file
+        try:
+            with open(test_file_path, 'r') as f:
+                original_content = f.read()
+        except FileNotFoundError:
+            print(f"Error: Test file not found: {test_file_path}")
+            return False, ""
+
+        # Parse original file
+        try:
+            tree = ast.parse(original_content)
+        except SyntaxError as e:
+            print(f"Error: Cannot parse test file: {e}")
+            return False, ""
+
+        # Find and replace the function
+        patched_content = self._replace_function(
+            original_content,
+            tree,
+            test_function_name,
+            fixed_function_code
+        )
+
+        if not patched_content:
+            return False, ""
+
+        # Validate patched content before writing
+        try:
+            patched_tree = ast.parse(patched_content)
+        except SyntaxError as e:
+            print(f"Error: Patched code has syntax error at line {e.lineno}: {e.msg}")
+            if e.text:
+                print(f"  Problem line: {e.text.strip()}")
+            print(f"  Keeping original file unchanged")
+            return False, ""
+
+        # Validate for pytest-specific issues (duplicate parametrize decorators)
+        if not self._validate_pytest_decorators(patched_tree):
+            print(f"  Found duplicate decorators in patched file, attempting auto-cleanup...")
+            cleaned_content = self._remove_duplicate_decorators_from_file(patched_content)
+            if cleaned_content != patched_content:
+                try:
+                    cleaned_tree = ast.parse(cleaned_content)
+                    if self._validate_pytest_decorators(cleaned_tree):
+                        print(f"  ✓ Auto-cleanup successful - using cleaned version")
+                        patched_content = cleaned_content
+                    else:
+                        print(f"Error: Patched code still has duplicate @pytest.mark.parametrize decorators after cleanup")
+                        print(f"  Keeping original file unchanged")
+                        return False, ""
+                except SyntaxError:
+                    print(f"Error: Cleaned code has syntax errors")
+                    print(f"  Keeping original file unchanged")
+                    return False, ""
+            else:
+                print(f"Error: Auto-cleanup didn't remove duplicates")
+                print(f"  Keeping original file unchanged")
+                return False, ""
+
+        # CRITICAL: Test the fix before applying it (regression prevention)
+        if self.enable_test_validation:
+            success, failure_output = self._test_fix_with_output(
+                test_file_path,
+                test_function_name,
+                patched_content,
+                original_content
+            )
+            if not success:
+                print(f"  Rejecting fix - it still fails or creates new errors")
+                return False, failure_output
+
+        # Write patched content
+        try:
+            with open(test_file_path, 'w') as f:
+                f.write(patched_content)
+            return True, ""
+        except IOError as e:
+            print(f"Error writing patched file: {e}")
+            return False, ""
+
     def patch_test_function(
         self,
         test_file_path: str,
@@ -386,20 +485,18 @@ class ASTPatcher:
 
         return ""
 
-    def _test_fix_before_commit(
+    def _test_fix_with_output(
         self,
         test_file_path: str,
         test_function_name: str,
         patched_content: str,
         original_content: str
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """
-        Test a fix before committing it to prevent regressions.
+        Test a fix and return detailed output for learning.
 
         Writes the patched content temporarily, runs pytest on the specific test,
-        then restores the original. Only returns True if the test passes.
-
-        This is CRITICAL to prevent the auto-fixer from making things worse!
+        then restores the original. Returns both success status and failure output.
 
         Args:
             test_file_path: Path to the test file
@@ -408,7 +505,9 @@ class ASTPatcher:
             original_content: The original content (for rollback)
 
         Returns:
-            True if the test passes with the fix, False otherwise
+            Tuple of (success, failure_output):
+            - success: True if the test passes with the fix
+            - failure_output: Pytest output if test failed, empty string if passed
         """
         print(f"  🧪 Testing fix before applying (regression prevention)...")
 
@@ -436,16 +535,19 @@ class ASTPatcher:
             # Check if test passed
             if result.returncode == 0:
                 print(f"  ✅ Fix validated - test passes!")
-                return True
+                return True, ""
             else:
-                # Test failed - fix didn't work or made things worse
+                # Test failed - capture full output for learning
                 print(f"  ❌ Fix validation failed - test still fails:")
-                # Show last few lines of output
+                # Show last few lines to user
                 output_lines = result.stdout.split('\n')
                 for line in output_lines[-5:]:
                     if line.strip():
                         print(f"     {line}")
-                return False
+
+                # Return full output for LLM learning
+                full_output = result.stdout + "\n" + result.stderr
+                return False, full_output
 
         except subprocess.TimeoutExpired:
             # Test hung - definitely reject this fix
@@ -456,7 +558,7 @@ class ASTPatcher:
                     f.write(original_content)
             except:
                 pass
-            return False
+            return False, "Test execution timed out after 30 seconds"
 
         except Exception as e:
             # Any error during testing - restore original and reject
@@ -466,7 +568,39 @@ class ASTPatcher:
                     f.write(original_content)
             except:
                 pass
-            return False
+            return False, f"Error during test execution: {str(e)}"
+
+    def _test_fix_before_commit(
+        self,
+        test_file_path: str,
+        test_function_name: str,
+        patched_content: str,
+        original_content: str
+    ) -> bool:
+        """
+        Test a fix before committing it to prevent regressions.
+
+        Writes the patched content temporarily, runs pytest on the specific test,
+        then restores the original. Only returns True if the test passes.
+
+        This is CRITICAL to prevent the auto-fixer from making things worse!
+
+        Args:
+            test_file_path: Path to the test file
+            test_function_name: Name of the test function
+            patched_content: The proposed fix
+            original_content: The original content (for rollback)
+
+        Returns:
+            True if the test passes with the fix, False otherwise
+        """
+        success, _ = self._test_fix_with_output(
+            test_file_path,
+            test_function_name,
+            patched_content,
+            original_content
+        )
+        return success
 
     def _remove_duplicate_decorators(self, code: str) -> str:
         """

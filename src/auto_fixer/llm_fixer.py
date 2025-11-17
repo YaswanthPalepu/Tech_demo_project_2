@@ -55,7 +55,8 @@ Return the complete fixed test function code."""
         failure: TestFailure,
         test_code: str,
         source_code: str,
-        previous_fix_attempt: Optional[str] = None
+        previous_fix_attempt: Optional[str] = None,
+        previous_failure_output: Optional[str] = None
     ) -> Optional[str]:
         """
         Generate a fixed version of a failing test.
@@ -65,6 +66,7 @@ Return the complete fixed test function code."""
             test_code: Original failing test code
             source_code: Relevant source code being tested
             previous_fix_attempt: Previous fix that failed (for retry)
+            previous_failure_output: Pytest output from previous failed fix attempt
 
         Returns:
             Fixed test code or None if fix failed
@@ -78,7 +80,8 @@ Return the complete fixed test function code."""
             failure,
             test_code,
             source_code,
-            previous_fix_attempt
+            previous_fix_attempt,
+            previous_failure_output
         )
 
         try:
@@ -118,16 +121,18 @@ Return the complete fixed test function code."""
         failure: TestFailure,
         test_code: str,
         source_code: str,
-        previous_fix_attempt: Optional[str]
+        previous_fix_attempt: Optional[str],
+        previous_failure_output: Optional[str] = None
     ) -> str:
         """
-        Build the prompt for test fixing.
+        Build the prompt for test fixing with learning from previous failures.
 
         Args:
             failure: TestFailure object
             test_code: Original failing test code
             source_code: Relevant source code
             previous_fix_attempt: Previous failed fix
+            previous_failure_output: Pytest output from previous failed fix
 
         Returns:
             Formatted prompt
@@ -154,7 +159,30 @@ Return the complete fixed test function code."""
 ```
 """
 
-        if previous_fix_attempt:
+        if previous_fix_attempt and previous_failure_output:
+            prompt += f"""
+## Previous Fix Attempt (Failed)
+```python
+{previous_fix_attempt}
+```
+
+## Why the Previous Fix Failed
+When we ran pytest on the above fix, it still failed with this output:
+
+```
+{previous_failure_output[:2000]}
+```
+
+**IMPORTANT:** Analyze WHY this fix failed:
+- Is the API key dependency still not being handled?
+- Are there other dependencies or fixtures that need to be mocked?
+- Is the mock setup incorrect?
+- Are there missing imports?
+- Does the test need different assertions?
+
+Generate a NEW fix that addresses these specific failure reasons. Don't repeat the same approach!
+"""
+        elif previous_fix_attempt:
             prompt += f"""
 ## Previous Fix Attempt (Failed)
 ```python
@@ -168,7 +196,27 @@ The previous fix attempt failed. Try a different approach.
 ## Task
 Generate a fixed version of the test function that will pass.
 
-Return ONLY the fixed test function code (no explanations, no markdown unless it's code).
+**Common patterns to fix:**
+1. **Missing API key handling:**
+   - Mock the `verify_api_key` dependency
+   - Or set `REQUIRE_API_KEY=false` in environment
+   - Example: `monkeypatch.setenv("REQUIRE_API_KEY", "false")`
+
+2. **Missing fixture mocking:**
+   - Use `monkeypatch.setattr()` to mock required attributes
+   - Use `@patch()` decorator for external dependencies
+   - Mock database connections, external APIs, etc.
+
+3. **Incorrect imports:**
+   - Ensure all required imports are present
+   - Use correct module paths
+
+4. **Wrong test setup:**
+   - Initialize required fixtures properly
+   - Set up test data correctly
+   - Clean up after test if needed
+
+Return ONLY the complete fixed test function code (include decorators, docstring, everything).
 """
 
         return prompt

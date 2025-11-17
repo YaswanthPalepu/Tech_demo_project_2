@@ -203,7 +203,10 @@ class AutoTestFixerOrchestrator:
 
     def _fix_test_mistake(self, failure: TestFailure, reason: str) -> FixResult:
         """
-        Fix a test mistake.
+        Fix a test mistake with multi-attempt learning.
+
+        If the first fix fails validation, we try again with feedback about
+        WHY it failed, giving the LLM a chance to learn and improve.
 
         Args:
             failure: TestFailure object
@@ -220,30 +223,68 @@ class AutoTestFixerOrchestrator:
             failure.error_message
         )
 
-        # Step 5: Generate fix
-        print(f"  Generating fix...")
-        fixed_code = self.llm_fixer.fix_test(failure, test_code, source_code)
+        max_attempts = 3
+        previous_fix = None
+        previous_failure_output = None
 
-        if not fixed_code:
-            return FixResult(
-                test_file=failure.test_file,
-                test_name=failure.test_name,
-                classification="test_mistake",
-                fix_attempted=True,
-                fix_successful=False,
-                reason=f"{reason} (fix generation failed)"
+        for attempt in range(1, max_attempts + 1):
+            # Step 5: Generate fix
+            if attempt == 1:
+                print(f"  Generating fix...")
+            else:
+                print(f"  Generating fix (attempt {attempt}/{max_attempts})...")
+                print(f"    Learning from previous failure...")
+
+            fixed_code = self.llm_fixer.fix_test(
+                failure,
+                test_code,
+                source_code,
+                previous_fix_attempt=previous_fix,
+                previous_failure_output=previous_failure_output
             )
 
-        # Step 6: Apply fix
-        success = self._apply_fix(failure, fixed_code)
+            if not fixed_code:
+                if attempt == max_attempts:
+                    return FixResult(
+                        test_file=failure.test_file,
+                        test_name=failure.test_name,
+                        classification="test_mistake",
+                        fix_attempted=True,
+                        fix_successful=False,
+                        reason=f"{reason} (fix generation failed after {attempt} attempts)"
+                    )
+                continue  # Try again
+
+            # Step 6: Apply fix (returns success flag and failure output if failed)
+            success, failure_output = self._apply_fix_with_feedback(failure, fixed_code)
+
+            if success:
+                print(f"  ✅ Fix successful on attempt {attempt}!")
+                return FixResult(
+                    test_file=failure.test_file,
+                    test_name=failure.test_name,
+                    classification="test_mistake",
+                    fix_attempted=True,
+                    fix_successful=True,
+                    reason=reason
+                )
+
+            # Fix failed - prepare for next attempt
+            previous_fix = fixed_code
+            previous_failure_output = failure_output
+
+            if attempt < max_attempts:
+                print(f"  ⚠️  Fix attempt {attempt} failed, will retry with feedback...")
+            else:
+                print(f"  ❌ All {max_attempts} fix attempts failed")
 
         return FixResult(
             test_file=failure.test_file,
             test_name=failure.test_name,
             classification="test_mistake",
             fix_attempted=True,
-            fix_successful=success,
-            reason=reason
+            fix_successful=False,
+            reason=f"{reason} (fix validation failed after {max_attempts} attempts)"
         )
 
     def _apply_fix(self, failure: TestFailure, fixed_code: str) -> bool:
@@ -280,6 +321,45 @@ class AutoTestFixerOrchestrator:
         else:
             print(f"  ✗ Fix application failed")
             return False
+
+    def _apply_fix_with_feedback(self, failure: TestFailure, fixed_code: str) -> tuple[bool, str]:
+        """
+        Apply a fix and return detailed feedback if it fails.
+
+        Args:
+            failure: TestFailure object
+            fixed_code: Fixed function code
+
+        Returns:
+            Tuple of (success, failure_output)
+            - success: True if patch successful
+            - failure_output: Pytest output if failed, empty string if succeeded
+        """
+        print(f"  Applying fix...")
+
+        # Strip parameter suffix for parameterized tests
+        base_test_name = self._strip_test_parameters(failure.test_name)
+
+        success, failure_output = self.ast_patcher.patch_test_function_with_feedback(
+            failure.test_file,
+            base_test_name,
+            fixed_code
+        )
+
+        if success:
+            # Validate the patch
+            if self.ast_patcher.validate_patch(failure.test_file):
+                print(f"  ✓ Fix applied successfully")
+                return True, ""
+            else:
+                print(f"  ✗ Fix validation failed")
+                return False, "Syntax validation failed after applying fix"
+        else:
+            if failure_output:
+                print(f"  ✗ Fix validation failed - test still fails")
+            else:
+                print(f"  ✗ Fix application failed")
+            return False, failure_output
 
     def _strip_test_parameters(self, test_name: str) -> str:
         """

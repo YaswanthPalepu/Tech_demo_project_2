@@ -533,7 +533,16 @@ class ASTContextExtractor:
 
         if self.verbose and imports:
             print(f"  📥 Parsed test imports:")
-            for module, names in list(imports.items())[:3]:  # Show first 3
+            # Separate dynamic imports (with '*') from regular imports
+            dynamic_imports = {k: v for k, v in imports.items() if '*' in v}
+            regular_imports = {k: v for k, v in imports.items() if '*' not in v}
+
+            # Show dynamic imports first
+            for module, names in list(dynamic_imports.items())[:3]:
+                print(f"      {module}: <module> (dynamic import)")
+
+            # Then show regular imports
+            for module, names in list(regular_imports.items())[:3]:
                 names_str = ', '.join(list(names)[:5])
                 if len(names) > 5:
                     names_str += f', ... ({len(names)} total)'
@@ -831,11 +840,18 @@ class ASTContextExtractor:
         # Step 4: Combine all target names
         target_names = imported_names | error_functions
 
+        # Remove wildcard '*' - it's not a real function name, just indicates "module imported"
+        # If we have '*', rely on error_functions to provide the actual targets
+        has_wildcard = '*' in target_names
+        target_names.discard('*')
+
         if self.verbose and target_names:
             targets_str = ', '.join(list(target_names)[:5])
             if len(target_names) > 5:
                 targets_str += f', ... ({len(target_names)} total)'
             print(f"      🎯 Target functions: {targets_str}")
+        elif self.verbose and has_wildcard:
+            print(f"      🎯 Target functions: * (will extract from error traceback)")
 
         if not target_names:
             # No specific targets found, fallback to blind truncation

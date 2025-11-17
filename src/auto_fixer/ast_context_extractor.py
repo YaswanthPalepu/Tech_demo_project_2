@@ -77,6 +77,11 @@ class ASTContextExtractor:
         # Analyze imports used in the test function
         test_imports = self._get_function_imports(test_func_code, imports)
 
+        # NEW: Extract HTTP endpoints from test code (for e2e/integration tests)
+        http_endpoints = self._extract_http_endpoints(test_func_code)
+        if http_endpoints and self.verbose:
+            print(f"    HTTP endpoints detected: {http_endpoints[:3]}")
+
         # Resolve import paths to actual files
         source_files = self._resolve_imports_to_files(test_imports)
 
@@ -89,7 +94,8 @@ class ASTContextExtractor:
                     source_file=source_file,
                     test_file=test_file_path,
                     error_message=error_message,
-                    max_lines=self.max_source_lines
+                    max_lines=self.max_source_lines,
+                    http_endpoints=http_endpoints  # Pass HTTP endpoints for e2e tests
                 )
             else:
                 code = self._extract_relevant_code(source_file, test_imports)
@@ -260,6 +266,132 @@ class ASTContextExtractor:
                 used_imports.add(module_path)
 
         return used_imports
+
+    def _extract_http_endpoints(self, test_code: str) -> List[tuple[str, str]]:
+        """
+        Extract HTTP endpoints from test code (for e2e/integration tests).
+
+        Looks for patterns like:
+        - client.get("/health")
+        - client.post("/predict")
+        - response = await client.get("/model/info")
+
+        Args:
+            test_code: Test function code
+
+        Returns:
+            List of (method, endpoint) tuples, e.g., [("GET", "/health"), ("POST", "/predict")]
+        """
+        endpoints = []
+
+        # Patterns for HTTP method calls
+        # Match: client.get("/path"), client.post("/path", ...), etc.
+        http_methods = ['get', 'post', 'put', 'delete', 'patch', 'head', 'options']
+
+        for method in http_methods:
+            # Pattern: client.method("/endpoint")
+            pattern = rf'client\.{method}\s*\(\s*["\']([^"\']+)["\']'
+            matches = re.findall(pattern, test_code, re.IGNORECASE)
+
+            for endpoint in matches:
+                endpoints.append((method.upper(), endpoint))
+
+        return endpoints
+
+    def _map_endpoints_to_handlers(
+        self,
+        http_endpoints: List[tuple[str, str]],
+        source_file: str,
+        source_map: Dict[str, Dict]
+    ) -> Set[str]:
+        """
+        Map HTTP endpoints to their FastAPI handler functions.
+
+        Looks for decorators like:
+        - @app.get("/health")
+        - @app.post("/predict")
+        - @router.get("/model/info")
+
+        Args:
+            http_endpoints: List of (method, endpoint) tuples
+            source_file: Path to source file
+            source_map: Source map with function definitions
+
+        Returns:
+            Set of handler function names
+        """
+        handlers = set()
+
+        try:
+            with open(source_file, 'r') as f:
+                content = f.read()
+            tree = ast.parse(content)
+        except:
+            return handlers
+
+        # Build endpoint -> function mapping
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+
+            # Check decorators for route definitions
+            for decorator in node.decorator_list:
+                route_info = self._parse_route_decorator(decorator)
+                if not route_info:
+                    continue
+
+                method, endpoint = route_info
+
+                # Match against HTTP endpoints from test
+                for test_method, test_endpoint in http_endpoints:
+                    if method == test_method and endpoint == test_endpoint:
+                        handlers.add(node.name)
+                        if self.verbose:
+                            print(f"        ✓ {method} {endpoint} → {node.name}()")
+
+        return handlers
+
+    def _parse_route_decorator(self, decorator: ast.expr) -> Optional[tuple[str, str]]:
+        """
+        Parse a FastAPI route decorator to extract method and endpoint.
+
+        Examples:
+        - @app.get("/health") → ("GET", "/health")
+        - @router.post("/predict") → ("POST", "/predict")
+
+        Args:
+            decorator: Decorator AST node
+
+        Returns:
+            (method, endpoint) tuple or None
+        """
+        # Pattern: @app.method("/endpoint") or @router.method("/endpoint")
+        if not isinstance(decorator, ast.Call):
+            return None
+
+        if not isinstance(decorator.func, ast.Attribute):
+            return None
+
+        # Get the method name (get, post, put, delete, etc.)
+        method_name = decorator.func.attr
+        http_methods = ['get', 'post', 'put', 'delete', 'patch', 'head', 'options']
+
+        if method_name not in http_methods:
+            return None
+
+        # Get the endpoint path (first argument)
+        if not decorator.args:
+            return None
+
+        first_arg = decorator.args[0]
+        if isinstance(first_arg, ast.Constant):
+            endpoint = first_arg.value
+        elif isinstance(first_arg, ast.Str):  # Python 3.7 compatibility
+            endpoint = first_arg.s
+        else:
+            return None
+
+        return (method_name.upper(), endpoint)
 
     def _resolve_imports_to_files(self, imports: Set[str]) -> List[str]:
         """
@@ -776,7 +908,8 @@ class ASTContextExtractor:
         source_file: str,
         test_file: str,
         error_message: str,
-        max_lines: int = 300
+        max_lines: int = 300,
+        http_endpoints: List[tuple[str, str]] = None
     ) -> str:
         """
         Extract only the code relevant to the failing test (TARGETED VERSION).
@@ -785,18 +918,22 @@ class ASTContextExtractor:
         1. Parse test imports to find what test uses
         2. Build source map to index all definitions
         3. Parse error traceback for additional context
-        4. Find dependencies recursively
-        5. Extract targeted code with priority ordering
+        4. Map HTTP endpoints to handler functions (NEW for e2e tests!)
+        5. Find dependencies recursively
+        6. Extract targeted code with priority ordering
 
         Args:
             source_file: Path to source file
             test_file: Path to test file
             error_message: Error message with traceback
             max_lines: Maximum lines to extract
+            http_endpoints: List of (method, endpoint) tuples for e2e tests
 
         Returns:
             Extracted code string
         """
+        if http_endpoints is None:
+            http_endpoints = []
         try:
             with open(source_file, 'r') as f:
                 content = f.read()
@@ -837,8 +974,15 @@ class ASTContextExtractor:
         # Step 3: Parse error traceback
         error_functions = self._parse_error_traceback(error_message, source_file)
 
+        # Step 3.5: Map HTTP endpoints to handler functions (NEW for e2e tests!)
+        endpoint_handlers = set()
+        if http_endpoints:
+            endpoint_handlers = self._map_endpoints_to_handlers(http_endpoints, source_file, source_map)
+            if endpoint_handlers and self.verbose:
+                print(f"      🌐 Mapped endpoints to handlers: {', '.join(list(endpoint_handlers)[:3])}")
+
         # Step 4: Combine all target names
-        target_names = imported_names | error_functions
+        target_names = imported_names | error_functions | endpoint_handlers
 
         # Remove wildcard '*' - it's not a real function name, just indicates "module imported"
         # If we have '*', rely on error_functions to provide the actual targets

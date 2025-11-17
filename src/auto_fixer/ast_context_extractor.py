@@ -177,6 +177,27 @@ class ASTContextExtractor:
                                 if self.verbose:
                                     print(f"    Detected monkeypatch target: '{setattr_target}' → importing '{module}'")
 
+                # Check for dynamic import helpers: pytest.importorskip("app.main"), safe_import("app.main"), try_import("app.main")
+                elif isinstance(node.func, ast.Attribute):
+                    # pytest.importorskip("app.main")
+                    if node.func.attr == 'importorskip':
+                        if node.args and isinstance(node.args[0], (ast.Constant, ast.Str)):
+                            module_path = node.args[0].value if isinstance(node.args[0], ast.Constant) else node.args[0].s
+                            if isinstance(module_path, str):
+                                imports[module_path] = module_path
+                                if self.verbose:
+                                    print(f"    Detected pytest.importorskip('{module_path}') → importing '{module_path}'")
+
+                # Check for function-based dynamic imports: safe_import("app.main"), try_import("app.main")
+                elif isinstance(node.func, ast.Name):
+                    if node.func.id in ('safe_import', 'try_import', 'importorskip'):
+                        if node.args and isinstance(node.args[0], (ast.Constant, ast.Str)):
+                            module_path = node.args[0].value if isinstance(node.args[0], ast.Constant) else node.args[0].s
+                            if isinstance(module_path, str):
+                                imports[module_path] = module_path
+                                if self.verbose:
+                                    print(f"    Detected {node.func.id}('{module_path}') → importing '{module_path}'")
+
             # Also check for patch() used as decorator
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for decorator in node.decorator_list:

@@ -130,12 +130,19 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
         # Build the prompt
         user_prompt = self._build_prompt(failure, test_code, source_code)
 
-        # DEBUG: Show prompt size
+        # DEBUG: Show prompt size with element breakdown
         prompt_lines = user_prompt.count('\n')
         prompt_chars = len(user_prompt)
         estimated_tokens = prompt_chars // 4  # Rough estimate: 4 chars per token
+
+        # Count elements in source code
+        element_count = source_code.count('# function:') + source_code.count('# class:') + source_code.count('# http_endpoint:')
+
         if self.verbose:
-            print(f"      📏 Prompt size: {prompt_lines} lines, {prompt_chars} chars (~{estimated_tokens} tokens)")
+            print(f"      📏 Input size:")
+            print(f"         • Prompt: {prompt_lines} lines, {prompt_chars} chars (~{estimated_tokens} tokens)")
+            print(f"         • Elements sent to LLM: {element_count}")
+            print(f"         • Source code: {len(source_code)} chars (~{len(source_code)//4} tokens)")
 
         try:
             # Call LLM with retry logic
@@ -164,15 +171,31 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
             if temp is not None:
                 request_params["temperature"] = float(temp)
 
+            # Timing for Ollama models (to show how slow reasoning models are)
+            import time
+            start_time = time.time()
+            if self.verbose and self.using_ollama:
+                print(f"      ⏳ Calling {model_name}... (this may take 30s-15min for reasoning models)")
+
             # Retry logic with exponential backoff
             response = self._call_llm_with_retry(request_params, max_retries=3)
+
+            elapsed_time = time.time() - start_time
+            if self.verbose and self.using_ollama:
+                mins = int(elapsed_time // 60)
+                secs = int(elapsed_time % 60)
+                if mins > 0:
+                    print(f"      ⏱️  Completed in {mins}m {secs}s")
 
             # Parse response
             content = response.choices[0].message.content.strip()
 
             # DEBUG: Show raw LLM response for Ollama models (to debug reasoning models)
             if self.verbose and self.using_ollama:
-                print(f"      🤖 Raw LLM response ({len(content)} chars):")
+                output_tokens = len(content) // 4  # Estimate
+                print(f"      📤 Output size:")
+                print(f"         • Response: {len(content)} chars (~{output_tokens} tokens)")
+                print(f"      🤖 Raw LLM response preview (first 300 chars):")
                 # Show first 300 chars to see if it's JSON or reasoning text
                 preview = content[:300] if len(content) > 300 else content
                 print(f"         {preview}")

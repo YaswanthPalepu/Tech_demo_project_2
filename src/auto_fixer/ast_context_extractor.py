@@ -481,6 +481,18 @@ class ASTContextExtractor:
             self._parse_dependency_list(node.body, dependencies, source_map)
             self._parse_dependency_list(node.orelse, dependencies, source_map)
 
+        elif isinstance(node, ast.Name):
+            # dependencies=AUTH_DEPS (variable reference!)
+            var_name = node.id
+            # Look up variable in source map and parse its value
+            if var_name in source_map:
+                var_node = source_map[var_name]['node']
+                # If it's an assignment, get the assigned value
+                if isinstance(var_node, ast.Assign):
+                    # Parse the value (could be list, ternary, etc.)
+                    # This will recursively find Depends(verify_api_key) etc.
+                    self._parse_dependency_list(var_node.value, dependencies, source_map)
+
     def _find_files_with_http_endpoints(self, http_endpoints: List[tuple[str, str]]) -> List[str]:
         """
         Search project for files containing the specified HTTP endpoints.

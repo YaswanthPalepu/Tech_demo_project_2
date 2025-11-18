@@ -43,13 +43,18 @@ class LLMClassifier:
 
 When you identify a **test_mistake**, you should also provide the fixed version of the test code.
 
-Respond with a JSON object:
+CRITICAL: You MUST respond with ONLY a valid JSON object, nothing else. No explanations, no reasoning text, no markdown.
+
+Respond with this exact JSON structure:
 {
-  "classification": "test_mistake" | "code_bug",
+  "classification": "test_mistake" or "code_bug",
   "reason": "Brief explanation of why this classification was chosen",
-  "fixed_code": "Fixed version of the failing test function (only for test_mistake)",
-  "confidence": 0.0-1.0
+  "fixed_code": "Fixed version of the failing test function (only for test_mistake, null otherwise)",
+  "confidence": 0.8
 }
+
+Example valid response:
+{"classification": "test_mistake", "reason": "Import error - wrong module path", "fixed_code": "def test_foo():\n    ...", "confidence": 0.9}
 
 Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly modifying tests."""
 
@@ -258,13 +263,51 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
                 if part.startswith('{') and part.endswith('}'):
                     return part
 
-        # Try to find JSON object directly
+        # Try to find JSON object directly - improved regex for nested objects
         import re
-        json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+
+        # Pattern 1: Look for complete JSON objects with proper nesting
+        # This handles nested braces better
+        json_pattern = r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}'
         matches = re.findall(json_pattern, content, re.DOTALL)
+
         if matches:
-            # Return the longest match (likely the complete JSON)
-            return max(matches, key=len)
+            # Try to parse each match and return the first valid one
+            for match in sorted(matches, key=len, reverse=True):
+                try:
+                    json.loads(match)  # Validate it's real JSON
+                    return match
+                except:
+                    continue
+
+        # Pattern 2: Extract everything between first { and last }
+        first_brace = content.find('{')
+        last_brace = content.rfind('}')
+
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            potential_json = content[first_brace:last_brace+1]
+            try:
+                json.loads(potential_json)  # Validate
+                return potential_json
+            except:
+                pass
+
+        # Pattern 3: Look for JSON-like structure after thinking text
+        # Reasoning models often output: "thinking text... {json here}"
+        lines = content.split('\n')
+        for i, line in enumerate(lines):
+            if line.strip().startswith('{'):
+                # Try to parse from this line onwards
+                potential_json = '\n'.join(lines[i:])
+                first_brace = potential_json.find('{')
+                last_brace = potential_json.rfind('}')
+                if first_brace != -1 and last_brace != -1:
+                    candidate = potential_json[first_brace:last_brace+1]
+                    try:
+                        json.loads(candidate)
+                        return candidate
+                    except:
+                        continue
 
         # Fallback: return as-is and hope it's valid JSON
         return content
@@ -335,6 +378,10 @@ Analyze this failure and determine:
 2. Why?
 3. If it's a test_mistake, provide the fixed test code.
 
-Respond with JSON only."""
+IMPORTANT: Respond with ONLY a valid JSON object. Do not include any explanatory text, reasoning, or markdown formatting. Your entire response must be parseable JSON."""
+
+        # Add extra reminder for Ollama/reasoning models
+        if self.using_ollama:
+            prompt += "\n\nReminder: Output ONLY the JSON object, nothing else. Start your response with { and end with }"
 
         return prompt

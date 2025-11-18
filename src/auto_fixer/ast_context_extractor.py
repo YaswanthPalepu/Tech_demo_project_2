@@ -1288,12 +1288,33 @@ class ASTContextExtractor:
                             extracted_names.add(name)
                             current_lines += lines
 
-        # Build result
+        # Build result with markers (for consistent counting with embeddings)
         if not extracted:
             # Fallback if nothing extracted
             return self._extract_relevant_code(source_file, set())
 
-        result = "\n\n".join(extracted)
+        # Add markers to each extracted element for counting compatibility
+        marked_extracted = []
+        for name in extracted_names:
+            if name in source_map:
+                info = source_map[name]
+                node = info['node']
+                line_start = info.get('line_start', 0)
+
+                # Determine element type
+                if isinstance(node, ast.ClassDef):
+                    element_type = "class"
+                elif name in endpoint_handlers:
+                    element_type = "http_endpoint"
+                else:
+                    element_type = "function"
+
+                # Add marker
+                marker = f"# {element_type}: {name} (line {line_start})"
+                code = info['code']
+                marked_extracted.append(f"{marker}\n{code}")
+
+        result = "\n\n".join(marked_extracted)
 
         # Add metadata
         result += f"\n\n# ... (extracted {current_lines} targeted lines from {total_lines} total)"

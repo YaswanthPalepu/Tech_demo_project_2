@@ -241,6 +241,17 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
         Returns:
             Formatted prompt string
         """
+        # Truncate source code if too long (prevent token limit issues)
+        MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "300"))
+        source_lines = source_code.split('\n')
+
+        if len(source_lines) > MAX_SOURCE_LINES:
+            truncated_source = '\n'.join(source_lines[:MAX_SOURCE_LINES])
+            truncated_count = len(source_lines) - MAX_SOURCE_LINES
+            source_code_display = f"{truncated_source}\n\n# ... truncated {truncated_count} lines to fit context window ..."
+        else:
+            source_code_display = source_code
+
         prompt = f"""# Test Failure Analysis
 
 ## Failing Test
@@ -264,7 +275,7 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
 
 ## Source Code Being Tested
 ```python
-{source_code}
+{source_code_display}
 ```
 
 ## Task

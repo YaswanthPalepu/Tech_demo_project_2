@@ -142,6 +142,17 @@ Return the complete fixed test function code."""
         Returns:
             Formatted prompt
         """
+        # Truncate source code if too long (prevent token limit issues)
+        MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "300"))
+        source_lines = source_code.split('\n')
+
+        if len(source_lines) > MAX_SOURCE_LINES:
+            truncated_source = '\n'.join(source_lines[:MAX_SOURCE_LINES])
+            truncated_count = len(source_lines) - MAX_SOURCE_LINES
+            source_code_display = f"{truncated_source}\n\n# ... truncated {truncated_count} lines to fit context window ..."
+        else:
+            source_code_display = source_code
+
         prompt = f"""# Fix This Failing Test
 
 ## Original Test Code
@@ -160,7 +171,7 @@ Return the complete fixed test function code."""
 
 ## Source Code Being Tested
 ```python
-{source_code}
+{source_code_display}
 ```
 """
 
@@ -274,6 +285,17 @@ Return ONLY the complete fixed test function code (include decorators, docstring
         if not self.client:
             return None
 
+        # Truncate source code if too long (prevent token limit issues)
+        MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "300"))
+        source_lines = source_code.split('\n')
+
+        if len(source_lines) > MAX_SOURCE_LINES:
+            truncated_source = '\n'.join(source_lines[:MAX_SOURCE_LINES])
+            truncated_count = len(source_lines) - MAX_SOURCE_LINES
+            source_code_display = f"{truncated_source}\n\n# ... truncated {truncated_count} lines to fit context window ..."
+        else:
+            source_code_display = source_code
+
         prompt = f"""# Fix This Test File
 
 ## Complete Test File
@@ -292,7 +314,7 @@ Return ONLY the complete fixed test function code (include decorators, docstring
 
 ## Source Code
 ```python
-{source_code}
+{source_code_display}
 ```
 
 ## Task

@@ -131,33 +131,26 @@ class CodebaseIndexer:
     def embedding_client(self):
         """Lazy-load embedding client (Ollama or OpenAI)."""
         if self._embedding_client is None:
+            # Import using spec_from_file_location to completely bypass gen package __init__.py
+            import importlib.util
+            from pathlib import Path
+
+            # Get absolute path to client files (works from any directory)
+            current_file = Path(__file__).resolve()
+            ollama_client_path = current_file.parent.parent / 'gen' / 'ollama_client.py'
+            openai_client_path = current_file.parent.parent / 'gen' / 'openai_client.py'
+
             # Check if using Ollama (preferred)
             if os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_EMBED_MODEL"):
                 try:
-                    # Add gen module path to sys.path for clean import
-                    import sys
-                    from pathlib import Path
-
-                    # Find the gen module directory
-                    current_file = Path(__file__).resolve()
-                    gen_dir = current_file.parent.parent / 'gen'
-
-                    if not gen_dir.exists():
-                        raise ImportError(f"Cannot find gen directory at {gen_dir}")
-
-                    # Add to path if not already there
-                    gen_dir_str = str(gen_dir)
-                    if gen_dir_str not in sys.path:
-                        sys.path.insert(0, gen_dir_str)
-
-                    # Now import ollama_client as a regular module
-                    # This avoids triggering gen.__init__.py
-                    import importlib
-                    if 'ollama_client' in sys.modules:
-                        # Reload if already loaded
-                        ollama_module = importlib.reload(sys.modules['ollama_client'])
-                    else:
-                        ollama_module = importlib.import_module('ollama_client')
+                    # Load ollama_client.py directly without triggering package __init__
+                    spec = importlib.util.spec_from_file_location(
+                        "ollama_client_indexer",
+                        str(ollama_client_path)
+                    )
+                    ollama_module = importlib.util.module_from_spec(spec)
+                    sys.modules['ollama_client_indexer'] = ollama_module
+                    spec.loader.exec_module(ollama_module)
 
                     self._embedding_client = ollama_module.get_ollama_client()
                     if self.verbose:
@@ -165,22 +158,15 @@ class CodebaseIndexer:
                 except Exception as e:
                     if self.verbose:
                         print(f"  ⚠️  Failed to load Ollama client: {e}")
-                    # Fall back to OpenAI using direct import
+                    # Fall back to OpenAI
                     try:
-                        import sys
-                        from pathlib import Path
-
-                        current_file = Path(__file__).resolve()
-                        gen_dir = current_file.parent.parent / 'gen'
-                        gen_dir_str = str(gen_dir)
-                        if gen_dir_str not in sys.path:
-                            sys.path.insert(0, gen_dir_str)
-
-                        import importlib
-                        if 'openai_client' in sys.modules:
-                            openai_module = importlib.reload(sys.modules['openai_client'])
-                        else:
-                            openai_module = importlib.import_module('openai_client')
+                        spec = importlib.util.spec_from_file_location(
+                            "openai_client_indexer_fallback",
+                            str(openai_client_path)
+                        )
+                        openai_module = importlib.util.module_from_spec(spec)
+                        sys.modules['openai_client_indexer_fallback'] = openai_module
+                        spec.loader.exec_module(openai_module)
 
                         self._embedding_client = openai_module.create_client()
                         if self.verbose:
@@ -190,22 +176,15 @@ class CodebaseIndexer:
                             print(f"  ⚠️  Both Ollama and OpenAI failed: {e2}")
                         self._embedding_client = None
             else:
-                # Use OpenAI using direct import
+                # Use OpenAI
                 try:
-                    import sys
-                    from pathlib import Path
-
-                    current_file = Path(__file__).resolve()
-                    gen_dir = current_file.parent.parent / 'gen'
-                    gen_dir_str = str(gen_dir)
-                    if gen_dir_str not in sys.path:
-                        sys.path.insert(0, gen_dir_str)
-
-                    import importlib
-                    if 'openai_client' in sys.modules:
-                        openai_module = importlib.reload(sys.modules['openai_client'])
-                    else:
-                        openai_module = importlib.import_module('openai_client')
+                    spec = importlib.util.spec_from_file_location(
+                        "openai_client_indexer_main",
+                        str(openai_client_path)
+                    )
+                    openai_module = importlib.util.module_from_spec(spec)
+                    sys.modules['openai_client_indexer_main'] = openai_module
+                    spec.loader.exec_module(openai_module)
 
                     self._embedding_client = openai_module.create_client()
                     if self.verbose:

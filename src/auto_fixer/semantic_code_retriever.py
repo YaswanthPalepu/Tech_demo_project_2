@@ -88,15 +88,45 @@ class SemanticCodeRetriever:
                 except Exception as e:
                     if self.verbose:
                         print(f"  ⚠️  Failed to load Ollama client: {e}")
-                    # Fall back to OpenAI
-                    from gen.openai_client import get_openai_client
-                    self._embedding_client = get_openai_client()
+                    # Fall back to OpenAI using direct import
+                    try:
+                        import importlib.util
+                        import sys
+                        from pathlib import Path
+
+                        module_path = Path(__file__).parent.parent / 'gen' / 'openai_client.py'
+                        spec = importlib.util.spec_from_file_location("openai_client_retriever_fallback", module_path)
+                        openai_module = importlib.util.module_from_spec(spec)
+                        sys.modules['openai_client_retriever_fallback'] = openai_module
+                        spec.loader.exec_module(openai_module)
+
+                        self._embedding_client = openai_module.create_client()
+                        if self.verbose:
+                            print("  Using OpenAI for embeddings (fallback)")
+                    except Exception as e2:
+                        if self.verbose:
+                            print(f"  ⚠️  Both Ollama and OpenAI failed: {e2}")
+                        self._embedding_client = None
             else:
-                # Use OpenAI
-                from gen.openai_client import get_openai_client
-                self._embedding_client = get_openai_client()
-                if self.verbose:
-                    print("  Using OpenAI for embeddings")
+                # Use OpenAI using direct import
+                try:
+                    import importlib.util
+                    import sys
+                    from pathlib import Path
+
+                    module_path = Path(__file__).parent.parent / 'gen' / 'openai_client.py'
+                    spec = importlib.util.spec_from_file_location("openai_client_retriever_main", module_path)
+                    openai_module = importlib.util.module_from_spec(spec)
+                    sys.modules['openai_client_retriever_main'] = openai_module
+                    spec.loader.exec_module(openai_module)
+
+                    self._embedding_client = openai_module.create_client()
+                    if self.verbose:
+                        print("  Using OpenAI for embeddings")
+                except Exception as e:
+                    if self.verbose:
+                        print(f"  ⚠️  Failed to load OpenAI client: {e}")
+                    self._embedding_client = None
         return self._embedding_client
 
     def search_by_query(
@@ -121,6 +151,12 @@ class SemanticCodeRetriever:
         if not self.indexer.code_elements:
             if self.verbose:
                 print("  ⚠️  Index is empty. Run indexer.build_index() first.")
+            return []
+
+        # Check if embedding client is available
+        if self.embedding_client is None:
+            if self.verbose:
+                print("  ⚠️  No embedding client available")
             return []
 
         # Generate query embedding

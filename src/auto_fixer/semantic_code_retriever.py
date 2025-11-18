@@ -16,9 +16,14 @@ Key advantages over AST-based extraction:
 """
 
 import numpy as np
+import sys
+import os
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 from .codebase_indexer import CodebaseIndexer, CodeElement
+
+# Add parent directory to path to import gen modules
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 
 @dataclass

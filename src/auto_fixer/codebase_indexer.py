@@ -16,6 +16,7 @@ This solves the following problems from AST-based extraction:
 
 import ast
 import os
+import sys
 import json
 from typing import Dict, List, Set, Optional, Tuple
 from pathlib import Path
@@ -23,6 +24,9 @@ from dataclasses import dataclass, asdict
 import hashlib
 import pickle
 import re
+
+# Add parent directory to path to import gen modules
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 
 @dataclass

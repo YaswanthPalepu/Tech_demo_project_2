@@ -66,10 +66,27 @@ class SemanticCodeRetriever:
 
     @property
     def embedding_client(self):
-        """Lazy-load OpenAI client."""
+        """Lazy-load embedding client (Ollama or OpenAI)."""
         if self._embedding_client is None:
-            from gen.openai_client import get_openai_client
-            self._embedding_client = get_openai_client()
+            # Check if using Ollama (preferred)
+            if os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_EMBED_MODEL"):
+                try:
+                    from gen.ollama_client import get_ollama_client
+                    self._embedding_client = get_ollama_client()
+                    if self.verbose:
+                        print("  Using Ollama for embeddings")
+                except Exception as e:
+                    if self.verbose:
+                        print(f"  ⚠️  Failed to load Ollama client: {e}")
+                    # Fall back to OpenAI
+                    from gen.openai_client import get_openai_client
+                    self._embedding_client = get_openai_client()
+            else:
+                # Use OpenAI
+                from gen.openai_client import get_openai_client
+                self._embedding_client = get_openai_client()
+                if self.verbose:
+                    print("  Using OpenAI for embeddings")
         return self._embedding_client
 
     def search_by_query(

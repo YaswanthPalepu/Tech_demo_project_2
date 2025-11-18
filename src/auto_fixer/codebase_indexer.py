@@ -115,10 +115,27 @@ class CodebaseIndexer:
 
     @property
     def embedding_client(self):
-        """Lazy-load OpenAI client for embeddings."""
+        """Lazy-load embedding client (Ollama or OpenAI)."""
         if self._embedding_client is None:
-            from gen.openai_client import get_openai_client
-            self._embedding_client = get_openai_client()
+            # Check if using Ollama (preferred)
+            if os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_EMBED_MODEL"):
+                try:
+                    from gen.ollama_client import get_ollama_client
+                    self._embedding_client = get_ollama_client()
+                    if self.verbose:
+                        print("  Using Ollama for embeddings")
+                except Exception as e:
+                    if self.verbose:
+                        print(f"  ⚠️  Failed to load Ollama client: {e}")
+                    # Fall back to OpenAI
+                    from gen.openai_client import get_openai_client
+                    self._embedding_client = get_openai_client()
+            else:
+                # Use OpenAI
+                from gen.openai_client import get_openai_client
+                self._embedding_client = get_openai_client()
+                if self.verbose:
+                    print("  Using OpenAI for embeddings")
         return self._embedding_client
 
     def should_index_file(self, file_path: Path) -> bool:
@@ -500,7 +517,15 @@ class CodebaseIndexer:
                 if self.verbose:
                     print(f"    ⚠️  Error generating embeddings: {e}")
                 # Fallback: add zero vectors
-                embedding_dim = 1536 if 'small' in self.embedding_model else 3072
+                # Determine embedding dimension based on model/environment
+                if os.getenv("VECTOR_DIM"):
+                    embedding_dim = int(os.getenv("VECTOR_DIM"))
+                elif 'small' in self.embedding_model:
+                    embedding_dim = 1536  # OpenAI text-embedding-3-small
+                elif 'large' in self.embedding_model:
+                    embedding_dim = 3072  # OpenAI text-embedding-3-large
+                else:
+                    embedding_dim = 1024  # Default fallback
                 embeddings.extend([[0.0] * embedding_dim for _ in batch])
 
         return embeddings

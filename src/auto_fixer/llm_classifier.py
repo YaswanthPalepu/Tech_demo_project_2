@@ -97,8 +97,22 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
         # Fall back to Azure OpenAI if Ollama not configured or failed
         if self.client is None:
             try:
-                from gen.openai_client import get_openai_client
-                self.client = get_openai_client()
+                # Load OpenAI client dynamically (avoid gen/__init__.py relative imports)
+                import importlib.util
+                from pathlib import Path
+
+                current_file = Path(__file__).resolve()
+                openai_client_path = current_file.parent.parent / 'gen' / 'openai_client.py'
+
+                spec = importlib.util.spec_from_file_location(
+                    "openai_client_llm_classifier",
+                    str(openai_client_path)
+                )
+                openai_module = importlib.util.module_from_spec(spec)
+                sys.modules['openai_client_llm_classifier'] = openai_module
+                spec.loader.exec_module(openai_module)
+
+                self.client = openai_module.get_openai_client()
                 if verbose:
                     print(f"  ✓ Using Azure OpenAI")
             except Exception as e:

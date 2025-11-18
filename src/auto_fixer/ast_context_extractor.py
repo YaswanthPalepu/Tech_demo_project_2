@@ -1157,10 +1157,10 @@ class ASTContextExtractor:
         source_map = self._build_source_map(source_file)
 
         if not source_map:
-            # Fallback: return blind truncation
+            # Could not parse source file, skip AST (embeddings will handle it)
             if self.verbose:
-                print(f"      ⚠️  Could not parse source file, using blind truncation")
-            return self._extract_relevant_code(source_file, set())
+                print(f"      ⚠️  Could not parse source file, skipping AST (will use embeddings only)")
+            return ""  # Empty = skip this file, embeddings will handle it
 
         # Step 3: Parse error traceback
         error_functions = self._parse_error_traceback(error_message, source_file)
@@ -1199,10 +1199,10 @@ class ASTContextExtractor:
             print(f"      🎯 Target functions: * (will extract from error traceback)")
 
         if not target_names:
-            # No specific targets found, fallback to blind truncation
+            # No specific targets found, skip AST and rely on embeddings
             if self.verbose:
-                print(f"      ⚠️  No specific targets found, using blind truncation")
-            return self._extract_relevant_code(source_file, set())
+                print(f"      ⚠️  No specific targets found, skipping AST (will use embeddings only)")
+            return ""  # Empty = skip this file, embeddings will handle it
 
         # Step 5: Extract with priority ordering
         extracted = []

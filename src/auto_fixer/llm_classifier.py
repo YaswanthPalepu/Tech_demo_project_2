@@ -170,8 +170,22 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
             # Parse response
             content = response.choices[0].message.content.strip()
 
+            # DEBUG: Show raw LLM response for Ollama models (to debug reasoning models)
+            if self.verbose and self.using_ollama:
+                print(f"      🤖 Raw LLM response ({len(content)} chars):")
+                # Show first 300 chars to see if it's JSON or reasoning text
+                preview = content[:300] if len(content) > 300 else content
+                print(f"         {preview}")
+                if len(content) > 300:
+                    print(f"         ... ({len(content) - 300} more chars)")
+
             # Extract JSON from response (handle various formats)
             json_str = self._extract_json(content)
+
+            # DEBUG: Show extracted JSON
+            if self.verbose and self.using_ollama and json_str != content:
+                print(f"      📝 Extracted JSON ({len(json_str)} chars):")
+                print(f"         {json_str[:200]}")
 
             result = json.loads(json_str)
 
@@ -183,8 +197,13 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
             )
 
         except json.JSONDecodeError as e:
-            print(f"Error parsing LLM JSON response: {e}")
-            print(f"Response preview: {content[:200] if 'content' in locals() else 'N/A'}...")
+            print(f"❌ Error parsing LLM JSON response: {e}")
+            if 'content' in locals():
+                print(f"   Raw response preview (first 400 chars):")
+                print(f"   {content[:400]}")
+                if 'json_str' in locals() and json_str != content:
+                    print(f"   Extracted JSON attempt:")
+                    print(f"   {json_str[:400]}")
             # Conservative fallback
             return LLMClassification(
                 classification="code_bug",

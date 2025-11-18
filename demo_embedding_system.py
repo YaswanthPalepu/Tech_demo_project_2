@@ -15,11 +15,34 @@ import os
 import sys
 from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
+# Add src to path - use absolute path resolution
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root))
 
-from auto_fixer.codebase_indexer import CodebaseIndexer
-from auto_fixer.semantic_code_retriever import SemanticCodeRetriever
+# Direct imports to avoid triggering __init__.py
+import importlib.util
+
+def load_module_from_file(module_name, file_path):
+    """Load a module directly from file path."""
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+# Load the modules directly
+codebase_indexer = load_module_from_file(
+    'codebase_indexer',
+    project_root / 'src' / 'auto_fixer' / 'codebase_indexer.py'
+)
+semantic_code_retriever = load_module_from_file(
+    'semantic_code_retriever',
+    project_root / 'src' / 'auto_fixer' / 'semantic_code_retriever.py'
+)
+
+CodebaseIndexer = codebase_indexer.CodebaseIndexer
+SemanticCodeRetriever = semantic_code_retriever.SemanticCodeRetriever
 
 
 def demo_indexing():

@@ -14,8 +14,6 @@ import os
 # Add parent directory to path to import gen modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from gen.openai_client import get_openai_client
-
 
 ClassificationType = Literal["test_mistake", "code_bug"]
 
@@ -55,13 +53,49 @@ Respond with a JSON object:
 
 Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly modifying tests."""
 
-    def __init__(self):
+    def __init__(self, verbose: bool = False):
         """Initialize LLM classifier."""
-        try:
-            self.client = get_openai_client()
-        except Exception as e:
-            print(f"Warning: Could not initialize OpenAI client: {e}")
-            self.client = None
+        self.verbose = verbose
+        self.client = None
+        self.using_ollama = False
+
+        # Check if Ollama should be used (local LLM)
+        if os.getenv("OLLAMA_MODEL") or os.getenv("OLLAMA_HOST"):
+            try:
+                # Load Ollama client dynamically
+                import importlib.util
+                from pathlib import Path
+
+                current_file = Path(__file__).resolve()
+                ollama_client_path = current_file.parent.parent / 'gen' / 'ollama_client.py'
+
+                spec = importlib.util.spec_from_file_location(
+                    "ollama_client_llm_classifier",
+                    str(ollama_client_path)
+                )
+                ollama_module = importlib.util.module_from_spec(spec)
+                sys.modules['ollama_client_llm_classifier'] = ollama_module
+                spec.loader.exec_module(ollama_module)
+
+                self.client = ollama_module.get_ollama_llm_client()
+                self.using_ollama = True
+                if verbose:
+                    print(f"  ✓ Using Ollama LLM: {os.getenv('OLLAMA_MODEL', 'deepseek-r1:latest')}")
+            except Exception as e:
+                if verbose:
+                    print(f"  ⚠️  Could not initialize Ollama LLM client: {e}")
+                    print(f"  → Falling back to Azure OpenAI")
+
+        # Fall back to Azure OpenAI if Ollama not configured or failed
+        if self.client is None:
+            try:
+                from gen.openai_client import get_openai_client
+                self.client = get_openai_client()
+                if verbose:
+                    print(f"  ✓ Using Azure OpenAI")
+            except Exception as e:
+                print(f"Warning: Could not initialize OpenAI client: {e}")
+                self.client = None
 
     def classify(
         self,
@@ -100,14 +134,18 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
 
         try:
             # Call LLM with retry logic
-            # Get deployment from environment (required - no fallback)
-            deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
-            if not deployment:
-                raise ValueError("AZURE_OPENAI_DEPLOYMENT environment variable not set")
+            # Get model name based on provider
+            if self.using_ollama:
+                model_name = os.getenv("OLLAMA_MODEL", "deepseek-r1:latest")
+            else:
+                # Azure OpenAI
+                model_name = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+                if not model_name:
+                    raise ValueError("AZURE_OPENAI_DEPLOYMENT environment variable not set")
 
             # Build request parameters
             request_params = {
-                "model": deployment,
+                "model": model_name,
                 "messages": [
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}

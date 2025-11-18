@@ -155,13 +155,24 @@ class EmbeddingContextExtractor:
             )
 
             if self.verbose:
+                # Count functions/classes, not just files
+                def count_elements(context_dict):
+                    total = 0
+                    for code in context_dict.values():
+                        total += code.count('# function:') + code.count('# class:') + code.count('# http_endpoint:')
+                    return total
+
                 ast_files = len(ast_context)
+                ast_elements = count_elements(ast_context)
                 embed_files = len(embedding_context)
+                embed_elements = count_elements(embedding_context)
                 combined_files = len(combined_context)
+                combined_elements = count_elements(combined_context)
+
                 print(f"  📊 Context extraction results:")
-                print(f"     AST: {ast_files} files")
-                print(f"     Embeddings: {embed_files} files")
-                print(f"     Combined: {combined_files} files")
+                print(f"     AST: {ast_elements} elements in {ast_files} files")
+                print(f"     Embeddings: {embed_elements} elements in {embed_files} files")
+                print(f"     Combined: {combined_elements} elements in {combined_files} files (deduplicated)")
 
             return combined_context
 
@@ -278,9 +289,10 @@ class EmbeddingContextExtractor:
         Intelligently combine AST and embedding contexts.
 
         Strategy:
-        - If AST found files, use AST (more precise)
-        - Add embedding results for files AST missed
-        - Prefer AST when both found same file
+        - Merge functions from both AST and embeddings for the same file
+        - Remove duplicate functions (by name)
+        - Prefer AST version when duplicate (more precise)
+        - Add embedding results for new functions/files
 
         Args:
             ast_context: Context from AST extraction
@@ -291,13 +303,79 @@ class EmbeddingContextExtractor:
         """
         combined = {}
 
-        # Start with AST results (more precise when they work)
-        combined.update(ast_context)
+        # Track which functions we've seen (to avoid duplicates)
+        seen_functions = {}  # {file_path: {function_name, ...}}
 
-        # Add embedding results for files AST didn't find
-        for file_path, code in embedding_context.items():
+        # Helper to parse function names from code string
+        def extract_function_names(code_string: str) -> set:
+            """Extract function/class names from formatted code string."""
+            names = set()
+            for line in code_string.split('\n'):
+                if line.startswith('# function:') or line.startswith('# class:') or line.startswith('# http_endpoint:'):
+                    # Parse "# function: my_func (line 123)"
+                    parts = line.split(':')
+                    if len(parts) >= 2:
+                        name_part = parts[1].strip()
+                        # Remove "(line X)" suffix
+                        if '(' in name_part:
+                            name_part = name_part.split('(')[0].strip()
+                        names.add(name_part)
+            return names
+
+        # Step 1: Add all AST results (more precise)
+        for file_path, code in ast_context.items():
+            combined[file_path] = code
+            seen_functions[file_path] = extract_function_names(code)
+
+        # Step 2: Merge embedding results
+        for file_path, embed_code in embedding_context.items():
+            embed_funcs = extract_function_names(embed_code)
+
             if file_path not in combined:
-                combined[file_path] = code
+                # New file from embeddings - add it
+                combined[file_path] = embed_code
+                seen_functions[file_path] = embed_funcs
+            else:
+                # File exists in AST results - merge new functions only
+                existing_funcs = seen_functions[file_path]
+                new_funcs = embed_funcs - existing_funcs
+
+                if new_funcs:
+                    # Extract only new functions from embedding code
+                    new_code_parts = []
+                    lines = embed_code.split('\n')
+                    in_function = False
+                    current_func_name = None
+                    current_func_lines = []
+
+                    for line in lines:
+                        if line.startswith('# function:') or line.startswith('# class:') or line.startswith('# http_endpoint:'):
+                            # Save previous function if it was new
+                            if in_function and current_func_name in new_funcs:
+                                new_code_parts.extend(current_func_lines)
+                                new_code_parts.append("")
+
+                            # Start new function
+                            parts = line.split(':')
+                            if len(parts) >= 2:
+                                name_part = parts[1].strip()
+                                if '(' in name_part:
+                                    name_part = name_part.split('(')[0].strip()
+                                current_func_name = name_part
+                                current_func_lines = [line]
+                                in_function = True
+                        elif in_function:
+                            current_func_lines.append(line)
+
+                    # Don't forget last function
+                    if in_function and current_func_name in new_funcs:
+                        new_code_parts.extend(current_func_lines)
+                        new_code_parts.append("")
+
+                    # Append new functions to existing file
+                    if new_code_parts:
+                        combined[file_path] = combined[file_path].rstrip() + "\n\n" + '\n'.join(new_code_parts)
+                        seen_functions[file_path].update(new_funcs)
 
         return combined
 

@@ -1,0 +1,227 @@
+{
+  "patterns": [
+    {
+      "id": "sql_injection",
+      "name": "SQL Injection",
+      "severity": "critical",
+      "cwe_id": "CWE-89",
+      "owasp": "A03:2021 - Injection",
+      "description": "User input directly concatenated into SQL query",
+      "examples": [
+        "query = f\"SELECT * FROM users WHERE id = {user_id}\"",
+        "cursor.execute(\"DELETE FROM posts WHERE id = \" + post_id)",
+        "db.query(\"SELECT * FROM accounts WHERE name = '\" + username + \"'\")"
+      ],
+      "fix_description": "Use parameterized queries or ORM",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "command_injection",
+      "name": "Command Injection",
+      "severity": "critical",
+      "cwe_id": "CWE-78",
+      "owasp": "A03:2021 - Injection",
+      "description": "User input passed to shell command",
+      "examples": [
+        "os.system(f'ping {user_input}')",
+        "subprocess.call('ls ' + directory, shell=True)",
+        "exec(user_code)  # arbitrary code execution"
+      ],
+      "fix_description": "Avoid shell=True, use argument lists, validate input",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "xss",
+      "name": "Cross-Site Scripting (XSS)",
+      "severity": "high",
+      "cwe_id": "CWE-79",
+      "owasp": "A03:2021 - Injection",
+      "description": "Unescaped user input rendered in HTML",
+      "examples": [
+        "return f'<div>{user_comment}</div>'",
+        "template = f'<h1>Hello {username}</h1>'",
+        "html = '<script>' + user_data + '</script>'"
+      ],
+      "fix_description": "Use template engines with auto-escaping",
+      "file_patterns": ["*.py", "*.html"]
+    },
+    {
+      "id": "path_traversal",
+      "name": "Path Traversal",
+      "severity": "high",
+      "cwe_id": "CWE-22",
+      "owasp": "A01:2021 - Broken Access Control",
+      "description": "User-controlled file path without validation",
+      "examples": [
+        "with open(f'/uploads/{filename}') as f:",
+        "send_file(user_requested_path)",
+        "os.path.join(base_dir, user_input)  # '../../../etc/passwd'"
+      ],
+      "fix_description": "Validate and sanitize file paths, use allowlists",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "hardcoded_secrets",
+      "name": "Hardcoded Secrets",
+      "severity": "critical",
+      "cwe_id": "CWE-798",
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "description": "Passwords, API keys, or tokens in source code",
+      "examples": [
+        "API_KEY = 'sk-1234567890abcdef'",
+        "password = 'admin123'",
+        "SECRET_KEY = 'django-insecure-hardcoded-key'"
+      ],
+      "fix_description": "Use environment variables or secret management",
+      "file_patterns": ["*.py", "*.js", "*.json"]
+    },
+    {
+      "id": "weak_crypto",
+      "name": "Weak Cryptography",
+      "severity": "high",
+      "cwe_id": "CWE-327",
+      "owasp": "A02:2021 - Cryptographic Failures",
+      "description": "Use of weak or broken cryptographic algorithms",
+      "examples": [
+        "import md5\nhash = md5.new(password)",
+        "hashlib.sha1(data)",
+        "DES.new(key)  # weak cipher"
+      ],
+      "fix_description": "Use SHA-256 or bcrypt for hashing, AES-256 for encryption",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "insecure_deserialization",
+      "name": "Insecure Deserialization",
+      "severity": "critical",
+      "cwe_id": "CWE-502",
+      "owasp": "A08:2021 - Software and Data Integrity Failures",
+      "description": "Deserializing untrusted data with pickle",
+      "examples": [
+        "import pickle\ndata = pickle.loads(user_input)",
+        "yaml.load(untrusted_data)  # without safe_load",
+        "eval(request.data)  # dangerous!"
+      ],
+      "fix_description": "Use JSON, or yaml.safe_load(), never pickle untrusted data",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "missing_csrf",
+      "name": "Missing CSRF Protection",
+      "severity": "high",
+      "cwe_id": "CWE-352",
+      "owasp": "A01:2021 - Broken Access Control",
+      "description": "State-changing operation without CSRF token",
+      "examples": [
+        "@app.route('/delete', methods=['POST'])\ndef delete():\n    # no CSRF check",
+        "@csrf_exempt\n@require_POST\ndef sensitive_action(request):"
+      ],
+      "fix_description": "Enable CSRF protection for all state-changing operations",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "mass_assignment",
+      "name": "Mass Assignment",
+      "severity": "medium",
+      "cwe_id": "CWE-915",
+      "owasp": "A01:2021 - Broken Access Control",
+      "description": "Directly assigning user input to model",
+      "examples": [
+        "user = User(**request.data)",
+        "for key, value in request.POST.items():\n    setattr(model, key, value)",
+        "Model.objects.update(**request.json)"
+      ],
+      "fix_description": "Use explicit field whitelisting",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "xxe",
+      "name": "XML External Entity (XXE)",
+      "severity": "critical",
+      "cwe_id": "CWE-611",
+      "owasp": "A05:2021 - Security Misconfiguration",
+      "description": "XML parser allows external entities",
+      "examples": [
+        "tree = ElementTree.parse(user_xml)",
+        "xml.etree.ElementTree.fromstring(untrusted)",
+        "lxml.etree.parse(file)  # without safe parser"
+      ],
+      "fix_description": "Disable external entity processing in XML parsers",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "unsafe_redirect",
+      "name": "Unvalidated Redirect",
+      "severity": "medium",
+      "cwe_id": "CWE-601",
+      "owasp": "A01:2021 - Broken Access Control",
+      "description": "Redirect to user-controlled URL",
+      "examples": [
+        "return redirect(request.GET['next'])",
+        "response = HttpResponseRedirect(user_url)",
+        "window.location = request.args.get('redirect')"
+      ],
+      "fix_description": "Validate redirect URLs against allowlist",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "debug_mode_production",
+      "name": "Debug Mode in Production",
+      "severity": "high",
+      "cwe_id": "CWE-489",
+      "owasp": "A05:2021 - Security Misconfiguration",
+      "description": "Debug mode enabled exposing sensitive info",
+      "examples": [
+        "DEBUG = True",
+        "app.run(debug=True)",
+        "app.config['DEBUG'] = True"
+      ],
+      "fix_description": "Disable debug mode in production",
+      "file_patterns": ["*.py", "settings.py"]
+    },
+    {
+      "id": "insecure_random",
+      "name": "Insecure Random Number Generation",
+      "severity": "medium",
+      "cwe_id": "CWE-338",
+      "owasp": "A02:2021 - Cryptographic Failures",
+      "description": "Using predictable random for security",
+      "examples": [
+        "token = str(random.randint(1000, 9999))",
+        "session_id = str(random.random())",
+        "password_reset_token = ''.join(random.choices(string.ascii_letters, k=16))"
+      ],
+      "fix_description": "Use secrets module for security-sensitive randomness",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "missing_rate_limiting",
+      "name": "Missing Rate Limiting",
+      "severity": "medium",
+      "cwe_id": "CWE-770",
+      "owasp": "A04:2021 - Insecure Design",
+      "description": "API endpoint without rate limiting",
+      "examples": [
+        "@app.route('/login', methods=['POST'])\ndef login():\n    # no rate limit - allows brute force",
+        "@app.post('/api/expensive-operation')\ndef operation():\n    # no rate limit - allows DoS"
+      ],
+      "fix_description": "Implement rate limiting on sensitive endpoints",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "sensitive_data_exposure",
+      "name": "Sensitive Data Exposure",
+      "severity": "high",
+      "cwe_id": "CWE-200",
+      "owasp": "A02:2021 - Cryptographic Failures",
+      "description": "Logging or returning sensitive information",
+      "examples": [
+        "logger.info(f'User password: {password}')",
+        "print(f'Credit card: {card_number}')",
+        "return {'user': user, 'password': password}"
+      ],
+      "fix_description": "Never log or expose sensitive data",
+      "file_patterns": ["*.py"]
+    }
+  ]
+}

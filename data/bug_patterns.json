@@ -1,0 +1,211 @@
+{
+  "patterns": [
+    {
+      "id": "null_pointer",
+      "name": "Null/None Pointer Access",
+      "severity": "high",
+      "type": "runtime_error",
+      "description": "Accessing attributes or methods on None/null values",
+      "examples": [
+        "AttributeError: 'NoneType' object has no attribute 'get'",
+        "result = None\nresult.method()",
+        "data = fetch_data()\ndata['key']  # data might be None"
+      ],
+      "fix_description": "Add null checks before accessing attributes",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "index_out_of_bounds",
+      "name": "Index Out of Bounds",
+      "severity": "high",
+      "type": "runtime_error",
+      "description": "Accessing list/array index that doesn't exist",
+      "examples": [
+        "IndexError: list index out of range",
+        "items = [1, 2, 3]\nvalue = items[10]",
+        "for i in range(len(items) + 1):\n    print(items[i])"
+      ],
+      "fix_description": "Check list length before accessing indices",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "key_error",
+      "name": "Missing Dictionary Key",
+      "severity": "medium",
+      "type": "runtime_error",
+      "description": "Accessing dictionary key that doesn't exist",
+      "examples": [
+        "KeyError: 'missing_key'",
+        "data = {'a': 1}\nvalue = data['b']",
+        "config['database']  # key might not exist"
+      ],
+      "fix_description": "Use .get() with default value or check key existence",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "division_by_zero",
+      "name": "Division by Zero",
+      "severity": "high",
+      "type": "runtime_error",
+      "description": "Dividing by zero or empty collection",
+      "examples": [
+        "ZeroDivisionError: division by zero",
+        "result = total / count  # count might be 0",
+        "average = sum(items) / len(items)  # items might be empty"
+      ],
+      "fix_description": "Check denominator is not zero before division",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "type_mismatch",
+      "name": "Type Mismatch",
+      "severity": "medium",
+      "type": "runtime_error",
+      "description": "Operation on incompatible types",
+      "examples": [
+        "TypeError: unsupported operand type(s) for +: 'int' and 'str'",
+        "result = 5 + '10'",
+        "total = sum(['1', '2', '3'])  # strings instead of ints"
+      ],
+      "fix_description": "Ensure type compatibility or add type conversion",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "infinite_loop",
+      "name": "Infinite Loop",
+      "severity": "critical",
+      "type": "logic_error",
+      "description": "Loop that never terminates",
+      "examples": [
+        "while True:\n    pass  # no break condition",
+        "i = 0\nwhile i < 10:\n    print(i)  # forgot to increment i",
+        "for item in queue:\n    queue.append(new_item)  # adding while iterating"
+      ],
+      "fix_description": "Ensure loop has termination condition",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "resource_leak",
+      "name": "Resource Leak",
+      "severity": "high",
+      "type": "resource_management",
+      "description": "File/connection not properly closed",
+      "examples": [
+        "f = open('file.txt')\ndata = f.read()  # file never closed",
+        "conn = database.connect()\nconn.execute(query)  # connection never closed",
+        "response = requests.get(url)  # response not closed"
+      ],
+      "fix_description": "Use context managers (with statement) for resource management",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "race_condition",
+      "name": "Race Condition",
+      "severity": "critical",
+      "type": "concurrency",
+      "description": "Concurrent access without proper synchronization",
+      "examples": [
+        "shared_counter = 0\n# multiple threads incrementing without lock",
+        "if not os.path.exists(file):\n    create_file(file)  # TOCTOU bug",
+        "data = cache.get(key)\nif not data:\n    data = compute()\n    cache.set(key, data)  # race condition"
+      ],
+      "fix_description": "Use locks, mutexes, or atomic operations",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "incorrect_comparison",
+      "name": "Incorrect Comparison",
+      "severity": "medium",
+      "type": "logic_error",
+      "description": "Using wrong comparison operator",
+      "examples": [
+        "if user = admin:  # assignment instead of comparison",
+        "if value == None:  # should use 'is None'",
+        "if items.count() > 0:  # should use 'if items:'"
+      ],
+      "fix_description": "Use correct comparison operators and Python idioms",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "mutable_default_argument",
+      "name": "Mutable Default Argument",
+      "severity": "high",
+      "type": "python_gotcha",
+      "description": "Using mutable objects as default arguments",
+      "examples": [
+        "def append_to(element, target=[]):\n    target.append(element)\n    return target",
+        "def process(items={}):\n    items['key'] = 'value'\n    return items"
+      ],
+      "fix_description": "Use None as default and create mutable in function body",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "missing_return",
+      "name": "Missing Return Statement",
+      "severity": "medium",
+      "type": "logic_error",
+      "description": "Function expected to return value but doesn't",
+      "examples": [
+        "def calculate(x):\n    result = x * 2\n    # missing return",
+        "def get_user(id):\n    if user_exists(id):\n        return get_from_db(id)\n    # missing else return"
+      ],
+      "fix_description": "Ensure all code paths return appropriate values",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "unhandled_exception",
+      "name": "Unhandled Exception",
+      "severity": "high",
+      "type": "error_handling",
+      "description": "Exception that crashes the application",
+      "examples": [
+        "data = json.loads(response)  # might raise JSONDecodeError",
+        "file_content = open(path).read()  # might raise FileNotFoundError",
+        "result = int(user_input)  # might raise ValueError"
+      ],
+      "fix_description": "Add try-except blocks for operations that might fail",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "incorrect_async_usage",
+      "name": "Incorrect Async/Await Usage",
+      "severity": "high",
+      "type": "concurrency",
+      "description": "Mixing sync and async code incorrectly",
+      "examples": [
+        "async def handler():\n    result = blocking_io()  # blocking in async",
+        "def sync_func():\n    data = await async_call()  # await in sync",
+        "asyncio.run(coro())\nasyncio.run(coro2())  # multiple event loops"
+      ],
+      "fix_description": "Use await for async calls, run_in_executor for blocking",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "string_concatenation_loop",
+      "name": "String Concatenation in Loop",
+      "severity": "low",
+      "type": "performance",
+      "description": "Inefficient string building",
+      "examples": [
+        "result = ''\nfor item in items:\n    result += str(item)  # O(n²) complexity",
+        "output = ''\nfor line in file:\n    output = output + line"
+      ],
+      "fix_description": "Use join() or list accumulation",
+      "file_patterns": ["*.py"]
+    },
+    {
+      "id": "missing_authentication",
+      "name": "Missing Authentication Check",
+      "severity": "critical",
+      "type": "security",
+      "description": "Endpoint or function missing auth verification",
+      "examples": [
+        "@app.route('/admin/delete')\ndef delete_user(user_id):\n    # no auth check",
+        "def transfer_money(from_account, to_account, amount):\n    # no permission check",
+        "@app.get('/users/{user_id}/private')\ndef get_private_data(user_id):\n    return get_data(user_id)  # no auth"
+      ],
+      "fix_description": "Add authentication and authorization checks",
+      "file_patterns": ["*.py"]
+    }
+  ]
+}

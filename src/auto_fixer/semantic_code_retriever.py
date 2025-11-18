@@ -71,8 +71,18 @@ class SemanticCodeRetriever:
             # Check if using Ollama (preferred)
             if os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_EMBED_MODEL"):
                 try:
-                    from gen.ollama_client import get_ollama_client
-                    self._embedding_client = get_ollama_client()
+                    # Import ollama_client directly to avoid gen.__init__ issues
+                    import importlib.util
+                    import sys
+                    from pathlib import Path
+
+                    module_path = Path(__file__).parent.parent / 'gen' / 'ollama_client.py'
+                    spec = importlib.util.spec_from_file_location("ollama_client", module_path)
+                    ollama_module = importlib.util.module_from_spec(spec)
+                    sys.modules['ollama_client'] = ollama_module
+                    spec.loader.exec_module(ollama_module)
+
+                    self._embedding_client = ollama_module.get_ollama_client()
                     if self.verbose:
                         print("  Using Ollama for embeddings")
                 except Exception as e:

@@ -84,6 +84,12 @@ Return the complete fixed test function code."""
             previous_failure_output
         )
 
+        # DEBUG: Show prompt size
+        prompt_lines = user_prompt.count('\n')
+        prompt_chars = len(user_prompt)
+        estimated_tokens = prompt_chars // 4  # Rough estimate: 4 chars per token
+        print(f"      📏 Prompt size: {prompt_lines} lines, {prompt_chars} chars (~{estimated_tokens} tokens)")
+
         try:
             # Call LLM
             # Get deployment from environment (required - no fallback)

@@ -91,6 +91,13 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
         # Build the prompt
         user_prompt = self._build_prompt(failure, test_code, source_code)
 
+        # DEBUG: Show prompt size
+        prompt_lines = user_prompt.count('\n')
+        prompt_chars = len(user_prompt)
+        estimated_tokens = prompt_chars // 4  # Rough estimate: 4 chars per token
+        if self.verbose:
+            print(f"      📏 Prompt size: {prompt_lines} lines, {prompt_chars} chars (~{estimated_tokens} tokens)")
+
         try:
             # Call LLM with retry logic
             # Get deployment from environment (required - no fallback)

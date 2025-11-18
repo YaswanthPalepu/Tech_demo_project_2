@@ -1136,10 +1136,7 @@ class ASTContextExtractor:
 
         total_lines = len(content.split('\n'))
 
-        # If file is small enough, return everything
-        if total_lines <= max_lines:
-            return content
-
+        # Always use targeted extraction (only extract functions/classes found, not entire file)
         if self.verbose:
             print(f"    🎯 Using targeted extraction for {os.path.basename(source_file)} ({total_lines} lines)...")
 

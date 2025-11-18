@@ -48,7 +48,10 @@ Return the complete fixed test function code."""
         self.using_ollama = False
 
         # Check if Ollama should be used (local LLM)
-        if os.getenv("OLLAMA_MODEL") or os.getenv("OLLAMA_HOST"):
+        # Only use Ollama if either variable is set to a non-empty value
+        ollama_model = os.getenv("OLLAMA_MODEL", "").strip()
+        ollama_host = os.getenv("OLLAMA_HOST", "").strip()
+        if ollama_model or ollama_host:
             try:
                 # Load Ollama client dynamically
                 import importlib.util

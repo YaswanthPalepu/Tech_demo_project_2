@@ -68,19 +68,24 @@ class SemanticCodeRetriever:
     def embedding_client(self):
         """Lazy-load embedding client (Ollama or OpenAI)."""
         if self._embedding_client is None:
+            # Add gen module to sys.path for clean import (works from any directory)
+            import importlib
+            from pathlib import Path
+
+            current_file = Path(__file__).resolve()
+            gen_dir = current_file.parent.parent / 'gen'
+            gen_dir_str = str(gen_dir)
+            if gen_dir_str not in sys.path:
+                sys.path.insert(0, gen_dir_str)
+
             # Check if using Ollama (preferred)
             if os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_EMBED_MODEL"):
                 try:
-                    # Import ollama_client directly to avoid gen.__init__ issues
-                    import importlib.util
-                    import sys
-                    from pathlib import Path
-
-                    module_path = Path(__file__).parent.parent / 'gen' / 'ollama_client.py'
-                    spec = importlib.util.spec_from_file_location("ollama_client", module_path)
-                    ollama_module = importlib.util.module_from_spec(spec)
-                    sys.modules['ollama_client'] = ollama_module
-                    spec.loader.exec_module(ollama_module)
+                    # Import ollama_client as regular module (avoids gen.__init__.py)
+                    if 'ollama_client' in sys.modules:
+                        ollama_module = importlib.reload(sys.modules['ollama_client'])
+                    else:
+                        ollama_module = importlib.import_module('ollama_client')
 
                     self._embedding_client = ollama_module.get_ollama_client()
                     if self.verbose:
@@ -88,17 +93,12 @@ class SemanticCodeRetriever:
                 except Exception as e:
                     if self.verbose:
                         print(f"  ⚠️  Failed to load Ollama client: {e}")
-                    # Fall back to OpenAI using direct import
+                    # Fall back to OpenAI
                     try:
-                        import importlib.util
-                        import sys
-                        from pathlib import Path
-
-                        module_path = Path(__file__).parent.parent / 'gen' / 'openai_client.py'
-                        spec = importlib.util.spec_from_file_location("openai_client_retriever_fallback", module_path)
-                        openai_module = importlib.util.module_from_spec(spec)
-                        sys.modules['openai_client_retriever_fallback'] = openai_module
-                        spec.loader.exec_module(openai_module)
+                        if 'openai_client' in sys.modules:
+                            openai_module = importlib.reload(sys.modules['openai_client'])
+                        else:
+                            openai_module = importlib.import_module('openai_client')
 
                         self._embedding_client = openai_module.create_client()
                         if self.verbose:
@@ -108,17 +108,12 @@ class SemanticCodeRetriever:
                             print(f"  ⚠️  Both Ollama and OpenAI failed: {e2}")
                         self._embedding_client = None
             else:
-                # Use OpenAI using direct import
+                # Use OpenAI
                 try:
-                    import importlib.util
-                    import sys
-                    from pathlib import Path
-
-                    module_path = Path(__file__).parent.parent / 'gen' / 'openai_client.py'
-                    spec = importlib.util.spec_from_file_location("openai_client_retriever_main", module_path)
-                    openai_module = importlib.util.module_from_spec(spec)
-                    sys.modules['openai_client_retriever_main'] = openai_module
-                    spec.loader.exec_module(openai_module)
+                    if 'openai_client' in sys.modules:
+                        openai_module = importlib.reload(sys.modules['openai_client'])
+                    else:
+                        openai_module = importlib.import_module('openai_client')
 
                     self._embedding_client = openai_module.create_client()
                     if self.verbose:

@@ -251,7 +251,7 @@ class OllamaLLMClient:
             response = requests.post(
                 self.chat_url,
                 json=payload,
-                timeout=300  # 5 minutes for reasoning models
+                timeout=600  # 10 minutes for reasoning models
             )
             response.raise_for_status()
 

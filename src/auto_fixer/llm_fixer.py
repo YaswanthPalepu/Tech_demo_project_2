@@ -188,7 +188,13 @@ Return the complete fixed test function code."""
             Formatted prompt
         """
         # Truncate source code if too long (prevent token limit issues)
-        MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "300"))
+        # Ollama: much higher limit (2000 lines default, can handle large contexts)
+        # Azure OpenAI: conservative limit (300 lines default)
+        if self.using_ollama:
+            MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "2000"))
+        else:
+            MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "300"))
+
         source_lines = source_code.split('\n')
 
         if len(source_lines) > MAX_SOURCE_LINES:
@@ -331,7 +337,13 @@ Return ONLY the complete fixed test function code (include decorators, docstring
             return None
 
         # Truncate source code if too long (prevent token limit issues)
-        MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "300"))
+        # Ollama: much higher limit (2000 lines default, can handle large contexts)
+        # Azure OpenAI: conservative limit (300 lines default)
+        if self.using_ollama:
+            MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "2000"))
+        else:
+            MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "300"))
+
         source_lines = source_code.split('\n')
 
         if len(source_lines) > MAX_SOURCE_LINES:

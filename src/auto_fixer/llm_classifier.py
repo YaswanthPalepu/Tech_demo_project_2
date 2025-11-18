@@ -287,7 +287,13 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
             Formatted prompt string
         """
         # Truncate source code if too long (prevent token limit issues)
-        MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "300"))
+        # Ollama: much higher limit (2000 lines default, can handle large contexts)
+        # Azure OpenAI: conservative limit (300 lines default)
+        if self.using_ollama:
+            MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "2000"))
+        else:
+            MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "300"))
+
         source_lines = source_code.split('\n')
 
         if len(source_lines) > MAX_SOURCE_LINES:

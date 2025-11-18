@@ -13,6 +13,7 @@ from .failure_parser import FailureParser, TestFailure
 from .rule_classifier import RuleBasedClassifier
 from .llm_classifier import LLMClassifier, LLMClassification
 from .ast_context_extractor import ASTContextExtractor
+from .embedding_context_extractor import EmbeddingContextExtractor
 from .llm_fixer import LLMFixer
 from .ast_patcher import ASTPatcher
 
@@ -56,11 +57,29 @@ class AutoTestFixerOrchestrator:
         # Check for verbose mode
         verbose = os.getenv("AUTOFIXER_VERBOSE", "").lower() in ("true", "1", "yes")
 
+        # Check if embeddings should be used (default: yes)
+        use_embeddings = os.getenv("USE_EMBEDDINGS", "true").lower() in ("true", "1", "yes")
+
         # Initialize components
         self.failure_parser = FailureParser(test_directory)
         self.rule_classifier = RuleBasedClassifier()
         self.llm_classifier = LLMClassifier()
-        self.context_extractor = ASTContextExtractor(project_root, verbose=verbose)
+
+        # Use embedding-enhanced context extractor (hybrid AST + embeddings)
+        if use_embeddings:
+            self.context_extractor = EmbeddingContextExtractor(
+                project_root=project_root,
+                use_embeddings=True,
+                verbose=verbose
+            )
+            if verbose:
+                print("🧠 Using embedding-enhanced context extraction")
+        else:
+            # Fallback to pure AST extraction
+            self.context_extractor = ASTContextExtractor(project_root, verbose=verbose)
+            if verbose:
+                print("🌲 Using AST-only context extraction")
+
         self.llm_fixer = LLMFixer()
         self.ast_patcher = ASTPatcher()
 

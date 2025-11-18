@@ -93,9 +93,14 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
 
         try:
             # Call LLM with retry logic
+            # Get deployment from environment (required - no fallback)
+            deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+            if not deployment:
+                raise ValueError("AZURE_OPENAI_DEPLOYMENT environment variable not set")
+
             # Build request parameters
             request_params = {
-                "model": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
+                "model": deployment,
                 "messages": [
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}

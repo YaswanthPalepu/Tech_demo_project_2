@@ -86,9 +86,14 @@ Return the complete fixed test function code."""
 
         try:
             # Call LLM
+            # Get deployment from environment (required - no fallback)
+            deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+            if not deployment:
+                raise ValueError("AZURE_OPENAI_DEPLOYMENT environment variable not set")
+
             # Build request parameters
             request_params = {
-                "model": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
+                "model": deployment,
                 "messages": [
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}
@@ -297,9 +302,14 @@ You may need to fix imports, fixtures, or the test function itself.
 Return the COMPLETE fixed test file."""
 
         try:
+            # Get deployment from environment (required - no fallback)
+            deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+            if not deployment:
+                raise ValueError("AZURE_OPENAI_DEPLOYMENT environment variable not set")
+
             # Build request parameters
             request_params = {
-                "model": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
+                "model": deployment,
                 "messages": [
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}

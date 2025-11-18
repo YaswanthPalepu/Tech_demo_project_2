@@ -95,12 +95,26 @@ class CodebaseIndexer:
         self,
         project_root: str = ".",
         cache_dir: str = ".codebase_index",
-        embedding_model: str = "text-embedding-3-small",
+        embedding_model: str = None,
         verbose: bool = False
     ):
         self.project_root = Path(project_root)
         self.cache_dir = Path(cache_dir)
-        self.embedding_model = embedding_model
+
+        # Auto-detect embedding model from environment
+        if embedding_model is None:
+            # Check for Ollama model
+            if os.getenv("OLLAMA_EMBED_MODEL"):
+                self.embedding_model = os.getenv("OLLAMA_EMBED_MODEL")
+            # Check for OpenAI model
+            elif os.getenv("OPENAI_EMBEDDING_MODEL"):
+                self.embedding_model = os.getenv("OPENAI_EMBEDDING_MODEL")
+            else:
+                # Last resort fallback (user should set env var)
+                self.embedding_model = "qwen3-embedding:latest"
+        else:
+            self.embedding_model = embedding_model
+
         self.verbose = verbose
 
         # Create cache directory
@@ -560,15 +574,20 @@ class CodebaseIndexer:
                 if self.verbose:
                     print(f"    ⚠️  Error generating embeddings: {e}")
                 # Fallback: add zero vectors
-                # Determine embedding dimension based on model/environment
+                # Determine embedding dimension from environment (VECTOR_DIM)
+                # or infer from model name for OpenAI models
                 if os.getenv("VECTOR_DIM"):
+                    # User-specified dimension (e.g., 1024 for qwen3-embedding)
                     embedding_dim = int(os.getenv("VECTOR_DIM"))
                 elif 'small' in self.embedding_model:
-                    embedding_dim = 1536  # OpenAI text-embedding-3-small
+                    # OpenAI text-embedding-3-small
+                    embedding_dim = 1536
                 elif 'large' in self.embedding_model:
-                    embedding_dim = 3072  # OpenAI text-embedding-3-large
+                    # OpenAI text-embedding-3-large
+                    embedding_dim = 3072
                 else:
-                    embedding_dim = 1024  # Default fallback
+                    # Generic fallback
+                    embedding_dim = 1024
                 embeddings.extend([[0.0] * embedding_dim for _ in batch])
 
         return embeddings

@@ -175,14 +175,8 @@ class AutoTestFixerOrchestrator:
         # Step 2: Rule-based classification
         rule_classification = self.rule_classifier.classify(failure)
 
-        if rule_classification == "test_mistake":
-            print(f"  Rule classifier: test_mistake")
-            return self._fix_test_mistake(failure, "rule-based classification")
-
-        # Step 3: LLM classification
-        print(f"  Rule classifier: unknown, using LLM...")
-
-        # Step 4: Extract AST context (with error message for targeted extraction)
+        # Extract context ONCE here (will be reused for both classification and fixing)
+        # This is a significant optimization - avoids 3-4x duplicate context extraction
         test_code = self._read_test_function(failure)
         source_code = self.context_extractor.get_full_context_string(
             failure.test_file,
@@ -190,7 +184,14 @@ class AutoTestFixerOrchestrator:
             failure.error_message
         )
 
-        # LLM classification
+        if rule_classification == "test_mistake":
+            print(f"  Rule classifier: test_mistake")
+            return self._fix_test_mistake(failure, "rule-based classification", test_code, source_code)
+
+        # Step 3: LLM classification
+        print(f"  Rule classifier: unknown, using LLM...")
+
+        # LLM classification (reuse extracted context)
         llm_result = self.llm_classifier.classify(failure, test_code, source_code)
         print(f"  LLM classifier: {llm_result.classification} ({llm_result.reason})")
 
@@ -208,8 +209,8 @@ class AutoTestFixerOrchestrator:
                         reason=llm_result.reason
                     )
 
-            # If LLM fix didn't work, generate a new fix
-            return self._fix_test_mistake(failure, llm_result.reason)
+            # If LLM fix didn't work, generate a new fix (reuse context)
+            return self._fix_test_mistake(failure, llm_result.reason, test_code, source_code)
 
         # Code bug - don't fix
         return FixResult(
@@ -221,7 +222,13 @@ class AutoTestFixerOrchestrator:
             reason=llm_result.reason
         )
 
-    def _fix_test_mistake(self, failure: TestFailure, reason: str) -> FixResult:
+    def _fix_test_mistake(
+        self,
+        failure: TestFailure,
+        reason: str,
+        test_code: str,
+        source_code: str
+    ) -> FixResult:
         """
         Fix a test mistake with multi-attempt learning.
 
@@ -231,17 +238,14 @@ class AutoTestFixerOrchestrator:
         Args:
             failure: TestFailure object
             reason: Reason for classification
+            test_code: Pre-extracted test function code (cached)
+            source_code: Pre-extracted source context (cached)
 
         Returns:
             FixResult object
         """
-        # Step 4: Extract context (with error message for targeted extraction)
-        test_code = self._read_test_function(failure)
-        source_code = self.context_extractor.get_full_context_string(
-            failure.test_file,
-            failure.test_name,
-            failure.error_message
-        )
+        # Context is now passed in (cached from _process_failure)
+        # This eliminates 3x duplicate extraction (one per fix attempt)
 
         max_attempts = 3
         previous_fix = None

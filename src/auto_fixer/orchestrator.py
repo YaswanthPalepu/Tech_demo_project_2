@@ -439,9 +439,19 @@ class AutoTestFixerOrchestrator:
         Returns:
             Summary dictionary
         """
-        total_failures = len(self.fix_history)
-        test_mistakes = [r for r in self.fix_history if r.classification == "test_mistake"]
-        code_bugs = [r for r in self.fix_history if r.classification == "code_bug"]
+        # Count unique failures (not all retry attempts across iterations)
+        # Group by test_file + test_name to get unique tests
+        unique_failures = {}
+        for result in self.fix_history:
+            key = (result.test_file, result.test_name)
+            # Keep the most recent result for each unique test
+            # (later iterations have more information)
+            unique_failures[key] = result
+
+        unique_results = list(unique_failures.values())
+        total_failures = len(unique_results)
+        test_mistakes = [r for r in unique_results if r.classification == "test_mistake"]
+        code_bugs = [r for r in unique_results if r.classification == "code_bug"]
         successful_fixes = [r for r in test_mistakes if r.fix_successful]
 
         summary = {
@@ -452,6 +462,7 @@ class AutoTestFixerOrchestrator:
             "successful_fixes": len(successful_fixes),
             "failed_fixes": len(test_mistakes) - len(successful_fixes),
             "fix_history": [asdict(r) for r in self.fix_history],
+            "unique_failures": [asdict(r) for r in unique_results],
             "code_bugs_list": [f.to_dict() for f in self.code_bugs]
         }
 
@@ -460,7 +471,7 @@ class AutoTestFixerOrchestrator:
         print("FINAL SUMMARY")
         print("=" * 80)
         print(f"Iterations: {iterations}/{self.max_iterations}")
-        print(f"Total failures processed: {total_failures}")
+        print(f"Total unique failures: {total_failures}")
         print(f"Test mistakes: {len(test_mistakes)}")
         print(f"  - Fixed: {len(successful_fixes)}")
         print(f"  - Failed to fix: {len(test_mistakes) - len(successful_fixes)}")

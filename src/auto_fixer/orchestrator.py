@@ -9,13 +9,14 @@ from typing import List, Dict, Any
 from dataclasses import dataclass, asdict
 import os
 
-from .failure_parser import FailureParser, TestFailure
-from .rule_classifier import RuleBasedClassifier
-from .llm_classifier import LLMClassifier, LLMClassification
-from .ast_context_extractor import ASTContextExtractor
-from .embedding_context_extractor import EmbeddingContextExtractor
-from .llm_fixer import LLMFixer
-from .ast_patcher import ASTPatcher
+# Use absolute imports to avoid issues when loaded in different contexts
+from auto_fixer.failure_parser import FailureParser, TestFailure
+from auto_fixer.rule_classifier import RuleBasedClassifier
+from auto_fixer.llm_classifier import LLMClassifier, LLMClassification
+from auto_fixer.ast_context_extractor import ASTContextExtractor
+from auto_fixer.embedding_context_extractor import EmbeddingContextExtractor
+from auto_fixer.llm_fixer import LLMFixer
+from auto_fixer.ast_patcher import ASTPatcher
 
 
 @dataclass

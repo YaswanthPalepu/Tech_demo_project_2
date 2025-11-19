@@ -8,13 +8,14 @@ Automatically fixes failing tests by:
 4. Applying fixes and re-running tests
 """
 
-from .orchestrator import AutoTestFixerOrchestrator, FixResult
-from .failure_parser import FailureParser, TestFailure
-from .rule_classifier import RuleBasedClassifier
-from .llm_classifier import LLMClassifier, LLMClassification
-from .ast_context_extractor import ASTContextExtractor
-from .llm_fixer import LLMFixer
-from .ast_patcher import ASTPatcher
+# Use absolute imports to avoid issues when loaded in different contexts
+from auto_fixer.orchestrator import AutoTestFixerOrchestrator, FixResult
+from auto_fixer.failure_parser import FailureParser, TestFailure
+from auto_fixer.rule_classifier import RuleBasedClassifier
+from auto_fixer.llm_classifier import LLMClassifier, LLMClassification
+from auto_fixer.ast_context_extractor import ASTContextExtractor
+from auto_fixer.llm_fixer import LLMFixer
+from auto_fixer.ast_patcher import ASTPatcher
 
 __all__ = [
     'AutoTestFixerOrchestrator',

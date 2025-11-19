@@ -6,7 +6,9 @@ Classifies test failures as "test_mistake" or "unknown" based on patterns.
 
 import re
 from typing import Literal
-from .failure_parser import TestFailure
+
+# Use absolute import to avoid issues when loaded in different contexts
+from auto_fixer.failure_parser import TestFailure
 
 
 ClassificationType = Literal["test_mistake", "unknown"]

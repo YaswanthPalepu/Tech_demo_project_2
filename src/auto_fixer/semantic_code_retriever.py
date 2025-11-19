@@ -20,10 +20,12 @@ import sys
 import os
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
-from .codebase_indexer import CodebaseIndexer, CodeElement
 
 # Add parent directory to path to import gen modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+# Use absolute import to avoid issues when loaded in different contexts
+from auto_fixer.codebase_indexer import CodebaseIndexer, CodeElement
 
 
 @dataclass

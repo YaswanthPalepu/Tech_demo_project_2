@@ -24,9 +24,10 @@ import os
 from typing import Dict, List, Optional
 from pathlib import Path
 
-from .ast_context_extractor import ASTContextExtractor
-from .codebase_indexer import CodebaseIndexer
-from .semantic_code_retriever import SemanticCodeRetriever
+# Use absolute imports to avoid issues when loaded in different contexts
+from auto_fixer.ast_context_extractor import ASTContextExtractor
+from auto_fixer.codebase_indexer import CodebaseIndexer
+from auto_fixer.semantic_code_retriever import SemanticCodeRetriever
 
 
 class EmbeddingContextExtractor:

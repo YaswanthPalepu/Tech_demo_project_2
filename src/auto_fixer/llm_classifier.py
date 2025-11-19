@@ -5,14 +5,16 @@ Uses LLM to classify test failures and suggest fixes.
 """
 
 import json
-from typing import Literal, Optional
-from dataclasses import dataclass
-from .failure_parser import TestFailure
 import sys
 import os
+from typing import Literal, Optional
+from dataclasses import dataclass
 
 # Add parent directory to path to import gen modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+# Use absolute import to avoid issues when loaded in different contexts
+from auto_fixer.failure_parser import TestFailure
 
 
 ClassificationType = Literal["test_mistake", "code_bug"]

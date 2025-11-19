@@ -159,7 +159,7 @@ Return the complete fixed test function code."""
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}
                 ],
-                "max_completion_tokens": 2000
+                # NO max_completion_tokens limit - let reasoning models use what they need
             }
 
             # Only set temperature if environment variable is set
@@ -203,22 +203,9 @@ Return the complete fixed test function code."""
         Returns:
             Formatted prompt
         """
-        # Truncate source code if too long (prevent token limit issues)
-        # Ollama: much higher limit (2000 lines default, can handle large contexts)
-        # Azure OpenAI: conservative limit (300 lines default)
-        if self.using_ollama:
-            MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "2000"))
-        else:
-            MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "300"))
-
-        source_lines = source_code.split('\n')
-
-        if len(source_lines) > MAX_SOURCE_LINES:
-            truncated_source = '\n'.join(source_lines[:MAX_SOURCE_LINES])
-            truncated_count = len(source_lines) - MAX_SOURCE_LINES
-            source_code_display = f"{truncated_source}\n\n# ... truncated {truncated_count} lines to fit context window ..."
-        else:
-            source_code_display = source_code
+        # NO truncation - send all source code (embeddings already filtered to relevant code)
+        # Modern LLMs can handle large contexts (deepseek-r1: 64k, gpt-4o-mini: 128k)
+        source_code_display = source_code
 
         prompt = f"""# Fix This Failing Test
 
@@ -352,22 +339,9 @@ Return ONLY the complete fixed test function code (include decorators, docstring
         if not self.client:
             return None
 
-        # Truncate source code if too long (prevent token limit issues)
-        # Ollama: much higher limit (2000 lines default, can handle large contexts)
-        # Azure OpenAI: conservative limit (300 lines default)
-        if self.using_ollama:
-            MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "2000"))
-        else:
-            MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "300"))
-
-        source_lines = source_code.split('\n')
-
-        if len(source_lines) > MAX_SOURCE_LINES:
-            truncated_source = '\n'.join(source_lines[:MAX_SOURCE_LINES])
-            truncated_count = len(source_lines) - MAX_SOURCE_LINES
-            source_code_display = f"{truncated_source}\n\n# ... truncated {truncated_count} lines to fit context window ..."
-        else:
-            source_code_display = source_code
+        # NO truncation - send all source code (embeddings already filtered to relevant code)
+        # Modern LLMs can handle large contexts (deepseek-r1: 64k, gpt-4o-mini: 128k)
+        source_code_display = source_code
 
         prompt = f"""# Fix This Test File
 
@@ -413,7 +387,7 @@ Return the COMPLETE fixed test file."""
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
-                "max_completion_tokens": 4000
+                # NO max_completion_tokens limit - let reasoning models use what they need
             }
 
             # Only set temperature if environment variable is set

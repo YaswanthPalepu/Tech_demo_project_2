@@ -178,7 +178,8 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}
                 ],
-                "max_completion_tokens": 2000
+                # NO max_completion_tokens limit - let reasoning models use what they need
+                # (deepseek-r1 generates 8k-15k tokens of reasoning before the answer)
             }
 
             # Only set temperature if environment variable is set
@@ -387,22 +388,10 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
         Returns:
             Formatted prompt string
         """
-        # Truncate source code if too long (prevent token limit issues)
-        # Ollama: much higher limit (2000 lines default, can handle large contexts)
-        # Azure OpenAI: conservative limit (300 lines default)
-        if self.using_ollama:
-            MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "2000"))
-        else:
-            MAX_SOURCE_LINES = int(os.getenv("AUTOFIXER_MAX_SOURCE_LINES", "300"))
-
-        source_lines = source_code.split('\n')
-
-        if len(source_lines) > MAX_SOURCE_LINES:
-            truncated_source = '\n'.join(source_lines[:MAX_SOURCE_LINES])
-            truncated_count = len(source_lines) - MAX_SOURCE_LINES
-            source_code_display = f"{truncated_source}\n\n# ... truncated {truncated_count} lines to fit context window ..."
-        else:
-            source_code_display = source_code
+        # NO truncation - send all source code (embeddings already filtered to relevant code)
+        # Modern LLMs (deepseek-r1: 64k, gpt-4o-mini: 128k) can handle large contexts
+        # The AST/embedding extractors already limit to relevant functions only
+        source_code_display = source_code
 
         prompt = f"""# Test Failure Analysis
 

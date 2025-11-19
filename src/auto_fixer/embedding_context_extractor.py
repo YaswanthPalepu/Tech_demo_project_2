@@ -226,17 +226,24 @@ class EmbeddingContextExtractor:
             test_code = ""
 
         # Perform semantic search
+        # top_k can be configured via AUTOFIXER_EMBEDDING_TOP_K env variable
+        # Lower values (5-7) reduce tokens/cost but may miss relevant context
+        # Higher values (10-15) increase accuracy but cost more tokens
+        top_k = int(os.getenv("AUTOFIXER_EMBEDDING_TOP_K", "10"))
         results = self.retriever.search_by_test_failure(
             test_code=test_code,
             error_message=error_message,
             traceback=error_message,  # Traceback is part of error message
-            top_k=10
+            top_k=top_k
         )
 
-        if self.verbose and results:
-            print(f"    🔍 Embedding search found {len(results)} matches:")
-            for result in results[:3]:
-                print(f"       {result.rank}. {result.code_element.name} ({result.code_element.element_type}) - score: {result.similarity_score:.3f}")
+        if self.verbose:
+            if results:
+                print(f"    🔍 Embedding search found {len(results)} matches (top_k={top_k}):")
+                for result in results[:3]:
+                    print(f"       {result.rank}. {result.code_element.name} ({result.code_element.element_type}) - score: {result.similarity_score:.3f}")
+            else:
+                print(f"    ⚠️  Embedding search found no matches (top_k={top_k})")
 
         # Build context from results
         context = {}

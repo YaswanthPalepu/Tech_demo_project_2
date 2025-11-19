@@ -60,15 +60,23 @@ class FailureParser:
             "--tb=long",
             "--json-report",
             "--json-report-file=pytest_report.json",
+            "--timeout=30",  # Timeout individual tests after 30 seconds
             "-v"
         ] + args
 
         # Run pytest, capture output but don't fail on non-zero exit
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True
-        )
+        # Add timeout to prevent hanging on stuck tests
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120  # 2 minute overall timeout
+            )
+        except subprocess.TimeoutExpired:
+            print("⚠️  Pytest timed out after 120 seconds - tests may be hanging")
+            print("   Try running pytest manually to debug: pytest", self.test_directory, "-v")
+            return {"tests": [], "summary": {"total": 0, "passed": 0, "failed": 0}}
 
         # Read the JSON report
         try:
@@ -83,14 +91,21 @@ class FailureParser:
             "pytest",
             self.test_directory,
             "--tb=long",
+            "--timeout=30",  # Timeout individual tests after 30 seconds
             "-v"
         ] + args
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True
-        )
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120  # 2 minute overall timeout
+            )
+        except subprocess.TimeoutExpired:
+            print("⚠️  Pytest timed out after 120 seconds - tests may be hanging")
+            print("   Try running pytest manually to debug: pytest", self.test_directory, "-v")
+            return {"tests": [], "summary": {"total": 0, "passed": 0, "failed": 0}}
 
         return self._parse_text_output(result.stdout)
 

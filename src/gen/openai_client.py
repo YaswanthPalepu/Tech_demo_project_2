@@ -1,10 +1,28 @@
 # src/gen/openai_client.py
+import os
 import time
 from typing import Dict, List, Optional
 
 from openai import APIError, APITimeoutError, AzureOpenAI, RateLimitError
 
-from .env import ENABLE_DEBUG, get_any_env, get_optional_env
+# Inline env functions to avoid relative import issues when loaded dynamically
+ENABLE_DEBUG = os.getenv("TESTGEN_DEBUG", "0").lower() in ("1", "true", "yes")
+
+def get_any_env(*names: str) -> str:
+    """Get environment variable from multiple possible names. Raises RuntimeError if none found."""
+    for name in names:
+        value = os.getenv(name)
+        if value and value.strip():
+            return value.strip()
+    raise RuntimeError(f"Missing required environment variable. Tried: {', '.join(names)}")
+
+def get_optional_env(*names: str, default: str = "") -> str:
+    """Get environment variable from multiple possible names with default fallback."""
+    for name in names:
+        value = os.getenv(name)
+        if value and value.strip():
+            return value.strip()
+    return default
 
 
 def create_client() -> AzureOpenAI:
@@ -15,14 +33,18 @@ def create_client() -> AzureOpenAI:
             azure_endpoint=get_any_env("AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_ENDPOINT"),
             api_version=get_optional_env("AZURE_OPENAI_API_VERSION", "OPENAI_API_VERSION", default="2023-12-01-preview"),
         )
-        
+
         if ENABLE_DEBUG:
             print(f"Azure OpenAI client created successfully")
-        
+
         return client
-        
+
     except Exception as e:
         raise RuntimeError(f"Failed to create Azure OpenAI client: {e}")
+
+def get_openai_client() -> AzureOpenAI:
+    """Get configured Azure OpenAI client (alias for create_client for auto-fixer compatibility)."""
+    return create_client()
 
 def get_deployment_name() -> str:
     """Get the deployment name for Azure OpenAI."""

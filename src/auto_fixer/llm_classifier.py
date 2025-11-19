@@ -279,7 +279,8 @@ Be conservative: if you're unsure, classify as "code_bug" to avoid incorrectly m
 
         for attempt in range(max_retries):
             try:
-                response = self.client.chat.completions.create(**request_params)
+                # Add timeout to prevent hanging on slow API responses
+                response = self.client.chat.completions.create(**request_params, timeout=60.0)
 
                 # Validate response has content
                 if not response.choices or not response.choices[0].message.content:

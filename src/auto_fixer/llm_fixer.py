@@ -169,7 +169,10 @@ Return the complete fixed test function code."""
             if temp is not None:
                 request_params["temperature"] = float(temp)
 
-            response = self.client.chat.completions.create(**request_params)
+            # Add timeout to prevent hanging on slow API responses
+            # 60 seconds should be enough for most LLM responses
+            print(f"      ⏱️  Calling LLM (60s timeout)...")
+            response = self.client.chat.completions.create(**request_params, timeout=60.0)
 
             # Extract fixed code
             content = response.choices[0].message.content.strip()
@@ -397,7 +400,10 @@ Return the COMPLETE fixed test file."""
             if temp is not None:
                 request_params["temperature"] = float(temp)
 
-            response = self.client.chat.completions.create(**request_params)
+            # Add timeout to prevent hanging on slow API responses
+            # 60 seconds should be enough for most LLM responses
+            print(f"      ⏱️  Calling LLM (60s timeout)...")
+            response = self.client.chat.completions.create(**request_params, timeout=60.0)
 
             content = response.choices[0].message.content.strip()
             return self._extract_code(content)

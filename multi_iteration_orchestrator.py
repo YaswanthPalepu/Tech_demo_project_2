@@ -151,17 +151,19 @@ class MultiIterationOrchestrator:
             print(f"    ❌ Error reading coverage: {str(e)}")
             return None
 
-    def analyze_coverage_gaps(self, iteration: int) -> bool:
+    def analyze_coverage_gaps(self, iteration: int, is_final: bool = False) -> bool:
         """
         Run coverage gap analyzer
 
         Args:
             iteration: Current iteration number
+            is_final: If True, this is final analysis after tests run
 
         Returns:
             True if successful, False otherwise
         """
-        print(f"\n📊 ITERATION {iteration}: Analyzing Coverage Gaps")
+        phase = "Post-Test Analysis" if is_final else "Pre-Test Analysis"
+        print(f"\n📊 ITERATION {iteration}: {phase}")
         print("-" * 80)
 
         cmd = [
@@ -356,7 +358,15 @@ class MultiIterationOrchestrator:
             if not self.run_all_tests(iteration):
                 print(f"  ⚠️  Some tests may have failed, but continuing with coverage analysis")
 
-            # Get final coverage for this iteration
+            # Step 4: CRITICAL - Re-analyze coverage gaps to get updated coverage
+            # This reads the NEW coverage.xml created by running tests above
+            # and updates coverage_gaps.json so that:
+            # 1. Final coverage for THIS iteration is correct
+            # 2. Initial coverage for NEXT iteration is correct
+            if not self.analyze_coverage_gaps(iteration, is_final=True):
+                print(f"  ⚠️  Could not re-analyze coverage, using previous data")
+
+            # Get final coverage for this iteration (now reads freshly updated coverage_gaps.json)
             final_cov = self.get_current_coverage()
             if final_cov is not None:
                 metrics.final_coverage = final_cov

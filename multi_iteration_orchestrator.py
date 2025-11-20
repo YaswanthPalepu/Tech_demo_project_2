@@ -124,6 +124,15 @@ class MultiIterationOrchestrator:
                 print(f"    ✅ Success")
             else:
                 print(f"    ⚠️  Warning: Command returned code {result.returncode}")
+                # Print error output for debugging
+                if result.stderr:
+                    print(f"    ❌ Error Output:")
+                    for line in result.stderr.strip().split('\n')[:20]:  # Limit to 20 lines
+                        print(f"       {line}")
+                if result.stdout and not result.stderr:
+                    print(f"    📋 Output:")
+                    for line in result.stdout.strip().split('\n')[:20]:
+                        print(f"       {line}")
 
             return success, output
 
@@ -174,6 +183,12 @@ class MultiIterationOrchestrator:
         success, output = self.run_command(cmd, "Running coverage gap analyzer")
 
         if success or self.coverage_gaps_file.exists():
+            # Note: coverage_gap_analyzer.py may return non-zero even when successful
+            # (e.g., when there are warnings but file is still generated)
+            if not success and self.coverage_gaps_file.exists():
+                print(f"  ℹ️  Coverage gaps file generated despite non-zero exit code")
+                print(f"     This is usually OK - continuing with analysis")
+
             # Load and display gap info
             try:
                 with open(self.coverage_gaps_file, 'r') as f:
@@ -239,11 +254,35 @@ class MultiIterationOrchestrator:
 
             output = result.stdout + result.stderr
 
+            # Print generation output for visibility
+            if result.returncode != 0:
+                print(f"    ⚠️  Warning: Test generation returned code {result.returncode}")
+                if result.stderr:
+                    print(f"    ❌ Error Output:")
+                    for line in result.stderr.strip().split('\n')[:30]:
+                        print(f"       {line}")
+                if result.stdout:
+                    print(f"    📋 Generation Output:")
+                    for line in result.stdout.strip().split('\n')[:30]:
+                        print(f"       {line}")
+            else:
+                # Show last few lines of output on success
+                if result.stdout:
+                    lines = result.stdout.strip().split('\n')
+                    for line in lines[-10:]:  # Last 10 lines
+                        if line.strip():
+                            print(f"    {line}")
+
             # Check if tests were generated
             if self.output_dir.exists():
                 test_files = list(self.output_dir.glob("test_*.py"))
-                print(f"    ✅ Generated {len(test_files)} test files")
-                return True
+                if test_files:
+                    print(f"    ✅ Generated {len(test_files)} test files")
+                    return True
+                else:
+                    print(f"    ⚠️  No test files found in {self.output_dir}")
+                    print(f"    💡 Check if test generation completed successfully")
+                    return False
             else:
                 print(f"    ⚠️  Output directory not found: {self.output_dir}")
                 return False
@@ -332,6 +371,19 @@ class MultiIterationOrchestrator:
             if not self.analyze_coverage_gaps(iteration):
                 metrics.error = "Coverage gap analysis failed"
                 metrics.end_time = time.time()
+                print("\n" + "="*80)
+                print("🔍 DEBUGGING TIPS FOR COVERAGE GAP ANALYSIS FAILURE")
+                print("="*80)
+                print("Try running the command manually to see the full error:")
+                print(f"\npython src/coverage_gap_analyzer.py \\")
+                print(f"  --target {self.target_dir} \\")
+                print(f"  --current-dir {self.current_dir} \\")
+                print(f"  --output coverage_gaps.json")
+                print("\nCommon issues:")
+                print("  1. Missing coverage.xml or htmlcov/ - run tests with coverage first")
+                print("  2. Target directory doesn't exist or is empty")
+                print("  3. Python path issues - ensure src/ is in PYTHONPATH")
+                print("="*80 + "\n")
                 return metrics
 
             # Count gaps
@@ -346,6 +398,22 @@ class MultiIterationOrchestrator:
             if not self.generate_ai_tests(iteration):
                 metrics.error = "Test generation failed"
                 metrics.end_time = time.time()
+                print("\n" + "="*80)
+                print("🔍 DEBUGGING TIPS FOR TEST GENERATION FAILURE")
+                print("="*80)
+                print("Try running the command manually to see the full error:")
+                print(f"\nGAP_FOCUSED_MODE=true python -m src.gen \\")
+                print(f"  --target {self.target_dir} \\")
+                print(f"  --outdir {self.output_dir} \\")
+                print(f"  --force \\")
+                print(f"  --coverage-mode gap-focused")
+                print("\nCommon issues:")
+                print("  1. Missing OpenAI API key - set OPENAI_API_KEY environment variable")
+                print("  2. Missing coverage_gaps.json - run gap analysis first")
+                print("  3. Target directory doesn't exist")
+                print("  4. Network issues with OpenAI API")
+                print("  5. Python dependencies missing - run: pip install -r requirements.txt")
+                print("="*80 + "\n")
                 return metrics
 
             # Count generated tests

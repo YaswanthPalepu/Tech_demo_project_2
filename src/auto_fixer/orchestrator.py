@@ -427,7 +427,23 @@ class AutoTestFixerOrchestrator:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == base_test_name:
                     return ast.unparse(node)
 
-            return content  # Fallback to full file
+            # AST extraction failed - try regex fallback before returning full file
+            print(f"  ⚠️  AST couldn't find '{base_test_name}', trying regex fallback...")
+
+            import re
+            # Match function definition with decorators
+            # This handles cases where AST fails but the function exists
+            pattern = rf'^(@.*\n)*(?:async\s+)?def\s+{re.escape(base_test_name)}\s*\([^)]*\):.*?(?=\n(?:def\s+|class\s+|@|$))'
+            match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
+
+            if match:
+                extracted = match.group(0)
+                print(f"  ✓ Regex extracted {len(extracted)} chars, {extracted.count(chr(10)) + 1} lines")
+                return extracted
+
+            # Last resort: return full file but warn about bloat
+            print(f"  ⚠️⚠️⚠️  USING FULL FILE ({len(content)} chars, {content.count(chr(10)) + 1} lines) - THIS IS BLOAT!")
+            return content
 
         except Exception as e:
             print(f"Error reading test function: {e}")

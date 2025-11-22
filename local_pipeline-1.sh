@@ -62,18 +62,50 @@ PYCODE
   fi
   echo ""
 
-  echo "📂 Copying manual tests to local folder: ./tests/manual"
+  echo "📂 Copying manual tests to local folder: ./tests/manual (preserving directory structure)"
   rm -rf "./tests/manual"
   mkdir -p ./tests/manual
 
-  # Copy all manual test files to local tests/manual/
-  for path in $TEST_PATHS; do
-    if [ -f "$path" ]; then
-      cp "$path" ./tests/manual/
-    elif [ -d "$path" ]; then
-      cp -r "$path"/* ./tests/manual/ 2>/dev/null || true
-    fi
-  done
+  # Copy manual test files while preserving directory structure
+  # This prevents pytest collection errors from duplicate filenames
+  python3 - <<'PYCODE'
+import json
+import os
+import shutil
+
+# Load the detection results
+with open("manual_test_result.json") as f:
+    data = json.load(f)
+
+test_root = data.get("test_root", "")
+files_by_rel_path = data.get("files_by_relative_path", {})
+
+if not files_by_rel_path:
+    print("⚠️ No test files found in manual_test_result.json")
+    exit(0)
+
+print(f"📁 Test root: {test_root}")
+print(f"📋 Copying {len(files_by_rel_path)} test files with preserved structure...")
+
+copied_count = 0
+for rel_path, full_path in files_by_rel_path.items():
+    # Destination path preserves the relative directory structure
+    dest_path = os.path.join("./tests/manual", rel_path)
+    dest_dir = os.path.dirname(dest_path)
+
+    # Create subdirectories if needed
+    os.makedirs(dest_dir, exist_ok=True)
+
+    # Copy the file
+    try:
+        shutil.copy2(full_path, dest_path)
+        print(f"   ✓ {rel_path}")
+        copied_count += 1
+    except Exception as e:
+        print(f"   ✗ Failed to copy {rel_path}: {e}")
+
+print(f"\n✅ Copied {copied_count}/{len(files_by_rel_path)} test files")
+PYCODE
 
   echo ""
   echo "✅ Manual test files copied to ./tests/manual"

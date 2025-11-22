@@ -15,13 +15,49 @@ def looks_like_ai_generated(path: str, content: str = "") -> bool:
     return any(k in content.lower() for k in ai_keywords)
 
 
-def find_all_manual_test_dirs(repo_root: str = ".") -> Dict[str, List[str]]:
+def find_common_test_root(test_dirs: List[str]) -> str:
+    """Find the common parent directory for all test directories."""
+    if not test_dirs:
+        return ""
+
+    if len(test_dirs) == 1:
+        return test_dirs[0]
+
+    # Find common prefix of all paths
+    common = os.path.commonpath(test_dirs)
+
+    # If common path doesn't contain 'test', use the directory itself
+    if 'test' not in common.lower():
+        # Return the first directory that contains 'test'
+        for d in test_dirs:
+            parts = d.split(os.sep)
+            for i, part in enumerate(parts):
+                if 'test' in part.lower():
+                    return os.sep.join(parts[:i+1])
+
+    return common
+
+
+def find_all_manual_test_dirs(repo_root: str = ".") -> Dict[str, any]:
     """
-    Finds all valid manual test directories.
+    Finds all valid manual test directories and files with preserved structure.
+
+    Returns:
+    {
+        "test_root": "/path/to/tests",  # Common root directory
+        "files_by_relative_path": {
+            "test_user.py": "/full/path/to/tests/test_user.py",
+            "test_models/test_user.py": "/full/path/to/tests/test_models/test_user.py"
+        },
+        "all_test_dirs": [list of directories containing tests]
+    }
+
+    ✅ Preserves directory structure to avoid import conflicts
     ✅ Only includes folders that contain .py test files
     🚫 Skips generated/AI test folders
     """
     candidate_dirs = {}
+    all_test_files = {}
 
     for root, dirs, files in os.walk(repo_root):
         # Skip unwanted folders
@@ -49,7 +85,29 @@ def find_all_manual_test_dirs(repo_root: str = ".") -> Dict[str, List[str]]:
         if test_files:
             candidate_dirs[root] = test_files
 
-    return candidate_dirs
+    # Find common test root
+    if candidate_dirs:
+        test_root = find_common_test_root(list(candidate_dirs.keys()))
+
+        # Build files_by_relative_path
+        files_by_relative_path = {}
+        for test_dir, files in candidate_dirs.items():
+            for file_path in files:
+                # Calculate relative path from test_root
+                rel_path = os.path.relpath(file_path, test_root)
+                files_by_relative_path[rel_path] = file_path
+
+        return {
+            "test_root": test_root,
+            "files_by_relative_path": files_by_relative_path,
+            "all_test_dirs": list(candidate_dirs.keys())
+        }
+
+    return {
+        "test_root": "",
+        "files_by_relative_path": {},
+        "all_test_dirs": []
+    }
 
 
 def main():
@@ -58,22 +116,32 @@ def main():
 
     print(f"🔍 Scanning repository for manual test directories in: {os.path.abspath(repo_root)}")
 
-    manual_test_dirs = find_all_manual_test_dirs(repo_root)
+    detection_result = find_all_manual_test_dirs(repo_root)
 
-    if not manual_test_dirs:
-        print("⚠️ No manual test directories found.")
+    if not detection_result["files_by_relative_path"]:
+        print("⚠️ No manual test files found.")
         result = {
             "manual_tests_found": False,
+            "test_root": "",
             "manual_test_paths": [],
-            "test_files_count": 0
+            "test_files_count": 0,
+            "files_by_relative_path": {}
         }
     else:
         result = {
             "manual_tests_found": True,
-            "manual_test_paths": list(manual_test_dirs.keys()),
-            "test_files_count": sum(len(files) for files in manual_test_dirs.values()),
-            "test_dirs_detail": manual_test_dirs
+            "test_root": detection_result["test_root"],
+            "manual_test_paths": detection_result["all_test_dirs"],
+            "test_files_count": len(detection_result["files_by_relative_path"]),
+            "files_by_relative_path": detection_result["files_by_relative_path"]
         }
+
+        print(f"\n✅ Found {result['test_files_count']} manual test files")
+        print(f"📁 Test root: {result['test_root']}")
+        print(f"📂 Test directories: {len(result['manual_test_paths'])}")
+        print("\n📋 Files with preserved structure:")
+        for rel_path in sorted(result["files_by_relative_path"].keys()):
+            print(f"   {rel_path}")
 
     print("\n📊 Detection Result:")
     print(json.dumps(result, indent=2))
@@ -82,10 +150,11 @@ def main():
     if "GITHUB_OUTPUT" in os.environ:
         with open(os.environ["GITHUB_OUTPUT"], "a") as f:
             f.write(f"manual_tests_found={str(result['manual_tests_found']).lower()}\n")
+            f.write(f"test_root={result['test_root']}\n")
             f.write(f"manual_test_paths={json.dumps(result['manual_test_paths'])}\n")
             f.write(f"test_files_count={result['test_files_count']}\n")
 
-    # Optional: Save detailed result for debugging
+    # Save detailed result with structure preservation info
     with open("manual_test_result.json", "w") as f:
         json.dump(result, f, indent=2)
 

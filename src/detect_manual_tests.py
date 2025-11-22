@@ -16,24 +16,60 @@ def looks_like_ai_generated(path: str, content: str = "") -> bool:
 
 
 def find_common_test_root(test_dirs: List[str]) -> str:
-    """Find the common parent directory for all test directories."""
+    """
+    Find the common parent directory for all test directories.
+    Always returns the top-level 'tests' directory, not subdirectories within it.
+
+    Example:
+        test_dirs = ['/repo/tests/test_models', '/repo/tests/unit']
+        Returns: '/repo/tests' (not '/repo/tests/test_models')
+    """
     if not test_dirs:
         return ""
 
-    if len(test_dirs) == 1:
-        return test_dirs[0]
+    # Valid test directory names (exact matches or starting with these)
+    test_dir_patterns = ['tests', 'test']
+
+    def is_test_directory(dirname: str) -> bool:
+        """Check if directory name is a test directory."""
+        dirname_lower = dirname.lower()
+        # Exact match for 'test' or 'tests'
+        if dirname_lower in ['test', 'tests']:
+            return True
+        # Starts with 'test_' (e.g., 'test_integration')
+        if dirname_lower.startswith('test_'):
+            return True
+        return False
 
     # Find common prefix of all paths
+    if len(test_dirs) == 1:
+        # Single directory - go up to find the 'test' parent directory
+        single_dir = test_dirs[0]
+        parts = single_dir.split(os.sep)
+
+        # Find the directory named 'test' or 'tests'
+        for i, part in enumerate(parts):
+            if is_test_directory(part):
+                # Return this directory, not subdirectories within it
+                return os.sep.join(parts[:i+1])
+
+        # If no 'test' directory found, return the directory itself
+        return single_dir
+
+    # Multiple directories - find common path
     common = os.path.commonpath(test_dirs)
 
-    # If common path doesn't contain 'test', use the directory itself
-    if 'test' not in common.lower():
-        # Return the first directory that contains 'test'
-        for d in test_dirs:
-            parts = d.split(os.sep)
-            for i, part in enumerate(parts):
-                if 'test' in part.lower():
-                    return os.sep.join(parts[:i+1])
+    # Check if common path ends with a test directory
+    common_parts = common.split(os.sep)
+    if common_parts and is_test_directory(common_parts[-1]):
+        return common
+
+    # If not, search for test directory in paths
+    for d in test_dirs:
+        parts = d.split(os.sep)
+        for i, part in enumerate(parts):
+            if is_test_directory(part):
+                return os.sep.join(parts[:i+1])
 
     return common
 

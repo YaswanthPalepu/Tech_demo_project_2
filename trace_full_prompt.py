@@ -24,7 +24,7 @@ from typing import Optional, Dict
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
-from auto_fixer.failure_parser import parse_pytest_output
+from auto_fixer.failure_parser import FailureParser
 from auto_fixer.embedding_context_extractor import EmbeddingContextExtractor
 
 
@@ -38,18 +38,20 @@ def run_pytest(test_file: str) -> tuple[str, list]:
     print("=" * 80)
     print("STEP 1: Running pytest to capture REAL failure")
     print("=" * 80)
-    print(f"\n🧪 Running: pytest {test_file} -v --tb=short\n")
+    print(f"\n🧪 Running: pytest {test_file} -v --tb=long\n")
 
     result = subprocess.run(
-        ["pytest", test_file, "-v", "--tb=short"],
+        ["pytest", test_file, "-v", "--tb=long"],
         capture_output=True,
         text=True
     )
 
     output = result.stdout + "\n" + result.stderr
 
-    # Parse failures
-    failures = parse_pytest_output(output)
+    # Parse failures using FailureParser
+    parser = FailureParser()
+    json_data = parser._parse_text_output(output)
+    failures = parser.parse_failures(json_data)
 
     print(f"✅ Pytest completed")
     print(f"   Exit code: {result.returncode}")

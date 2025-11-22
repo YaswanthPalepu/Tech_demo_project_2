@@ -18,3 +18,6 @@ venv/
 test.db
 =4.2
 src/all_generation.zip
+
+# Generated test detection output
+manual_test_result.json

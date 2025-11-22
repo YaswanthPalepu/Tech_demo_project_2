@@ -692,13 +692,49 @@ def generate_all(analysis: Dict[str, Any], outdir: str = "tests/generated",
                 test_code = _fix_imports_for_universal_compatibility(test_code, target_root, analysis)
                 # NEW: sanitize parametrization mismatches automatically
                 test_code = _sanitize_parametrize_signature_mismatches(test_code)
-                
+
                 filename = f"test_{test_kind}_{timestamp}_{file_index + 1:02d}.py"
                 file_path = output_dir / filename
-                
-                write_text(file_path, test_code)
-                generated_files.append(str(file_path))
-                print(f"  {filename} - {len(focus_names)} targets")
+
+                # NEW: Validate before writing with retry logic
+                from .validator import GeneratedTestValidator
+                validator = GeneratedTestValidator(verbose=True)
+
+                # Define regeneration function for retries
+                def regenerate_with_fix(error_context: str) -> str:
+                    """Regenerate test with error feedback to AI."""
+                    # Add error context to prompt
+                    fix_prompt = {
+                        "role": "user",
+                        "content": f"The previous test had these errors:\n{error_context}\n\nPlease fix these issues and regenerate the test."
+                    }
+                    retry_messages = prompt_messages + [fix_prompt]
+                    new_code = _generate_with_universal_retry(retry_messages, max_attempts=1)
+                    new_code = _fix_imports_for_universal_compatibility(new_code, target_root, analysis)
+                    new_code = _sanitize_parametrize_signature_mismatches(new_code)
+                    return new_code
+
+                # Extract analysis context for semantic validation
+                analysis_context = {
+                    'functions': [name for name, _ in filtered_analysis.get('functions', [])],
+                    'classes': [name for name, _ in filtered_analysis.get('classes', [])],
+                    'routes': [r.get('path', '') for r in filtered_analysis.get('routes', [])]
+                }
+
+                # Validate and write with retry
+                success = validator.validate_and_write(
+                    code=test_code,
+                    output_path=file_path,
+                    max_retries=3,
+                    regenerate_fn=regenerate_with_fix,
+                    analysis_context=analysis_context
+                )
+
+                if success:
+                    generated_files.append(str(file_path))
+                    print(f"  {filename} - {len(focus_names)} targets")
+                else:
+                    print(f"  ⚠️  Skipped {filename} - validation failed after 3 attempts")
                 
             except Exception as e:
                 print(f"  Error generating {test_kind} test {file_index + 1}: {e}")

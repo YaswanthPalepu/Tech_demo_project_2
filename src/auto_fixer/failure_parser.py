@@ -383,7 +383,21 @@ class FailureParser:
 
             # Get full traceback - CONDENSE IT to avoid 25K token bloat!
             full_traceback = str(longrepr)
+
+            # DEBUG: Show before/after condensing
+            verbose = getattr(self, 'verbose', True)  # Default to True if not set
+            if verbose:
+                print(f"\n  🔍 DEBUG: Condensing traceback for {test_name}")
+                print(f"     Original: {len(full_traceback)} chars, {full_traceback.count(chr(10))} lines")
+
             traceback = self._condense_traceback(full_traceback, error_message)
+
+            if verbose:
+                print(f"     Condensed: {len(traceback)} chars, {traceback.count(chr(10))} lines")
+                reduction = 100 - int(len(traceback)/max(len(full_traceback), 1)*100)
+                print(f"     Reduction: {reduction}%")
+                if reduction < 50:
+                    print(f"     ⚠️  WARNING: Low reduction! Traceback might not be in expected format.")
 
             failure = TestFailure(
                 test_file=test_file,

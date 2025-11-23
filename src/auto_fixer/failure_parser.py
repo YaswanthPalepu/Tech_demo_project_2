@@ -38,8 +38,9 @@ class TestFailure:
 class FailureParser:
     """Parses pytest output and extracts test failures."""
 
-    def __init__(self, test_directory: str = "tests"):
+    def __init__(self, test_directory: str = "tests", verbose: bool = True):
         self.test_directory = test_directory
+        self.verbose = verbose
 
     def run_pytest_json(self, extra_args: List[str] = None) -> Dict[str, Any]:
         """
@@ -52,6 +53,31 @@ class FailureParser:
             JSON output from pytest or parsed text output
         """
         args = extra_args or []
+
+        # CRITICAL: Clean stale data before running pytest
+        import os
+        import shutil
+
+        # Remove old pytest report
+        report_file = "pytest_report.json"
+        if os.path.exists(report_file):
+            try:
+                os.remove(report_file)
+                if self.verbose:
+                    print(f"  🗑️  Removed old {report_file}")
+            except OSError as e:
+                print(f"  ⚠️  Warning: Could not remove old {report_file}: {e}")
+
+        # Remove pytest cache to prevent stale results
+        cache_dir = ".pytest_cache"
+        if os.path.exists(cache_dir):
+            try:
+                shutil.rmtree(cache_dir)
+                if self.verbose:
+                    print(f"  🗑️  Cleared pytest cache")
+            except OSError as e:
+                if self.verbose:
+                    print(f"  ⚠️  Warning: Could not clear pytest cache: {e}")
 
         # Try with JSON report first
         cmd = [
@@ -66,6 +92,9 @@ class FailureParser:
 
         # Run pytest, capture output but don't fail on non-zero exit
         # Add timeout to prevent hanging on stuck tests
+        if self.verbose:
+            print(f"  🧪 Running pytest on {self.test_directory}...")
+
         try:
             result = subprocess.run(
                 cmd,
@@ -73,6 +102,9 @@ class FailureParser:
                 text=True,
                 timeout=120  # 2 minute overall timeout
             )
+
+            if self.verbose:
+                print(f"  ✓ Pytest completed (exit code: {result.returncode})")
         except subprocess.TimeoutExpired:
             print("⚠️  Pytest timed out after 120 seconds - tests may be hanging")
             print("   Try running pytest manually to debug: pytest", self.test_directory, "-v")

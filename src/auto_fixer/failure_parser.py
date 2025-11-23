@@ -173,11 +173,14 @@ class FailureParser:
                         test_name = test_name_match.group(1).strip() if test_name_match else "unknown_test"
                         nodeid = self._extract_nodeid_from_traceback(traceback_text, test_name)
 
+                    # Condense traceback to only relevant parts to avoid huge prompts
+                    condensed_traceback = self._condense_traceback(traceback_text, error_preview)
+
                     tests.append({
                         "nodeid": nodeid,
                         "outcome": "failed",
                         "call": {
-                            "longrepr": traceback_text
+                            "longrepr": condensed_traceback
                         }
                     })
 
@@ -217,6 +220,87 @@ class FailureParser:
 
         # Fallback: return test name only
         return f"unknown::{test_name}"
+
+    def _condense_traceback(self, traceback_text: str, error_preview: str) -> str:
+        """
+        Condense traceback to only the most relevant parts to avoid huge prompts.
+
+        Focuses on:
+        - Test code and application code (not library internals)
+        - The actual error/assertion message
+        - File/line where error occurred
+
+        Args:
+            traceback_text: Full traceback text
+            error_preview: Error message from FAILED line
+
+        Returns:
+            Condensed traceback with only essential information (max ~500 chars)
+        """
+        lines = traceback_text.split('\n')
+
+        # Collect error lines (start with 'E   ')
+        error_lines = []
+
+        # Collect relevant stack frames (from test/src code, not libraries)
+        relevant_frames = []
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+
+            # Capture error/assertion output lines
+            if stripped.startswith('E   '):
+                error_lines.append(line)
+                i += 1
+                continue
+
+            # Capture stack frames from test/src code (ignore venv/site-packages)
+            if re.match(r'^[^\s]+\.py:\d+:', stripped):
+                # Skip library frames (venv, site-packages, lib/)
+                if not any(skip in line for skip in ['venv/', 'site-packages/', '/lib/', '\\lib\\']):
+                    # Add frame header
+                    relevant_frames.append(line)
+                    # Add next 1-2 lines of context (code)
+                    for j in range(i + 1, min(i + 3, len(lines))):
+                        if lines[j].strip() and not lines[j].strip().startswith(('E   ', '>')):
+                            relevant_frames.append(lines[j])
+                        else:
+                            break
+
+            i += 1
+
+        # Build condensed output
+        condensed = []
+
+        # Add error type from FAILED line
+        if error_preview:
+            condensed.append(f"{error_preview}")
+
+        # Add relevant stack frames (keep last 2-3 frames, max 8 lines)
+        if relevant_frames:
+            condensed.append("")
+            condensed.extend(relevant_frames[-8:])
+
+        # Add error/assertion details (last 8 lines to avoid huge diffs)
+        if error_lines:
+            condensed.append("")
+            condensed.extend(error_lines[-8:])
+
+        # Fallback: if no structured content found, use last 10 lines
+        if not condensed or len(condensed) < 2:
+            condensed = lines[-10:]
+
+        result = '\n'.join(condensed).strip()
+
+        # Safety limit: max 500 chars to keep prompts reasonable
+        if len(result) > 500:
+            # Keep the error message and last part of traceback
+            result = result[-500:]
+            result = "...\n" + result
+
+        return result
 
     def _parse_legacy_output(self, stdout: str, stderr: str) -> Dict[str, Any]:
         """Fallback parser for when JSON report is not available."""

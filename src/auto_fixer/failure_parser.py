@@ -381,8 +381,9 @@ class FailureParser:
             # Extract line number from traceback
             line_number = self._extract_line_number(longrepr, test_file)
 
-            # Get full traceback
-            traceback = str(longrepr)
+            # Get full traceback - CONDENSE IT to avoid 25K token bloat!
+            full_traceback = str(longrepr)
+            traceback = self._condense_traceback(full_traceback, error_message)
 
             failure = TestFailure(
                 test_file=test_file,

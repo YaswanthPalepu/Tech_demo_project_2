@@ -38,8 +38,9 @@ class TestFailure:
 class FailureParser:
     """Parses pytest output and extracts test failures."""
 
-    def __init__(self, test_directory: str = "tests"):
+    def __init__(self, test_directory: str = "tests", verbose: bool = True):
         self.test_directory = test_directory
+        self.verbose = verbose
 
     def run_pytest_json(self, extra_args: List[str] = None) -> Dict[str, Any]:
         """
@@ -53,19 +54,73 @@ class FailureParser:
         """
         args = extra_args or []
 
-        # Try with JSON report first
+        # ============================================================
+        # SOLUTION 1: Clear ALL cache before running pytest
+        # ============================================================
+        import os
+        import shutil
+
+        if self.verbose:
+            print("  🧹 Cleaning all pytest cache...")
+
+        # Remove pytest cache directory
+        cache_dir = ".pytest_cache"
+        if os.path.exists(cache_dir):
+            try:
+                shutil.rmtree(cache_dir)
+                if self.verbose:
+                    print(f"    ✓ Removed {cache_dir}/")
+            except OSError as e:
+                if self.verbose:
+                    print(f"    ⚠️  Warning: Could not remove {cache_dir}: {e}")
+
+        # Remove pytest JSON report
+        report_file = "pytest_report.json"
+        if os.path.exists(report_file):
+            try:
+                os.remove(report_file)
+                if self.verbose:
+                    print(f"    ✓ Removed {report_file}")
+            except OSError as e:
+                print(f"    ⚠️  Warning: Could not remove {report_file}: {e}")
+
+        # Remove Python bytecode cache (optional but recommended)
+        pycache_dirs = []
+        for root, dirs, files in os.walk('.'):
+            if '__pycache__' in dirs:
+                pycache_path = os.path.join(root, '__pycache__')
+                pycache_dirs.append(pycache_path)
+
+        if pycache_dirs and self.verbose:
+            print(f"    ✓ Found {len(pycache_dirs)} __pycache__ directories")
+
+        for pycache_dir in pycache_dirs[:5]:  # Clean first 5 to avoid long delays
+            try:
+                shutil.rmtree(pycache_dir)
+            except OSError:
+                pass
+
+        if self.verbose:
+            print("  ✓ Cache cleaning complete\n")
+
+        # ============================================================
+        # SOLUTION 2: Run pytest with cache-clearing flags
+        # ============================================================
         cmd = [
             "pytest",
             self.test_directory,
-            "--tb=long",
-            "--json-report",
-            "--json-report-file=pytest_report.json",
-            "--timeout=30",  # Timeout individual tests after 30 seconds
-            "-v"
+            "--tb=long",              # Long traceback format
+            "--cache-clear",          # Clear cache before running
+            "-v"                      # Verbose output
         ] + args
 
-        # Run pytest, capture output but don't fail on non-zero exit
-        # Add timeout to prevent hanging on stuck tests
+        # Note: We don't use --json-report as it requires a plugin
+        # Note: We don't use --timeout as it requires pytest-timeout plugin
+        # Note: We don't use -p no:cacheprovider as it's not available in all versions
+
+        if self.verbose:
+            print(f"  🧪 Running pytest on {self.test_directory}...")
+
         try:
             result = subprocess.run(
                 cmd,
@@ -73,40 +128,15 @@ class FailureParser:
                 text=True,
                 timeout=120  # 2 minute overall timeout
             )
+
+            if self.verbose:
+                print(f"  ✓ Pytest completed (exit code: {result.returncode})\n")
         except subprocess.TimeoutExpired:
-            print("⚠️  Pytest timed out after 120 seconds - tests may be hanging")
-            print("   Try running pytest manually to debug: pytest", self.test_directory, "-v")
+            print("  ⚠️  Pytest timed out after 120 seconds - tests may be hanging")
+            print(f"     Try running manually: pytest {self.test_directory} -v")
             return {"tests": [], "summary": {"total": 0, "passed": 0, "failed": 0}}
 
-        # Read the JSON report
-        try:
-            with open("pytest_report.json", "r") as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            # JSON report not available, try verbose text output
-            pass
-
-        # Fallback: run without JSON report and parse text output
-        cmd = [
-            "pytest",
-            self.test_directory,
-            "--tb=long",
-            "--timeout=30",  # Timeout individual tests after 30 seconds
-            "-v"
-        ] + args
-
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=120  # 2 minute overall timeout
-            )
-        except subprocess.TimeoutExpired:
-            print("⚠️  Pytest timed out after 120 seconds - tests may be hanging")
-            print("   Try running pytest manually to debug: pytest", self.test_directory, "-v")
-            return {"tests": [], "summary": {"total": 0, "passed": 0, "failed": 0}}
-
+        # Parse text output since we're not using JSON report
         return self._parse_text_output(result.stdout)
 
     def _parse_text_output(self, output: str) -> Dict[str, Any]:
@@ -122,58 +152,74 @@ class FailureParser:
         tests = []
         lines = output.split('\n')
 
-        # Parse test failures from text output
+        # Parse test failures - traceback appears BEFORE the FAILED line
+        # Format:
+        # ______________________ test_name _______________________
+        # <traceback content>
+        # <blank line(s)>
+        # FAILED tests/test_foo.py::test_name - ErrorType: message
+
         i = 0
         while i < len(lines):
             line = lines[i]
 
-            # Look for FAILED test lines: "FAILED tests/test_foo.py::test_bar - ErrorType: message"
-            if line.startswith('FAILED '):
-                # Extract nodeid
-                parts = line.split(' - ', 1)
-                nodeid = parts[0].replace('FAILED ', '').strip()
+            # Look for test separator lines (start of failure section)
+            if re.match(r'^_{3,}.*_{3,}$', line):
+                # Extract test name from separator
+                test_name_match = re.search(r'_{3,}\s*(.+?)\s*_{3,}', line)
 
-                # Extract error preview
-                error_preview = parts[1] if len(parts) > 1 else ""
-
-                # Find detailed traceback (starts after "_ test_name _" separator)
+                # Collect all lines until we hit FAILED or next separator
                 traceback_lines = []
                 j = i + 1
-                in_traceback = False
+                nodeid = None
+                error_preview = ""
 
                 while j < len(lines):
-                    if re.match(r'^_{3,}.*_{3,}$', lines[j]):  # Separator line
-                        in_traceback = True
-                        j += 1
-                        continue
+                    current_line = lines[j]
 
-                    if in_traceback:
-                        # Stop at next separator or FAILED line
-                        if lines[j].startswith('FAILED ') or lines[j].startswith('PASSED ') or \
-                           lines[j].startswith('===') or (re.match(r'^_{3,}.*_{3,}$', lines[j]) and j > i + 3):
-                            break
-                        traceback_lines.append(lines[j])
+                    # Check if this is the FAILED line for this test
+                    if current_line.startswith('FAILED '):
+                        # Extract nodeid and error
+                        parts = current_line.split(' - ', 1)
+                        nodeid = parts[0].replace('FAILED ', '').strip()
+                        error_preview = parts[1] if len(parts) > 1 else ""
+                        break
 
+                    # Check if we hit the next test's separator or end section
+                    if re.match(r'^_{3,}.*_{3,}$', current_line) or current_line.startswith('==='):
+                        # This means we're at the next section without finding FAILED
+                        # (might be a different kind of output)
+                        break
+
+                    # Collect traceback content
+                    traceback_lines.append(current_line)
                     j += 1
 
-                traceback_text = '\n'.join(traceback_lines).strip()
+                # Create test entry if we have traceback content
+                if traceback_lines:
+                    traceback_text = '\n'.join(traceback_lines).strip()
 
-                # Parse exception from error preview or traceback
-                exception_type = "Unknown"
-                error_message = error_preview
+                    # If we don't have nodeid from FAILED line, extract from traceback
+                    if not nodeid:
+                        test_name = test_name_match.group(1).strip() if test_name_match else "unknown_test"
+                        nodeid = self._extract_nodeid_from_traceback(traceback_text, test_name)
 
-                if ':' in error_preview:
-                    exc_parts = error_preview.split(':', 1)
-                    exception_type = exc_parts[0].strip()
-                    error_message = exc_parts[1].strip()
+                    # ============================================================
+                    # SOLUTION 3: Condense traceback to reduce prompt size
+                    # ============================================================
+                    condensed_traceback = self._condense_traceback(traceback_text, error_preview)
 
-                tests.append({
-                    "nodeid": nodeid,
-                    "outcome": "failed",
-                    "call": {
-                        "longrepr": traceback_text or error_preview
-                    }
-                })
+                    tests.append({
+                        "nodeid": nodeid,
+                        "outcome": "failed",
+                        "call": {
+                            "longrepr": condensed_traceback
+                        }
+                    })
+
+                # Move to next section
+                i = j if j < len(lines) else i + 1
+                continue
 
             i += 1
 
@@ -181,6 +227,115 @@ class FailureParser:
             "tests": tests,
             "summary": {"failed": len(tests)}
         }
+
+    def _extract_nodeid_from_traceback(self, traceback_text: str, test_name: str) -> str:
+        """
+        Extract nodeid (test file path + test name) from traceback text.
+
+        Looks for patterns like:
+        - tests/test_file.py:123: in test_name
+        - tests/generated/test_file.py:456:
+
+        Args:
+            traceback_text: The traceback content
+            test_name: The test function name from the separator
+
+        Returns:
+            Constructed nodeid like "tests/test_file.py::test_name"
+        """
+        # Look for file path pattern in traceback
+        # Pattern: tests/some/path.py:line_number:
+        file_match = re.search(r'(tests/[^\s:]+\.py):\d+:', traceback_text)
+
+        if file_match:
+            file_path = file_match.group(1)
+            return f"{file_path}::{test_name}"
+
+        # Fallback: return test name only
+        return f"unknown::{test_name}"
+
+    def _condense_traceback(self, traceback_text: str, error_preview: str) -> str:
+        """
+        Condense traceback to only the most relevant parts to avoid huge prompts.
+
+        This reduces 25K token prompts to ~5-7K tokens while keeping essential info.
+
+        Focuses on:
+        - Test code and application code (not library internals)
+        - The actual error/assertion message
+        - File/line where error occurred
+
+        Args:
+            traceback_text: Full traceback text
+            error_preview: Error message from FAILED line
+
+        Returns:
+            Condensed traceback with only essential information (max ~500 chars)
+        """
+        lines = traceback_text.split('\n')
+
+        # Collect error lines (start with 'E   ')
+        error_lines = []
+
+        # Collect relevant stack frames (from test/src code, not libraries)
+        relevant_frames = []
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+
+            # Capture error/assertion output lines
+            if stripped.startswith('E   '):
+                error_lines.append(line)
+                i += 1
+                continue
+
+            # Capture stack frames from test/src code (ignore venv/site-packages)
+            if re.match(r'^[^\s]+\.py:\d+:', stripped):
+                # Skip library frames (venv, site-packages, lib/)
+                if not any(skip in line for skip in ['venv/', 'site-packages/', '/lib/', '\\lib\\']):
+                    # Add frame header
+                    relevant_frames.append(line)
+                    # Add next 1-2 lines of context (code)
+                    for j in range(i + 1, min(i + 3, len(lines))):
+                        if lines[j].strip() and not lines[j].strip().startswith(('E   ', '>')):
+                            relevant_frames.append(lines[j])
+                        else:
+                            break
+
+            i += 1
+
+        # Build condensed output
+        condensed = []
+
+        # Add error type from FAILED line
+        if error_preview:
+            condensed.append(f"{error_preview}")
+
+        # Add relevant stack frames (keep last 2-3 frames, max 8 lines)
+        if relevant_frames:
+            condensed.append("")
+            condensed.extend(relevant_frames[-8:])
+
+        # Add error/assertion details (last 8 lines to avoid huge diffs)
+        if error_lines:
+            condensed.append("")
+            condensed.extend(error_lines[-8:])
+
+        # Fallback: if no structured content found, use last 10 lines
+        if not condensed or len(condensed) < 2:
+            condensed = lines[-10:]
+
+        result = '\n'.join(condensed).strip()
+
+        # Safety limit: max 500 chars to keep prompts reasonable
+        if len(result) > 500:
+            # Keep the error message and last part of traceback
+            result = result[-500:]
+            result = "...\n" + result
+
+        return result
 
     def _parse_legacy_output(self, stdout: str, stderr: str) -> Dict[str, Any]:
         """Fallback parser for when JSON report is not available."""

@@ -86,7 +86,6 @@ class FailureParser:
             "--tb=long",
             "--json-report",
             "--json-report-file=pytest_report.json",
-            "--timeout=30",  # Timeout individual tests after 30 seconds
             "-v"
         ] + args
 
@@ -123,7 +122,6 @@ class FailureParser:
             "pytest",
             self.test_directory,
             "--tb=long",
-            "--timeout=30",  # Timeout individual tests after 30 seconds
             "-v"
         ] + args
 

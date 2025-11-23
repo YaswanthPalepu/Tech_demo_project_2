@@ -79,18 +79,15 @@ class FailureParser:
                 if self.verbose:
                     print(f"  ⚠️  Warning: Could not clear pytest cache: {e}")
 
-        # Try with JSON report first
+        # Run pytest with text output and parse it
+        # Note: --json-report is not available, so we use text parsing
         cmd = [
             "pytest",
             self.test_directory,
             "--tb=long",
-            "--json-report",
-            "--json-report-file=pytest_report.json",
             "-v"
         ] + args
 
-        # Run pytest, capture output but don't fail on non-zero exit
-        # Add timeout to prevent hanging on stuck tests
         if self.verbose:
             print(f"  🧪 Running pytest on {self.test_directory}...")
 
@@ -104,34 +101,6 @@ class FailureParser:
 
             if self.verbose:
                 print(f"  ✓ Pytest completed (exit code: {result.returncode})")
-        except subprocess.TimeoutExpired:
-            print("⚠️  Pytest timed out after 120 seconds - tests may be hanging")
-            print("   Try running pytest manually to debug: pytest", self.test_directory, "-v")
-            return {"tests": [], "summary": {"total": 0, "passed": 0, "failed": 0}}
-
-        # Read the JSON report
-        try:
-            with open("pytest_report.json", "r") as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            # JSON report not available, try verbose text output
-            pass
-
-        # Fallback: run without JSON report and parse text output
-        cmd = [
-            "pytest",
-            self.test_directory,
-            "--tb=long",
-            "-v"
-        ] + args
-
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=120  # 2 minute overall timeout
-            )
         except subprocess.TimeoutExpired:
             print("⚠️  Pytest timed out after 120 seconds - tests may be hanging")
             print("   Try running pytest manually to debug: pytest", self.test_directory, "-v")

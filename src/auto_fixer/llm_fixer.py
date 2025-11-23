@@ -211,6 +211,17 @@ Return the complete fixed test function code."""
         # Modern LLMs can handle large contexts (deepseek-r1: 64k, gpt-4o-mini: 128k)
         source_code_display = source_code
 
+        # Truncate traceback to prevent token bloat (keep last 100 lines - most relevant)
+        traceback_lines = failure.traceback.split('\n')
+        if len(traceback_lines) > 100:
+            traceback_display = '\n'.join([
+                "... (traceback truncated, showing last 100 lines) ...",
+                "",
+                *traceback_lines[-100:]
+            ])
+        else:
+            traceback_display = failure.traceback
+
         prompt = f"""# Fix This Failing Test
 
 ## Original Test Code
@@ -224,7 +235,7 @@ Return the complete fixed test function code."""
 
 ## Traceback
 ```
-{failure.traceback}
+{traceback_display}
 ```
 
 ## Source Code Being Tested
